@@ -1120,7 +1120,8 @@ const char kUSTrackerURL[] =
     "http://us.tracker.worldofwarcraft.com:3724/announce";
 const char kEUTrackerURL[] =
     "http://eu.tracker.worldofwarcraft.com:3724/announce";
-constexpr std::uint32_t kStreamingTrackerTimeoutMs = 10000;
+
+[[maybe_unused]] constexpr std::uint32_t kStreamingTrackerTimeoutMs = 10000;
 
 std::uint32_t DefaultStreamingFrameTick() {
   using clock = std::chrono::steady_clock;
@@ -1130,11 +1131,16 @@ std::uint32_t DefaultStreamingFrameTick() {
           .count());
 }
 
-bool DefaultStreamingTelemetryDispatch(const std::string& url) {
+bool DefaultStreamingTelemetryDispatch([[maybe_unused]] const std::string& url) {
+#if defined(OPENWOW_ENABLE_STREAMING_TELEMETRY) && OPENWOW_ENABLE_STREAMING_TELEMETRY
 
   std::string ignored_body;
   return openwow::net::DownloadUrlToStringWithResult(
       url.c_str(), &ignored_body, kStreamingTrackerTimeoutMs, nullptr);
+#else
+
+  return false;
+#endif
 }
 
 std::function<std::uint32_t()>& StreamingFrameTickSource() {

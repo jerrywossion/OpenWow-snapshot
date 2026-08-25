@@ -511,13 +511,19 @@ static void SetOSInitializedFlag() {
   MutableWoWMainInitRuntimeState().os_initialized = true;
 }
 
+constexpr std::size_t kInitFileSystemModuleDirectoryCapacity = 0x104;
+
 static void InitFileSystem() {
   const auto command_line = openwow::platform::OS_GetCommandLine();
   const auto base_path_from_args = GetCommandLineArgument(command_line, 2);
+  auto module_directory = openwow::platform::OS_GetModuleDirectory();
+  if (module_directory.size() >= kInitFileSystemModuleDirectoryCapacity) {
+    module_directory.resize(kInitFileSystemModuleDirectoryCapacity - 1);
+  }
   openwow::data::InitializeStartupFileSystem(
       {
           .command_line_base_path = base_path_from_args,
-          .module_directory = openwow::platform::OS_GetModuleDirectory(),
+          .module_directory = std::move(module_directory),
           .archive_data_path = "Data",
       },
       [](const std::string &path) {
@@ -706,20 +712,6 @@ static void ClientInit__callee_421B50(const char *path) {
 
 static void sub_423D70() {
 
-}
-
-static void LoadAllArchives() {
-  openwow::data::ArchiveSystemCallbacks callbacks{};
-  callbacks.cvar_get_string = [](const std::string &name) { return GetClientInitCVar(name); };
-  callbacks.cvar_set_string = [](const std::string &name, const std::string &value) {
-    SetClientInitCVar(name, value);
-  };
-  callbacks.is_online_mode = []() { return IsOnlineMode(); };
-  callbacks.read_registry_value = [](const char *key, const char *value_name, int type, void *out) {
-    auto *dword_out = static_cast<uint32_t *>(out);
-    return dword_out != nullptr && ReadRegistryDword(key, value_name, type, dword_out);
-  };
-  openwow::data::LoadAllArchives(callbacks);
 }
 
 static void InitSCritical(int ) {
@@ -1709,7 +1701,6 @@ bool ClientInit() {
 
   sub_423D70();
 
-  LoadAllArchives();
   if (const std::string final_locale = cvars.GetCVar("locale"); !final_locale.empty()) {
     SyncClientInitLocaleState(final_locale);
   }

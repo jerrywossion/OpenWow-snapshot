@@ -28,6 +28,19 @@ static const PosTexVertex kQuadVertices[] = {
 
 static const uint16_t kQuadIndices[] = {0, 2, 1, 1, 2, 3};
 
+[[nodiscard]] static bool RtSamplingNeedsVMirror() {
+  const bgfx::Caps* caps = bgfx::getCaps();
+  return caps != nullptr && caps->originBottomLeft;
+}
+
+static void MirrorSourceVForRtOrigin(const float domain_v, float& v0, float& v1) {
+  if (!RtSamplingNeedsVMirror()) {
+    return;
+  }
+  v0 = domain_v - v0;
+  v1 = domain_v - v1;
+}
+
 namespace {
 
 std::uint16_t SaturatingUint16(const std::int64_t value) {
@@ -261,14 +274,28 @@ void PostProcess::Update(float dt) {
 
 void PostProcess::CreateResources() {
 
+  rect_composite_failure_logged_ = false;
+
   quad_layout_.begin()
       .add(bgfx::Attrib::Position,  3, bgfx::AttribType::Float)
       .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
       .end();
 
-  quad_vbh_ = bgfx::createVertexBuffer(
-      bgfx::makeRef(kQuadVertices, sizeof(kQuadVertices)),
-      quad_layout_);
+  if (RtSamplingNeedsVMirror()) {
+    constexpr std::size_t kQuadVertexCount =
+        sizeof(kQuadVertices) / sizeof(kQuadVertices[0]);
+    static PosTexVertex mirrored_quad[kQuadVertexCount];
+    for (std::size_t i = 0; i < kQuadVertexCount; ++i) {
+      mirrored_quad[i] = kQuadVertices[i];
+      mirrored_quad[i].v = 1.0f - mirrored_quad[i].v;
+    }
+    quad_vbh_ = bgfx::createVertexBuffer(
+        bgfx::makeRef(mirrored_quad, sizeof(mirrored_quad)), quad_layout_);
+  } else {
+    quad_vbh_ = bgfx::createVertexBuffer(
+        bgfx::makeRef(kQuadVertices, sizeof(kQuadVertices)),
+        quad_layout_);
+  }
 
   quad_ibh_ = bgfx::createIndexBuffer(
       bgfx::makeRef(kQuadIndices, sizeof(kQuadIndices)));
@@ -452,9 +479,12 @@ bool PostProcess::RenderSceneBlur(bgfx::ViewId& view,
       0.0f,
   };
   bgfx::setUniform(u_texelSize_, box_texel);
+  float box_v0 = 0.0f;
+  float box_v1 = scene_uv.y;
+  MirrorSourceVForRtOrigin(scene_uv.y, box_v0, box_v1);
   bool ready = RenderFullscreenQuad(view, prog_box4_, scene_input,
-                                    u_texColor_, 0, 0.0f, 0.0f,
-                                    scene_uv.x, scene_uv.y,
+                                    u_texColor_, 0, 0.0f, box_v0,
+                                    scene_uv.x, box_v1,
                                     sampler_flags);
   ++view;
 
@@ -470,9 +500,12 @@ bool PostProcess::RenderSceneBlur(bgfx::ViewId& view,
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
     bgfx::setViewFrameBuffer(view, quarter_scratch_fb_);
     bgfx::setUniform(u_texelSize_, blur_texel);
+    float gauss_v0 = 0.0f;
+    float gauss_v1 = quarter_uv.y;
+    MirrorSourceVForRtOrigin(quarter_uv.y, gauss_v0, gauss_v1);
     ready = RenderFullscreenQuad(
         view, prog_gauss4_h_, bgfx::getTexture(quarter_fb_, 0),
-        u_texColor_, 0, 0.0f, 0.0f, quarter_uv.x, quarter_uv.y,
+        u_texColor_, 0, 0.0f, gauss_v0, quarter_uv.x, gauss_v1,
         sampler_flags);
     ++view;
   }
@@ -483,9 +516,12 @@ bool PostProcess::RenderSceneBlur(bgfx::ViewId& view,
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
     bgfx::setViewFrameBuffer(view, quarter_fb_);
     bgfx::setUniform(u_texelSize_, blur_texel);
+    float gauss_v0 = 0.0f;
+    float gauss_v1 = quarter_uv.y;
+    MirrorSourceVForRtOrigin(quarter_uv.y, gauss_v0, gauss_v1);
     ready = RenderFullscreenQuad(
         view, prog_gauss4_v_, bgfx::getTexture(quarter_scratch_fb_, 0),
-        u_texColor_, 0, 0.0f, 0.0f, quarter_uv.x, quarter_uv.y,
+        u_texColor_, 0, 0.0f, gauss_v0, quarter_uv.x, gauss_v1,
         sampler_flags);
     ++view;
   }
@@ -525,9 +561,13 @@ bool PostProcess::RenderDeathEffect(bgfx::ViewId &view,
   };
   bgfx::setUniform(u_sourceUvScale_, source_uv_scale);
   bgfx::setTexture(1, u_texBloom_, bgfx::getTexture(quarter_fb_, 0), sampler_flags);
+
+  float death_v0 = 0.0f;
+  float death_v1 = 1.0f;
+  MirrorSourceVForRtOrigin(1.0f, death_v0, death_v1);
   const bool submitted = RenderFullscreenQuad(
       view, prog_death_, scene_input, u_texColor_, 0,
-      0.0f, 0.0f, 1.0f, 1.0f, sampler_flags);
+      0.0f, death_v0, 1.0f, death_v1, sampler_flags);
   ++view;
   return submitted;
 }
@@ -639,9 +679,12 @@ PostProcessApplyResult PostProcess::Apply(bgfx::ViewId base_view) {
 
     if (bgfx::isValid(prog_blit_) && bgfx::isValid(scene_input)) {
 
+      float blit_v0 = 0.0f;
+      float blit_v1 = scene_uv.y;
+      MirrorSourceVForRtOrigin(scene_uv.y, blit_v0, blit_v1);
       ldr_composite_submitted = RenderFullscreenQuad(
           view, prog_blit_, scene_input, u_texColor_, 0, 0.0f,
-          0.0f, scene_uv.x, scene_uv.y, kSceneCopySamplerFlags);
+          blit_v0, scene_uv.x, blit_v1, kSceneCopySamplerFlags);
     } else {
       bgfx::touch(view);
     }
@@ -786,9 +829,27 @@ bgfx::ViewId PostProcess::ApplyToRect(bgfx::ViewId base_view, Rect dest_rect) {
             ? bgfx::getTexture(quarter_fb_, 0)
             : scene_input;
     bgfx::setTexture(1, u_texBloom_, bloom_input);
-    (void)RenderFullscreenQuad(view, prog_glow_combine_, scene_input, u_texColor_, 0,
-                               clipped->u0, clipped->v0, clipped->u1, clipped->v1,
+
+    float combine_v0 = clipped->v0;
+    float combine_v1 = clipped->v1;
+    MirrorSourceVForRtOrigin(1.0f, combine_v0, combine_v1);
+    float rect_blit_v0 = clipped->v0 * scene_uv.y;
+    float rect_blit_v1 = clipped->v1 * scene_uv.y;
+    MirrorSourceVForRtOrigin(scene_uv.y, rect_blit_v0, rect_blit_v1);
+    if (!RenderFullscreenQuad(view, prog_glow_combine_, scene_input, u_texColor_, 0,
+                              clipped->u0, combine_v0, clipped->u1, combine_v1,
+                              scene_copy_sampler_flags, kLayeredRectCompositeState)) {
+      const bool blit_submitted =
+          bgfx::isValid(prog_blit_) &&
+          RenderFullscreenQuad(view, prog_blit_, scene_input, u_texColor_, 0,
+                               clipped->u0 * scene_uv.x, rect_blit_v0,
+                               clipped->u1 * scene_uv.x, rect_blit_v1,
                                scene_copy_sampler_flags, kLayeredRectCompositeState);
+      if (!blit_submitted) {
+        bgfx::touch(view);
+        WarnRectCompositeFailureOnce("glow-combine");
+      }
+    }
     ++view;
   } else {
     bgfx::setViewName(view, "PP: Passthrough Blit");
@@ -800,20 +861,43 @@ bgfx::ViewId PostProcess::ApplyToRect(bgfx::ViewId base_view, Rect dest_rect) {
     bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
     bgfx::setViewClear(view, BGFX_CLEAR_NONE);
 
-    if (bgfx::isValid(prog_blit_) && bgfx::isValid(scene_input)) {
-      (void)RenderFullscreenQuad(view, prog_blit_, scene_input, u_texColor_, 0,
-                                 clipped->u0 * scene_uv.x,
-                                 clipped->v0 * scene_uv.y,
-                                 clipped->u1 * scene_uv.x,
-                                 clipped->v1 * scene_uv.y,
-                                 scene_copy_sampler_flags, kLayeredRectCompositeState);
-    } else {
+    float blit_v0 = clipped->v0 * scene_uv.y;
+    float blit_v1 = clipped->v1 * scene_uv.y;
+    MirrorSourceVForRtOrigin(scene_uv.y, blit_v0, blit_v1);
+    const bool blit_submitted =
+        bgfx::isValid(prog_blit_) && bgfx::isValid(scene_input) &&
+        RenderFullscreenQuad(view, prog_blit_, scene_input, u_texColor_, 0,
+                             clipped->u0 * scene_uv.x,
+                             blit_v0,
+                             clipped->u1 * scene_uv.x,
+                             blit_v1,
+                             scene_copy_sampler_flags, kLayeredRectCompositeState);
+    if (!blit_submitted) {
       bgfx::touch(view);
+      WarnRectCompositeFailureOnce("passthrough-blit");
     }
     ++view;
   }
 
   return view;
+}
+
+void PostProcess::WarnRectCompositeFailureOnce(const char* stage) {
+
+  if (rect_composite_failure_logged_) {
+    return;
+  }
+  rect_composite_failure_logged_ = true;
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      std::string("PostProcess: ApplyToRect ") + stage +
+          " draw did not submit; the widget rect keeps the base clear."
+          " prog_glow_combine valid=" +
+          std::to_string(bgfx::isValid(prog_glow_combine_)) +
+          " prog_blit valid=" + std::to_string(bgfx::isValid(prog_blit_)) +
+          " quad_ibh valid=" + std::to_string(bgfx::isValid(quad_ibh_)) +
+          " transient_avail=" +
+          std::to_string(bgfx::getAvailTransientVertexBuffer(4, quad_layout_)));
 }
 
 void PostProcess::SetDeathEffect(bool enabled, float intensity) {

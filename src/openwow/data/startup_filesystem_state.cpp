@@ -1,6 +1,7 @@
 #include "openwow/data/startup_filesystem_state.h"
 
 #include "openwow/core/storm_path.h"
+#include "openwow/platform/filesystem/filesystem.h"
 #include "openwow/core/streaming_storage.h"
 #include "openwow/vfs/adapters/filesystem/native_filesystem.h"
 #include "openwow/foundation/text/ascii.h"
@@ -50,7 +51,6 @@ std::string& MutableCachedStartupWorkingDirectory() {
   return path;
 }
 
-constexpr std::size_t kStartupPathCapacity = 260;
 constexpr std::size_t kCachedWorkingDirectoryCapacity = 0x400u;
 
 std::filesystem::path StartupStatePathToNative(std::string path) {
@@ -280,6 +280,47 @@ std::optional<std::filesystem::path> BuildArchiveProbePathNative(
   return (base_root / StartupStatePathToNative(relative)).lexically_normal();
 }
 
+std::optional<std::filesystem::path> ResolveArchiveProbeFileNative(
+    const int root_index,
+    const ArchiveProbeNativeRoots& roots,
+    const std::string_view suffix_template,
+    const char* locale_token) {
+  const auto probe_path = BuildArchiveProbePathNative(root_index, roots,
+                                                      suffix_template,
+                                                      locale_token);
+  if (!probe_path.has_value()) {
+    return std::nullopt;
+  }
+  if (PathIsRegularFile(*probe_path)) {
+    return probe_path;
+  }
+
+  std::filesystem::path root;
+  switch (root_index) {
+    case 0: root = roots.data_root; break;
+    case 1: root = roots.parent_data_root; break;
+    case 2: root = roots.retail_data_root; break;
+    default: return std::nullopt;
+  }
+  if (root.empty() || root.parent_path().empty() || root.filename().empty()) {
+    return std::nullopt;
+  }
+
+  const std::string relative =
+      ReplaceArchiveLocalePlaceholdersExact(suffix_template, locale_token);
+  if (relative.empty()) {
+    return std::nullopt;
+  }
+
+  auto resolved =
+      openwow::platform::filesystem::ResolveExistingRelativePathCaseInsensitive(
+          root.parent_path(), root.filename().string() + "/" + relative);
+  if (!resolved.has_value() || !PathIsRegularFile(*resolved)) {
+    return std::nullopt;
+  }
+  return resolved;
+}
+
 bool ProbeCommonArchiveLayout(
     const std::filesystem::path& game_root,
     const std::filesystem::path& retail_install_root) {
@@ -287,9 +328,8 @@ bool ProbeCommonArchiveLayout(
       game_root,
       retail_install_root);
   for (int root_index = 0; root_index < 3; ++root_index) {
-    const auto probe_path =
-        BuildArchiveProbePathNative(root_index, roots, "common.MPQ", "");
-    if (probe_path.has_value() && PathIsRegularFile(*probe_path)) {
+    if (ResolveArchiveProbeFileNative(root_index, roots, "common.MPQ", "")
+            .has_value()) {
       return true;
     }
   }

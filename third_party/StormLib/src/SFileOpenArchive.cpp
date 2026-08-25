@@ -321,45 +321,18 @@ bool WINAPI SFileOpenArchive(
         nError = BuildFileTable(ha, FileSize);
     }
 
-    // Verify the file table, if no kind of protection was detected
-    if(nError == ERROR_SUCCESS && (ha->dwFlags & MPQ_FLAG_PROTECTED) == 0)
-    {
-        TFileEntry * pFileTableEnd = ha->pFileTable + ha->pHeader->dwBlockTableSize;
-        TFileEntry * pFileEntry = ha->pFileTable;
-//      ULONGLONG ArchiveSize = 0;
-        ULONGLONG RawFilePos;
-
-        // Parse all file entries
-        for(pFileEntry = ha->pFileTable; pFileEntry < pFileTableEnd; pFileEntry++)
-        {
-            // If that file entry is valid, check the file position
-            if(pFileEntry->dwFlags & MPQ_FILE_EXISTS)
-            {
-                // Get the 64-bit file position,
-                // relative to the begin of the file
-                RawFilePos = ha->MpqPos + pFileEntry->ByteOffset;
-
-                // Begin of the file must be within range
-                if(RawFilePos > FileSize)
-                {
-                    nError = ERROR_FILE_CORRUPT;
-                    break;
-                }
-
-                // End of the file must be within range
-                RawFilePos += pFileEntry->dwCmpSize;
-                if(RawFilePos > FileSize)
-                {
-                    nError = ERROR_FILE_CORRUPT;
-                    break;
-                }
-
-                // Also, we remember end of the file
-//              if(RawFilePos > ArchiveSize)
-//                  ArchiveSize = RawFilePos;
-            }
-        }
-    }
+    // OpenWoW: StormLib used to sweep every block-table entry here and fail the
+    // WHOLE archive with ERROR_FILE_CORRUPT when any entry's
+    // MpqPos + ByteOffset + dwCmpSize ran past the end of the file. Retail's
+    // archive opener in the shipped 3.3.5a client validates only the 'MPQ\x1A'
+    // (addresses: docs/stormlib_stock_conformance.md)
+    // signature, the per-version header size (v0 == 0x20, v1 == 0x2C,
+    // v2+ > 0x2B) and that the hash- and block-table starts fall below the
+    // computed archive end -- it never walks the file entries. One truncated or
+    // padded entry in a hand-built patch MPQ therefore costs stock nothing and
+    // cost us the entire archive. Out-of-range entries stay harmless because
+    // every later read goes through FileStream_Read, which refuses to read past
+    // EOF and fails that one file exactly as retail does.
 
     // Load the internal listfile and include it to the file table
     if(nError == ERROR_SUCCESS && (dwFlags & MPQ_OPEN_NO_LISTFILE) == 0)

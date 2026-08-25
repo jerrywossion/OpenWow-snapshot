@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstring>
 #include <fstream>
 #include <future>
 #include <limits>
@@ -15,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/foundation/text/ascii.h"
 
 namespace openwow::vfs {
@@ -85,14 +87,49 @@ std::string MpqCacheKey(const MountPoint& mount) {
   return key;
 }
 
+std::string DescribeArchiveOpenError(const std::uint32_t code) {
+  switch (code) {
+    case 0:
+      return "file missing, unreadable, or empty";
+    case 105:
+      return "ERROR_BAD_FORMAT (not a recognizable MPQ)";
+    case 106:
+      return "ERROR_NO_MORE_FILES";
+    case 107:
+      return "ERROR_HANDLE_EOF (archive truncated)";
+    case mpq::kStormErrorNotArchive:
+      return "no usable MPQ header found (ERROR_CAN_NOT_COMPLETE)";
+    case 109:
+      return "ERROR_FILE_CORRUPT (header, tables, or a file entry rejected)";
+    default: {
+
+      char buffer[256] = {};
+      if (::strerror_r(static_cast<int>(code), buffer, sizeof(buffer)) != 0) {
+        return "errno " + std::to_string(code);
+      }
+      return std::string(buffer);
+    }
+  }
+}
+
 std::shared_ptr<mpq::MpqArchive> OpenMpqArchive(
     const MountPoint& mount) {
   auto archive = std::make_shared<mpq::MpqArchive>();
   if (!archive->Open(mount.source_root)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "[MPQ] Failed to open archive " + mount.source_root.string() + " (" +
+            mount.id + "): " + DescribeArchiveOpenError(archive->last_error()));
     return nullptr;
   }
   for (const auto& patch : mount.mpq_patches) {
-    (void)archive->ApplyPatch(patch);
+    if (!archive->ApplyPatch(patch)) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kError,
+          "[MPQ] Failed to attach patch archive " + patch.string() + " to " +
+              mount.source_root.string() + ": " +
+              DescribeArchiveOpenError(archive->last_error()));
+    }
   }
   return archive;
 }
@@ -192,7 +229,8 @@ void VirtualFileSystem::PrewarmMpqArchives() const {
 
 void VirtualFileSystem::PrewarmFileEnumeration(
     const std::string& virtual_path_root,
-    const bool recursive) const {
+    const bool recursive,
+    const std::optional<MountKind> mount_kind) const {
   const auto normalized_root = NormalizeVirtualPath(virtual_path_root);
   if (normalized_root.empty()) {
     return;
@@ -202,6 +240,7 @@ void VirtualFileSystem::PrewarmFileEnumeration(
       .mount_view_revision = mount_view_revision_,
       .normalized_root = normalized_root,
       .recursive = recursive,
+      .mount_kind = mount_kind,
   };
   std::lock_guard lock(cache_state_->enumerations_mutex);
   if (cache_state_->enumerations.contains(key)) {
@@ -215,10 +254,11 @@ void VirtualFileSystem::PrewarmFileEnumeration(
   cache_state_->enumerations.emplace(
       std::move(key),
       std::async(std::launch::async,
-                 [snapshot = std::move(snapshot), normalized_root, recursive]() {
+                 [snapshot = std::move(snapshot), normalized_root, recursive,
+                  mount_kind]() {
                    return snapshot.EnumerateFilesUncached(normalized_root,
                                                           recursive,
-                                                          std::nullopt);
+                                                          mount_kind);
                  })
           .share());
 }

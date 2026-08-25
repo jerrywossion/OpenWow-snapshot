@@ -1,0 +1,45 @@
+diff --git a/bgfx/tools/shaderc/shaderc_metal.cpp b/bgfx/tools/shaderc/shaderc_metal.cpp
+index a5d931e..fea0808 100644
+--- a/bgfx/tools/shaderc/shaderc_metal.cpp
++++ b/bgfx/tools/shaderc/shaderc_metal.cpp
+@@ -545,10 +545,14 @@ namespace bgfx { namespace metal
+ 							continue;
+ 						}
+ 
+-						un.num = uint8_t(program->getUniformArraySize(ii) );
++						// Same single-byte `num` wrap as the spirv writer; the Metal
++						// runtime re-reflects sizes from MSL so it never consumed the
++						// wrapped value, but the serialized table should still be true.
++						const uint32_t arraySize = uint32_t(program->getUniformArraySize(ii) );
++						un.num = uint8_t(bx::min<uint32_t>(arraySize, UINT8_MAX) );
+ 						const uint32_t offset = program->getUniformBufferOffset(ii);
+ 						un.regIndex = uint16_t(offset);
+-						un.regCount = un.num;
++						un.regCount = uint16_t(arraySize);
+ 
+ 						switch (program->getUniformType(ii) )
+ 						{
+diff --git a/bgfx/tools/shaderc/shaderc_spirv.cpp b/bgfx/tools/shaderc/shaderc_spirv.cpp
+index 634642f..c50a01d 100644
+--- a/bgfx/tools/shaderc/shaderc_spirv.cpp
++++ b/bgfx/tools/shaderc/shaderc_spirv.cpp
+@@ -670,10 +670,17 @@ namespace bgfx { namespace spirv
+ 							continue;
+ 						}
+ 
+-						un.num = uint8_t(program->getUniformArraySize(ii) );
++						// The container's `num` is a single byte, so a uniform array
++						// longer than 255 registers wraps it (768 -> 0) and, because
++						// regCount was derived from the wrapped value, the Vulkan
++						// backend -- the one consumer with no API-side reflection to
++						// fall back on -- lost the bone palette entirely. Keep regCount
++						// (uint16) on the untruncated size and saturate `num`.
++						const uint32_t arraySize = uint32_t(program->getUniformArraySize(ii) );
++						un.num = uint8_t(bx::min<uint32_t>(arraySize, UINT8_MAX) );
+ 						const uint32_t offset = program->getUniformBufferOffset(ii);
+ 						un.regIndex = uint16_t(offset);
+-						un.regCount = un.num;
++						un.regCount = uint16_t(arraySize);
+ 
+ 						switch (program->getUniformType(ii) )
+ 						{

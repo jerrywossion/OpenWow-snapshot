@@ -303,10 +303,14 @@ int ConvertMpqHeaderToFormat4(
 
         case MPQ_FORMAT_VERSION_4:
 
-            // Verify header MD5. Header MD5 is calculated from the MPQ header since the 'MPQ\x1A'
-            // signature until the position of header MD5 at offset 0xC0
-            if(!VerifyDataBlockHash(ha->pHeader, MPQ_HEADER_SIZE_V4 - MD5_DIGEST_SIZE, ha->pHeader->MD5_MpqHeader))
-                nError = ERROR_FILE_CORRUPT;
+            // OpenWoW: StormLib verified the v4 header MD5 here and rejected the
+            // archive with ERROR_FILE_CORRUPT on a mismatch. Retail never hashes
+            // the header: the shipped 3.3.5a client's opener copies the 0x2C header
+            // bytes (addresses: docs/stormlib_stock_conformance.md),
+            // accepts any header size above 0x2B for wFormatVersion > 1 and then
+            // only range-checks the table starts. An archive whose header MD5 is
+            // stale (every hand-edited or rebuilt v4 MPQ) opens on stock, so it
+            // must open here too.
             break;
     }
 

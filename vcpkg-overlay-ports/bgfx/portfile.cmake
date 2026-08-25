@@ -22,6 +22,7 @@ vcpkg_extract_source_archive(
     metal-uniform-buffer-offset-rebind.patch
     metal-pipeline-state-memo.patch
     nvtt-isvalidptr-any-64bit.patch
+    shaderc-uniform-array-regcount.patch
 )
 file(REMOVE_RECURSE
   "${SOURCE_PATH}/bgfx/3rdparty/dear-imgui"

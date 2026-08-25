@@ -258,6 +258,9 @@ class PostProcess {
 
 private:
   void SyncDeathEffectState();
+
+  void WarnRectCompositeFailureOnce(const char* stage);
+  bool rect_composite_failure_logged_{false};
   [[nodiscard]] bool CanRenderDeathEffect() const;
   [[nodiscard]] bool CanRenderSceneBlur() const;
   [[nodiscard]] bool CanRenderComposite() const;

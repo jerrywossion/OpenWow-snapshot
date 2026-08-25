@@ -21,6 +21,7 @@ openwow_add_component(openwow_data_runtime
   archive_system.cpp
   loading/dbc_locale_adapter.cpp
   login_resource_validator.cpp
+  startup_archive_mount.cpp
   wdb_cache.cpp
   wdb_persistence.cpp
   texture_cache.cpp
@@ -59,6 +60,7 @@ target_link_libraries(openwow_data_runtime PRIVATE
 )
 target_compile_definitions(openwow_data_runtime PRIVATE
   OPENWOW_HAS_STORMLIB=$<BOOL:${OPENWOW_HAS_STORMLIB}>
+  OPENWOW_ENABLE_STREAMING_TELEMETRY=$<BOOL:${OPENWOW_ENABLE_STREAMING_TELEMETRY}>
 )
 if(OPENWOW_HAS_STORMLIB)
   target_link_libraries(openwow_data_runtime PRIVATE

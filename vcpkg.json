@@ -1,9 +1,18 @@
 {
   "name": "openwow",
-  "version-string": "0.1.0",
+  "version-string": "0.1.1",
   "description": "OpenWoW drop-in client MVP (WotLK/AzerothCore)",
   "dependencies": [
-    "sdl2",
+    {
+      "$comment": "alsa is not one of SDL2's default features, so Linux builds shipped with no ALSA backend compiled in and SDL fell back to its OSS driver -- a bug report from an Arch/PipeWire desktop logged 'SDL driver: dsp'. The vcpkg alsa port builds alsa-lib from source (only autoconf/libtool from the system, which CI already installs), and SDL dlopens libasound.so.2 at runtime, so this also covers pipewire-alsa and pulseaudio's ALSA shim. pipewire and pulseaudio are not features this port exposes.",
+      "name": "sdl2",
+      "features": [
+        {
+          "name": "alsa",
+          "platform": "linux"
+        }
+      ]
+    },
     {
       "$comment": "Target-side bgfx: the renderer library only. The shader/texture/geometry compilers come from the host-side entry below so cross builds (riscv64-linux, arm64-windows, x64-osx on an arm64 runner) get tools that run on the build machine; when host and target triplets coincide vcpkg merges both entries into one bgfx[core,tools] install and nothing changes.",
       "name": "bgfx"

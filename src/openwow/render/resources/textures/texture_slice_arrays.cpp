@@ -105,6 +105,8 @@ struct TextureSliceRef {
 
 namespace {
 
+constexpr std::uint16_t kTightlyPackedPitch = UINT16_MAX;
+
 bool UploadSliceChain(const bgfx::TextureHandle handle, const std::uint16_t slice,
                       const TextureSliceBucket &bucket,
                       const PreparedTextureUpload &upload) {
@@ -124,7 +126,7 @@ bool UploadSliceChain(const bgfx::TextureHandle handle, const std::uint16_t slic
                           static_cast<std::uint16_t>(dims.first),
                           static_cast<std::uint16_t>(dims.second),
                           bgfx::copy(upload.rgba_bytes.data() + offset, *size),
-                          static_cast<std::uint16_t>(*pitch));
+                          kTightlyPackedPitch);
     offset += *size;
   }
   return offset == upload.upload_size;
@@ -228,7 +230,7 @@ bool UploadSolidChain(const bgfx::TextureHandle handle, const std::uint16_t slic
     bgfx::updateTexture2D(handle, slice, level, 0u, 0u,
                           static_cast<std::uint16_t>(dims.first),
                           static_cast<std::uint16_t>(dims.second), memory,
-                          static_cast<std::uint16_t>(*pitch));
+                          kTightlyPackedPitch);
   }
   return true;
 }
@@ -517,6 +519,14 @@ TextureSliceLease TextureSliceArrays::Acquire(const std::uint32_t row_hash,
   if (!bgfx::isValid(handle) ||
       !(promoted ? UploadSolidChain(handle, slice, bucket, solid_unit)
                  : UploadSliceChain(handle, slice, bucket, *upload))) {
+
+    diagnostics::Log(diagnostics::LogLevel::kWarn,
+                     std::string("TextureSliceArrays: slice upload failed for ") +
+                         std::to_string(bucket.width) + "x" +
+                         std::to_string(bucket.height) + " mips=" +
+                         std::to_string(static_cast<unsigned>(bucket.mip_count)) +
+                         " slice=" + std::to_string(static_cast<unsigned>(slice)) +
+                         (promoted ? " (solid)" : " (chain)"));
     pool_->ReleaseSlice(key, TextureSliceLocation{array_index, slice});
     return {};
   }

@@ -994,6 +994,9 @@ void GlueClient::BuildAndPublishLoginVfs() {
 
   RealmAddonHandshakeComposition::BindContentVfs(&login_vfs_);
 
+  openwow::data::ResolveWowIniArchiveLocale(
+      cvars.GetCVar("locale"), openwow::data::ProbeCommonArchiveLayout());
+
   const std::uint8_t expansion_level = openwow::data::DetermineStartupExpansionLevel(login_vfs_);
   openwow::core::SetExpansionLevel(expansion_level);
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
@@ -1488,12 +1491,6 @@ bool GlueClient::InitVFS() {
                                     " (patch manifest stub — not parsed yet)");
     }
 
-  }
-
-  if (openwow::data::BackupLegacyGlueFilesystemOverrides(game_data)) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kInfo,
-        "Detected loose GlueXML/FrameXML or Blizzard_* addon folders; moved them to .old");
   }
 
   BuildAndPublishLoginVfs();

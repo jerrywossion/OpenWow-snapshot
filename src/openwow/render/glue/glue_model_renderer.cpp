@@ -2264,6 +2264,11 @@ bool GlueModelRenderer::RenderSingleModel(openwow::ui::glue::GlueWidgetRuntime &
   }
 
   int submitted_transform_count = 0;
+  openwow::render::m2::M2ResultStatus last_failed_status =
+      openwow::render::m2::M2ResultStatus::kReady;
+  openwow::render::m2::M2ResultReason last_failed_reason =
+      openwow::render::m2::M2ResultReason::kNone;
+  std::string last_failed_detail;
   for (const auto &tr : transforms) {
     const openwow::render::RenderMatrix4x4 transform_mtx = tr.Matrix4x4();
     if (PrepareM2InstanceForSubmit(inst, *assets, transform_mtx, std::nullopt,
@@ -2274,11 +2279,34 @@ bool GlueModelRenderer::RenderSingleModel(openwow::ui::glue::GlueWidgetRuntime &
       if (render_result.status == openwow::render::m2::M2ResultStatus::kReady) {
         ++submitted_transform_count;
       } else if (openwow::render::m2::IsTerminalM2ResultStatus(render_result.status)) {
+        last_failed_status = render_result.status;
+        last_failed_reason = render_result.reason;
+        last_failed_detail = render_result.detail;
         DestroyM2Instance(inst);
         break;
+      } else {
+        last_failed_status = render_result.status;
+        last_failed_reason = render_result.reason;
+        last_failed_detail = render_result.detail;
       }
     }
   }
+
+  if (submitted_transform_count == 0 && !transforms.empty() &&
+      attached_scene == nullptr) {
+    if (zero_submit_warned_widgets_.insert(widget.name).second) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "GlueModelRenderer: '" + widget.name + "' model '" + m2_path +
+              "' submitted no draws: status=" +
+              std::to_string(static_cast<int>(last_failed_status)) +
+              " reason=" + std::to_string(static_cast<int>(last_failed_reason)) +
+              (last_failed_detail.empty() ? std::string{}
+                                          : " detail=" + last_failed_detail));
+    }
+    return false;
+  }
+  zero_submit_warned_widgets_.erase(widget.name);
 
   if (rsm_diag) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,

@@ -53,8 +53,9 @@ class VirtualFileSystem {
 
   void PrewarmMpqArchives() const;
 
-  void PrewarmFileEnumeration(const std::string& virtual_path_root,
-                              bool recursive) const;
+  void PrewarmFileEnumeration(
+      const std::string& virtual_path_root, bool recursive,
+      std::optional<MountKind> mount_kind = std::nullopt) const;
 
   bool CanOpenMpqMount(std::string_view mount_id) const;
 

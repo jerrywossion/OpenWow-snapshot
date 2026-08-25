@@ -313,6 +313,8 @@ bool FillPlatformData(SDL_Window* window, bgfx::PlatformData* out) {
   if (wmi.subsystem == SDL_SYSWM_WAYLAND) {
     pd.ndt = wmi.info.wl.display;
     pd.nwh = wmi.info.wl.surface;
+
+    pd.type = bgfx::NativeWindowHandleType::Wayland;
   }
 #endif
 #if defined(_WIN32)

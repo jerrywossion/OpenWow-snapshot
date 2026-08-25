@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace openwow::ui::glue {
@@ -237,6 +238,8 @@ class GlueModelRenderer {
       character_select_ghost_light_;
   std::unordered_map<std::string, std::unique_ptr<ModelAssets>> assets_by_path_;
   std::unordered_map<std::string, InstanceState> instances_;
+
+  std::unordered_set<std::string> zero_submit_warned_widgets_;
 
   enum class LoadPhase : std::uint8_t {
     kNone = 0,

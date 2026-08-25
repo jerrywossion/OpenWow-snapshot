@@ -1,5 +1,8 @@
 option(OPENWOW_BUILD_CLIENT "Build the retail client executable" ON)
 option(OPENWOW_ENABLE_MPQ_VFS "Enable MPQ VFS via StormLib" ON)
+
+option(OPENWOW_ENABLE_STREAMING_TELEMETRY
+  "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)
 option(OPENWOW_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 option(OPENWOW_ENABLE_CLANG_TIDY "Run clang-tidy while compiling" OFF)
 

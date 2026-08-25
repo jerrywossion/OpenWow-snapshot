@@ -11,7 +11,9 @@ namespace openwow::vfs {
 namespace {
 
 StreamingConfig g_streaming_config;
-std::array<char, 260> g_archive_data_path_buffer{};
+
+std::array<char, openwow::data::kStartupPathCapacity>
+    g_archive_data_path_buffer{};
 GenericErrorDisplayCallback g_generic_error_display_callback = nullptr;
 
 }

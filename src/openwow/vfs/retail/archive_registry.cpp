@@ -35,7 +35,8 @@ namespace {
 #define SFileMpqFileName        SFILE_INFO_ARCHIVE_NAME
 #define SFileInfoFlags          SFILE_INFO_FLAGS
 #define SFileInfoCompressedSize SFILE_INFO_COMPRESSED_SIZE
-#define SFileInfoByteOffset     SFILE_INFO_BLOCKINDEX
+
+#define SFileInfoByteOffset     SFILE_INFO_POSITION
 constexpr auto kStormInfoArchiveName = SFileMpqFileName;
 constexpr auto kStormInfoFileFlags = SFileInfoFlags;
 constexpr auto kStormInfoCompressedSize = SFileInfoCompressedSize;

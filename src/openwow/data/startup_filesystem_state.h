@@ -44,6 +44,8 @@ struct ArchiveProbeNativeRoots {
 inline constexpr std::size_t kStartupLocaleRingSize = 12;
 using StartupLocaleAvailability = std::array<bool, kStartupLocaleRingSize>;
 
+inline constexpr std::size_t kStartupPathCapacity = 0x400;
+
 void ClearStartupBasePathInitFlag();
 
 void SetStartupStormOpenFlags(std::uint32_t flags);
@@ -70,6 +72,12 @@ std::optional<std::string> BuildArchiveProbePathExact(
     const char* locale_token,
     std::string_view retail_install_path);
 std::optional<std::filesystem::path> BuildArchiveProbePathNative(
+    int root_index,
+    const ArchiveProbeNativeRoots& roots,
+    std::string_view suffix_template,
+    const char* locale_token);
+
+std::optional<std::filesystem::path> ResolveArchiveProbeFileNative(
     int root_index,
     const ArchiveProbeNativeRoots& roots,
     std::string_view suffix_template,

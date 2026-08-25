@@ -17,6 +17,9 @@ bool IsSafePathComponent(std::string_view component);
 
 std::optional<std::string> ResolveExistingPathComponentCaseInsensitive(
     const std::filesystem::path& parent, std::string_view requested);
+
+std::optional<std::filesystem::path> ResolveExistingRelativePathCaseInsensitive(
+    const std::filesystem::path& root, std::string_view relative);
 bool CopyFilePath(const std::filesystem::path& source,
                   const std::filesystem::path& destination,
                   bool overwrite);

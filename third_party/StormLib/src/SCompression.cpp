@@ -949,8 +949,20 @@ int WINAPI SCompDecompress(
     pbInput = pbInBuffer;
     cbInLength = cbInBuffer;
 
-    // This compression function doesn't support LZMA
-    assert(uCompressionMask != MPQ_COMPRESSION_LZMA);
+    // OpenWoW: MPQ_COMPRESSION_LZMA (0x12) is an exact method byte, not a
+    // combination of the 0x10 (BZIP2) and 0x02 (ZLIB) flags, so dcmp_table
+    // below decodes it as "bzip2 then zlib" and the sector comes out corrupt.
+    // Retail's own decompressor is an exact-byte switch, not a mask walk:
+    // The shipped 3.3.5a client's decompressor dispatch sends method 0x12
+    // straight to LZMA regardless of the archive's format (addresses:
+    // docs/stormlib_stock_conformance.md); it handles 0x02/0x08/0x10/0x12/0x20/0x22/0x30
+    // version, so a v1 archive holding LZMA-compressed files opens on stock and
+    // must open here. SCompDecompress2 already implements exactly that switch,
+    // including the same 0x22 and 0x30 two-stage orders, so delegate rather
+    // than duplicate. Every other stock-reachable mask keeps the existing mask
+    // walk untouched.
+    if(uCompressionMask == MPQ_COMPRESSION_LZMA)
+        return SCompDecompress2(pbOutBuffer, pcbOutBuffer, pbInBuffer - 1, cbInBuffer + 1);
 
     // Parse the compression mask
     for(size_t i = 0; i < (sizeof(dcmp_table) / sizeof(TDecompressTable)); i++)

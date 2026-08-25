@@ -1,129 +1,36 @@
 #include "openwow/data/login_resource_validator.h"
 
-#include "openwow/core/storm_string.h"
-
 #include <algorithm>
-#include <array>
-#include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "openwow/data/startup_archive_mount.h"
 #include "openwow/data/startup_filesystem_state.h"
+#include "openwow/data/streaming_init.h"
 #include "openwow/platform/filesystem/filesystem.h"
 #include "openwow/foundation/diagnostics/logging.h"
-#include "openwow/foundation/text/ascii.h"
-#include "openwow/vfs/sfile_core.h"
 
 namespace openwow::data {
 
 using openwow::diagnostics::Log;
 using openwow::diagnostics::LogLevel;
-using openwow::text::ToLowerAscii;
 
 namespace {
 
 constexpr const char* kDefaultStartupLocale = "enUS";
+
 constexpr const char* kSplitLayoutLocaleToken = "----";
 
-constexpr const char* kAlternateArchiveName = "alternate.MPQ";
-constexpr std::array<const char*, 6> kSplitArchiveTable = {
-    "interface.MPQ",
-    "misc.MPQ",
-    "model.MPQ",
-    "texture.MPQ",
-    "terrain.MPQ",
-    "wmo.MPQ",
-};
-
-constexpr std::array<const char*, 19> kCommonArchiveTable = {
-    "dbc.MPQ",
-    "speech.MPQ",
-    "streaming.MPQ",
-    "streamingloc.MPQ",
-    "expansion.MPQ",
-    "expansionloc.MPQ",
-    "expansionspeech.MPQ",
-    "common-2.MPQ",
-    "common.MPQ",
-    "lichking.MPQ",
-    "lichkingloc.MPQ",
-    "lichkingspeech.MPQ",
-    "****\\locale-****.MPQ",
-    "****\\speech-****.MPQ",
-    "****\\expansion-locale-****.MPQ",
-    "****\\expansion-speech-****.MPQ",
-    "****\\lichking-locale-****.MPQ",
-    "****\\lichking-speech-****.MPQ",
-    "development.MPQ",
-};
-
-std::filesystem::path StartupStatePathToNative(std::string path) {
-#if !defined(_WIN32)
-  std::replace(path.begin(), path.end(), '\\',
-               std::filesystem::path::preferred_separator);
-#endif
-  return std::filesystem::path(path);
-}
-
-bool EqualsAsciiInsensitive(const std::string& left, const std::string& right) {
-  if (left.size() != right.size()) return false;
-  for (std::size_t i = 0; i < left.size(); ++i) {
-    if (std::tolower(static_cast<unsigned char>(left[i])) !=
-        std::tolower(static_cast<unsigned char>(right[i])))
-      return false;
-  }
-  return true;
-}
-
-void AppendUniquePath(std::vector<std::filesystem::path>* paths,
-                      const std::filesystem::path& path) {
-  if (paths == nullptr || path.empty()) {
-    return;
-  }
-
-  const auto normalized = path.lexically_normal();
-  for (const auto& existing : *paths) {
-    if (existing.lexically_normal() == normalized) {
-      return;
-    }
-  }
-
-  paths->push_back(normalized);
-}
-
-bool IsDataDirectory(const std::filesystem::path& path) {
-  return EqualsAsciiInsensitive(path.filename().string(), "Data");
-}
-
-std::filesystem::path ResolveStartupClientRoot(
-    const std::filesystem::path& game_root) {
-  const auto& state = GetStartupFileSystemState();
-  if (!state.executable_base_path.empty()) {
-    return StartupStatePathToNative(state.executable_base_path);
-  }
-  return game_root;
-}
-
-std::filesystem::path ResolveRetailInstallRoot(
-    const std::filesystem::path& retail_install_root) {
-  if (!retail_install_root.empty()) {
-    return retail_install_root;
-  }
-
-  const auto& state = GetStartupFileSystemState();
-  if (state.retail_install_path_cache.empty()) {
-    return {};
-  }
-  return StartupStatePathToNative(state.retail_install_path_cache);
-}
-
-std::filesystem::path ResolveDataDir(const std::filesystem::path& game_root) {
-  if (IsDataDirectory(game_root)) return game_root;
-  auto data = game_root / "Data";
-  return data;
+std::optional<std::filesystem::path> ResolveExistingRelativePathCaseInsensitive(
+    const std::filesystem::path& root,
+    const std::string_view relative_path) {
+  return openwow::platform::filesystem::
+      ResolveExistingRelativePathCaseInsensitive(root, relative_path);
 }
 
 std::filesystem::path ResolveConfiguredArchiveDataDir(
@@ -138,58 +45,11 @@ std::filesystem::path ResolveConfiguredArchiveDataDir(
   return ResolveDataDir(client_root);
 }
 
-std::filesystem::path ResolveStartupClientDirectory(
-    const std::filesystem::path& startup_root) {
-  if (!startup_root.empty() && startup_root.filename().empty()) {
-    return startup_root.parent_path();
-  }
-  return startup_root;
-}
-
-std::vector<std::filesystem::path> CollectLoginFilesystemRoots(
-    const std::filesystem::path& configured_game_root) {
-  std::vector<std::filesystem::path> roots;
-  const auto game_root = ResolveStartupClientRoot(configured_game_root);
-  if (game_root.empty()) {
-    return roots;
-  }
-
-  AppendUniquePath(&roots, game_root);
-
-  const auto extracted_data_dir = ResolveConfiguredArchiveDataDir(game_root);
-  if (!extracted_data_dir.empty()) {
-    std::error_code ec;
-    if (std::filesystem::is_directory(extracted_data_dir, ec) && !ec) {
-      AppendUniquePath(&roots, extracted_data_dir);
-    }
-  }
-
-  if (IsDataDirectory(game_root)) {
-    const auto parent = game_root.parent_path();
-    std::error_code ec;
-    if (!parent.empty() && std::filesystem::is_directory(parent, ec) && !ec) {
-      AppendUniquePath(&roots, parent);
-    }
-  }
-
-  return roots;
-}
-
 bool IsKnownLocale(const std::string& locale) {
   for (const char* l : GetStartupLocaleRing()) {
     if (locale == l) return true;
   }
   return false;
-}
-
-std::filesystem::path ResolveSiblingDataDir(const std::filesystem::path& game_root) {
-  const auto data_dir = ResolveDataDir(game_root);
-  if (data_dir.empty()) return {};
-  const auto data_parent = data_dir.parent_path();
-  if (data_parent.empty()) return {};
-  const auto upper_root = data_parent.parent_path();
-  if (upper_root.empty()) return {};
-  return upper_root / "Data";
 }
 
 std::string NormalizeConfiguredLocale(const std::string& configured_locale) {
@@ -207,243 +67,6 @@ std::string NormalizeStartupProbeLocale(const std::string& configured_locale) {
   return normalized;
 }
 
-std::optional<std::filesystem::path> ResolveExistingRelativePathCaseInsensitive(
-    const std::filesystem::path& root,
-    const std::string_view relative_path) {
-  if (root.empty()) {
-    return std::nullopt;
-  }
-
-  std::error_code ec;
-  if (!std::filesystem::is_directory(root, ec) || ec) {
-    return std::nullopt;
-  }
-
-  std::filesystem::path current = root;
-  std::string component;
-  component.reserve(relative_path.size());
-
-  const auto flush_component = [&]() -> bool {
-    if (component.empty() || component == ".") {
-      component.clear();
-      return true;
-    }
-    if (component == "..") {
-      component.clear();
-      return false;
-    }
-
-    std::optional<std::filesystem::path> matched;
-    for (const auto& entry : std::filesystem::directory_iterator(current, ec)) {
-      if (ec) {
-        component.clear();
-        return false;
-      }
-      if (openwow::text::EqualsIgnoreCaseAscii(entry.path().filename().string(),
-                                               component)) {
-        matched = entry.path();
-        break;
-      }
-    }
-
-    component.clear();
-    if (!matched.has_value()) {
-      return false;
-    }
-
-    current = *matched;
-    return true;
-  };
-
-  for (const char ch : relative_path) {
-    if (ch == '\\' || ch == '/') {
-      if (!flush_component()) {
-        return std::nullopt;
-      }
-      continue;
-    }
-    component.push_back(ch);
-  }
-
-  if (!flush_component()) {
-    return std::nullopt;
-  }
-
-  return current;
-}
-
-bool RemoveResolvedDirectoryTree(const std::filesystem::path& path) {
-  if (path.empty()) {
-    return false;
-  }
-
-  std::error_code ec;
-  if (!std::filesystem::is_directory(path, ec) || ec) {
-    return false;
-  }
-
-  std::filesystem::remove_all(path, ec);
-  return !ec;
-}
-
-bool BackupResolvedDirectoryToDotOld(const std::filesystem::path& source,
-                                     const std::string& destination_leaf_name) {
-  if (source.empty() || destination_leaf_name.empty()) {
-    return false;
-  }
-
-  std::error_code ec;
-  std::filesystem::rename(source, source.parent_path() / destination_leaf_name, ec);
-  return !ec;
-}
-
-bool BackupNamedDirectoryIfPresent(const std::filesystem::path& root,
-                                   const std::string_view relative_path) {
-  const auto source = ResolveExistingRelativePathCaseInsensitive(root, relative_path);
-  if (!source.has_value()) {
-    return false;
-  }
-
-  std::error_code ec;
-  if (!std::filesystem::is_directory(*source, ec) || ec) {
-    return false;
-  }
-
-  const std::filesystem::path relative_fs_path(relative_path);
-  const std::string destination_leaf =
-      relative_fs_path.filename().string() + ".old";
-  const std::string destination_relative =
-      (relative_fs_path.parent_path() / destination_leaf).generic_string();
-
-  if (const auto existing_destination =
-          ResolveExistingRelativePathCaseInsensitive(root, destination_relative);
-      existing_destination.has_value()) {
-    if (!RemoveResolvedDirectoryTree(*existing_destination)) {
-      return true;
-    }
-  }
-
-  (void)BackupResolvedDirectoryToDotOld(*source, destination_leaf);
-  return true;
-}
-
-bool AddonHasMatchingToc(const std::filesystem::path& addon_directory,
-                         const std::string& addon_name) {
-  const auto toc =
-      ResolveExistingRelativePathCaseInsensitive(addon_directory, addon_name + ".toc");
-  if (!toc.has_value()) {
-    return false;
-  }
-
-  std::error_code ec;
-  return std::filesystem::is_regular_file(*toc, ec) && !ec;
-}
-
-bool BackupLegacyBlizzardAddonsInRoot(const std::filesystem::path& root) {
-  const auto addons_root =
-      ResolveExistingRelativePathCaseInsensitive(root, "Interface/AddOns");
-  if (!addons_root.has_value()) {
-    return false;
-  }
-
-  std::error_code ec;
-  if (!std::filesystem::is_directory(*addons_root, ec) || ec) {
-    return false;
-  }
-
-  bool attempted = false;
-  for (const auto& entry : std::filesystem::directory_iterator(*addons_root, ec)) {
-    if (ec) {
-      break;
-    }
-
-    const auto addon_name = entry.path().filename().string();
-    if (!openwow::core::SStrWildcardMatch(addon_name.c_str(), "Blizzard*")) {
-      continue;
-    }
-    if (!AddonHasMatchingToc(entry.path(), addon_name)) {
-      continue;
-    }
-
-    attempted = true;
-    const auto existing_destination =
-        ResolveExistingRelativePathCaseInsensitive(*addons_root, addon_name + ".old");
-    if (existing_destination.has_value()
-        && !RemoveResolvedDirectoryTree(*existing_destination)) {
-      continue;
-    }
-
-    (void)BackupResolvedDirectoryToDotOld(entry.path(), addon_name + ".old");
-  }
-
-  return attempted;
-}
-
-ArchiveProbeNativeRoots ResolveArchiveProbeNativeRoots(
-    const std::filesystem::path& game_root,
-    const std::filesystem::path& retail_install_root) {
-  const auto startup_root = ResolveStartupClientRoot(game_root);
-  ArchiveProbeNativeRoots roots;
-  roots.data_root = ResolveDataDir(startup_root);
-  if (!GetStartupFileSystemState().executable_base_path.empty()) {
-    const auto upper_root =
-        ResolveStartupClientDirectory(startup_root).parent_path();
-    if (!upper_root.empty()) {
-      roots.parent_data_root = ResolveDataDir(upper_root);
-    }
-  } else {
-    roots.parent_data_root = ResolveSiblingDataDir(startup_root);
-  }
-  if (!retail_install_root.empty()) {
-    roots.retail_data_root = ResolveDataDir(retail_install_root);
-  }
-  return roots;
-}
-
-bool BuildArchiveProbePath(int root_index,
-                           const std::filesystem::path& game_root,
-                           const std::filesystem::path& retail_install_root,
-                           const std::string& suffix_template,
-                           const std::string& placeholder_value,
-                           std::filesystem::path* out) {
-
-  const auto probe_path = BuildArchiveProbePathNative(
-      root_index,
-      ResolveArchiveProbeNativeRoots(game_root, retail_install_root),
-      suffix_template,
-      placeholder_value.c_str());
-  if (!probe_path.has_value() || !out) {
-    return false;
-  }
-
-  *out = *probe_path;
-  return true;
-}
-
-std::optional<std::filesystem::path> FindArchiveAcrossRoots(
-    const std::filesystem::path& game_root,
-    const std::filesystem::path& retail_install_root,
-    const std::string& archive_name) {
-  for (int root_index = 0; root_index < 3; ++root_index) {
-    std::filesystem::path candidate;
-    if (BuildArchiveProbePath(root_index,
-                              game_root,
-                              retail_install_root,
-                              archive_name,
-                              "",
-                              &candidate) &&
-        openwow::platform::filesystem::PathIsRegularFile(candidate)) {
-      return candidate;
-    }
-  }
-  return std::nullopt;
-}
-
-bool HasCommonArchiveLayout(const std::filesystem::path& game_root,
-                            const std::filesystem::path& retail_install_root) {
-  return ProbeCommonArchiveLayout(game_root, retail_install_root);
-}
-
 bool AnyExists(const openwow::vfs::VirtualFileSystem& vfs,
                const std::vector<std::string>& candidates) {
   for (const auto& c : candidates)
@@ -451,129 +74,6 @@ bool AnyExists(const openwow::vfs::VirtualFileSystem& vfs,
   return false;
 }
 
-std::vector<std::filesystem::path> CollectNumberedPatches(
-    const std::filesystem::path& dir,
-    const std::string& base_stem) {
-  std::vector<std::pair<int, std::filesystem::path>> found;
-  const auto lower_base = ToLowerAscii(base_stem);
-  std::error_code ec;
-  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-    if (ec) break;
-    if (!std::filesystem::is_regular_file(entry, ec) || ec) continue;
-    const auto stem = entry.path().stem().string();
-    const auto ext  = entry.path().extension().string();
-    if (!EqualsAsciiInsensitive(ext, ".MPQ")) continue;
-    const auto lower_stem = ToLowerAscii(stem);
-    if (lower_stem.size() <= lower_base.size()) continue;
-    if (lower_stem.substr(0, lower_base.size()) != lower_base) continue;
-    const auto tail = lower_stem.substr(lower_base.size());
-    if (tail.empty() || tail[0] != '-') continue;
-    const auto num_str = tail.substr(1);
-    if (num_str.empty()) continue;
-    bool all_digits = true;
-    for (char c : num_str) { if (c < '0' || c > '9') { all_digits = false; break; } }
-    if (!all_digits) continue;
-    found.emplace_back(std::stoi(num_str), entry.path());
-  }
-  std::sort(found.begin(), found.end(),
-            [](const auto& a, const auto& b) { return a.first < b.first; });
-  std::vector<std::filesystem::path> result;
-  result.reserve(found.size());
-  for (auto& [n, p] : found) result.push_back(std::move(p));
-  return result;
-}
-
-std::vector<std::filesystem::path> BuildStartupPatchChain(
-    const std::filesystem::path& data_dir,
-    const std::string& locale_token) {
-
-  std::vector<std::filesystem::path> patch_chain;
-
-  const auto global_patch = data_dir / "patch.MPQ";
-  if (openwow::platform::filesystem::PathIsRegularFile(global_patch)) {
-    patch_chain.push_back(global_patch);
-  }
-
-  auto global_numbered = CollectNumberedPatches(data_dir, "patch");
-  std::sort(global_numbered.begin(), global_numbered.end(),
-            [](const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
-              return openwow::core::SStrCmpNoCase(
-                         lhs.filename().string().c_str(),
-                         rhs.filename().string().c_str(),
-                         0x7FFFFFFFu) < 0;
-            });
-  for (const auto& p : global_numbered) {
-    patch_chain.push_back(p);
-  }
-
-  if (locale_token.size() >= 4) {
-    const auto locale_patch =
-        data_dir / locale_token / ("patch-" + locale_token + ".MPQ");
-    if (openwow::platform::filesystem::PathIsRegularFile(locale_patch)) {
-      patch_chain.push_back(locale_patch);
-    }
-
-    auto locale_numbered = CollectNumberedPatches(
-        data_dir / locale_token, "patch-" + locale_token);
-    std::sort(locale_numbered.begin(), locale_numbered.end(),
-              [](const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
-                return openwow::core::SStrCmpNoCase(
-                           lhs.filename().string().c_str(),
-                           rhs.filename().string().c_str(),
-                           0x7FFFFFFFu) < 0;
-              });
-    for (const auto& p : locale_numbered) {
-      patch_chain.push_back(p);
-    }
-  }
-
-  return patch_chain;
-}
-
-bool TryMountArchiveByName(openwow::vfs::VirtualFileSystem* vfs,
-                           const std::filesystem::path& game_root,
-                           const std::filesystem::path& retail_install_root,
-                           const std::string& archive_name,
-                           const std::vector<std::filesystem::path>& patch_chain,
-                           int priority) {
-  const auto archive_path =
-      FindArchiveAcrossRoots(game_root, retail_install_root, archive_name);
-  if (!archive_path.has_value()) {
-    return false;
-  }
-
-  Log(LogLevel::kInfo,
-      "[MPQ] Mount priority " + std::to_string(priority) + ": " +
-          archive_path->string());
-  for (const auto& patch : patch_chain) {
-    Log(LogLevel::kInfo, "[MPQ]   + patch: " + patch.string());
-  }
-
-  vfs->Mount({
-      .id = "mpq:" + ToLowerAscii(archive_name),
-      .kind = openwow::vfs::MountKind::kMpqArchive,
-      .source_root = *archive_path,
-      .mpq_patches = patch_chain,
-      .priority = priority,
-      .enabled = true,
-  });
-  return true;
-}
-
-}
-
-bool BackupLegacyGlueFilesystemOverrides(const std::string& game_data_root) {
-  bool attempted = false;
-  for (const auto& root :
-       CollectLoginFilesystemRoots(std::filesystem::path(game_data_root))) {
-    attempted = BackupNamedDirectoryIfPresent(root, "Interface/GlueXML") || attempted;
-    attempted = BackupNamedDirectoryIfPresent(root, "Interface/FrameXML") || attempted;
-    attempted = BackupLegacyBlizzardAddonsInRoot(root) || attempted;
-  }
-  if (attempted) {
-    openwow::vfs::InvalidateSFileLooseManifestCache();
-  }
-  return attempted;
 }
 
 std::string DetectLocale(const std::string& game_data_root,
@@ -585,17 +85,20 @@ std::string DetectLocale(const std::string& game_data_root,
     return preferred_locale;
   }
 
-  const auto data_dir = ResolveDataDir(fs::path(game_data_root));
+  const auto data_dir = ResolveExistingDataDir(fs::path(game_data_root));
   if (data_dir.empty() || !fs::is_directory(data_dir)) {
     Log(LogLevel::kWarn, "[Locale] Cannot resolve Data directory from: " + game_data_root);
     return {};
   }
 
   for (const char* loc : GetStartupLocaleRing()) {
-    auto probe = data_dir / loc / ("locale-" + std::string(loc) + ".MPQ");
-    if (openwow::platform::filesystem::PathIsRegularFile(probe)) {
+    const std::string relative =
+        std::string(loc) + "/locale-" + std::string(loc) + ".MPQ";
+    auto probe = ResolveExistingRelativePathCaseInsensitive(data_dir, relative);
+    if (probe.has_value() &&
+        openwow::platform::filesystem::PathIsRegularFile(*probe)) {
       Log(LogLevel::kInfo, "[Locale] Detected locale: " + std::string(loc)
-                               + " (found " + probe.string() + ")");
+                               + " (found " + probe->string() + ")");
       return std::string(loc);
     }
   }
@@ -628,7 +131,7 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
         .id = "base-game-data",
         .kind = openwow::vfs::MountKind::kFilesystem,
         .source_root = game_root,
-        .priority = 100,
+        .priority = kLooseClientRootPriority,
         .enabled = true,
     });
 
@@ -638,7 +141,7 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
           .id = "base-game-data-data-subdir",
           .kind = openwow::vfs::MountKind::kFilesystem,
           .source_root = extracted_data_dir,
-          .priority = 90,
+          .priority = kLooseDataDirectoryPriority,
           .enabled = true,
       });
 
@@ -649,7 +152,7 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
               .id = "base-game-data-parent",
               .kind = openwow::vfs::MountKind::kFilesystem,
               .source_root = parent,
-              .priority = 80,
+              .priority = kLooseParentRootPriority,
               .enabled = true,
             });
         }
@@ -658,44 +161,25 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
 
     const bool has_common_archive =
         HasCommonArchiveLayout(game_root, resolved_retail_root);
-    const std::string locale_token =
-        has_common_archive
-            ? DetectLocaleRing(NormalizeConfiguredLocale(locale),
-                               game_root.string(),
-                               resolved_retail_root.string())
-            : kSplitLayoutLocaleToken;
-    const auto patch_chain =
-        BuildStartupPatchChain(ResolveDataDir(game_root), locale_token);
+    MountStartupArchives(
+        &vfs,
+        {
+            .game_root = game_root,
+            .retail_install_root = resolved_retail_root,
+            .locale_token =
+                has_common_archive
+                    ? DetectLocaleRing(NormalizeConfiguredLocale(locale),
+                                       game_root.string(),
+                                       resolved_retail_root.string())
+                    : kSplitLayoutLocaleToken,
 
-    int total = 1;
-    total += has_common_archive ? static_cast<int>(kCommonArchiveTable.size())
-                                : static_cast<int>(kSplitArchiveTable.size());
-    int cur = 0;
+            .layout_flags = has_common_archive ? kArchiveLayoutFlagsCommon
+                                               : kArchiveLayoutFlagsSplit,
 
-    auto fire_progress = [&](const std::string& name) {
-      if (progress) progress(name, ++cur, total);
-    };
-
-    int priority = 200;
-    fire_progress(kAlternateArchiveName);
-    TryMountArchiveByName(
-        &vfs, game_root, resolved_retail_root, kAlternateArchiveName, patch_chain, priority++);
-    if (has_common_archive) {
-      for (const char* archive_name : kCommonArchiveTable) {
-        const std::string expanded =
-            ReplaceArchiveLocalePlaceholdersExact(archive_name,
-                                                  locale_token.c_str());
-        fire_progress(expanded);
-        TryMountArchiveByName(
-            &vfs, game_root, resolved_retail_root, expanded, patch_chain, priority++);
-      }
-    } else {
-      for (const char* archive_name : kSplitArchiveTable) {
-        fire_progress(archive_name);
-        TryMountArchiveByName(
-            &vfs, game_root, resolved_retail_root, archive_name, patch_chain, priority++);
-      }
-    }
+            .online_mode = IsOnlineModeActive(),
+            .streaming_ready = IsStreamingInitialized(),
+            .progress = std::move(progress),
+        });
   }
 
   if (!enhanced_assets_root.empty()) {
@@ -703,14 +187,15 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
         .id = "enhanced-override",
         .kind = openwow::vfs::MountKind::kEnhancedOverride,
         .source_root = enhanced_assets_root,
-        .priority = 1000,
+        .priority = kEnhancedOverridePriority,
         .enabled = true,
     });
   }
 
   vfs.PrewarmMpqArchives();
 
-  vfs.PrewarmFileEnumeration("/Interface/AddOns", true);
+  vfs.PrewarmFileEnumeration("/Interface/AddOns", true,
+                             openwow::vfs::MountKind::kMpqArchive);
 
   return vfs;
 }
@@ -776,17 +261,14 @@ std::string DetectLocaleRing(const std::string& preferred_locale,
   }
 
   StartupLocaleAvailability available{};
+  const auto probe_roots =
+      ResolveArchiveProbeNativeRoots(game_root, resolved_retail_root);
   for (std::size_t i = 0; i < locale_ring.size(); ++i) {
     const char* lc = locale_ring[i];
     for (int root_index = 0; root_index < 3; ++root_index) {
-      std::filesystem::path probe;
-      if (BuildArchiveProbePath(root_index,
-                                game_root,
-                                resolved_retail_root,
-                                "****\\locale-****.MPQ",
-                                lc,
-                                &probe) &&
-          openwow::platform::filesystem::PathIsRegularFile(probe)) {
+      if (ResolveArchiveProbeFileNative(root_index, probe_roots,
+                                        "****\\locale-****.MPQ", lc)
+              .has_value()) {
         available[i] = true;
         break;
       }

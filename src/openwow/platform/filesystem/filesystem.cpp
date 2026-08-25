@@ -230,6 +230,71 @@ std::optional<std::string> ResolveExistingPathComponentCaseInsensitive(
              : std::optional<std::string>(std::string(requested));
 }
 
+std::optional<std::filesystem::path> ResolveExistingRelativePathCaseInsensitive(
+    const std::filesystem::path& root, const std::string_view relative) {
+  if (root.empty()) {
+    return std::nullopt;
+  }
+
+  std::error_code ec;
+  if (!std::filesystem::is_directory(root, ec) || ec) {
+    return std::nullopt;
+  }
+
+  std::filesystem::path current = root;
+  std::string component;
+  component.reserve(relative.size());
+
+  const auto flush_component = [&]() -> bool {
+    if (component.empty() || component == ".") {
+      component.clear();
+      return true;
+    }
+    if (component == "..") {
+      component.clear();
+      return false;
+    }
+
+    std::error_code iterate_ec;
+    std::optional<std::filesystem::path> matched;
+    for (std::filesystem::directory_iterator it(current, iterate_ec), end;
+         !iterate_ec && it != end; it.increment(iterate_ec)) {
+      const std::string name = it->path().filename().string();
+      if (name == component) {
+        matched = it->path();
+        break;
+      }
+      if (!matched.has_value() && EqualsIgnoreCaseAscii(name, component)) {
+        matched = it->path();
+      }
+    }
+
+    component.clear();
+    if (iterate_ec || !matched.has_value()) {
+      return false;
+    }
+
+    current = *matched;
+    return true;
+  };
+
+  for (const char ch : relative) {
+    if (ch == '\\' || ch == '/') {
+      if (!flush_component()) {
+        return std::nullopt;
+      }
+      continue;
+    }
+    component.push_back(ch);
+  }
+
+  if (!flush_component()) {
+    return std::nullopt;
+  }
+
+  return current;
+}
+
 bool CopyFilePath(const std::filesystem::path& source,
                   const std::filesystem::path& destination,
                   bool overwrite) {
