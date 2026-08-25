@@ -104,10 +104,24 @@ std::string DescribeArchiveOpenError(const std::uint32_t code) {
     default: {
 
       char buffer[256] = {};
+#if defined(_WIN32)
+      if (::strerror_s(buffer, sizeof(buffer), static_cast<int>(code)) != 0) {
+        return "errno " + std::to_string(code);
+      }
+      return std::string(buffer);
+#elif defined(__GLIBC__) && defined(_GNU_SOURCE)
+      const char* message =
+          ::strerror_r(static_cast<int>(code), buffer, sizeof(buffer));
+      if (message == nullptr || *message == '\0') {
+        return "errno " + std::to_string(code);
+      }
+      return std::string(message);
+#else
       if (::strerror_r(static_cast<int>(code), buffer, sizeof(buffer)) != 0) {
         return "errno " + std::to_string(code);
       }
       return std::string(buffer);
+#endif
     }
   }
 }

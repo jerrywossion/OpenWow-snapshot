@@ -43,6 +43,11 @@ M2ResourcePreparationResult M2GpuResources::Commit(
   }
   const bool has_geometry = !resource.skin_geometry.vertices.empty() &&
                             !resource.skin_geometry.indices.empty();
+
+  if (!has_geometry && resource.HasRenderMaterialData()) {
+    return Failure(M2ResultReason::kGpuGeometryNotReady,
+                   "render batches without skin geometry");
+  }
   if (has_geometry) {
     if (!EnsureShaders()) {
       return Failure(M2ResultReason::kGpuGeometryNotReady,
