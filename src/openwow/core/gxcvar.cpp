@@ -448,6 +448,10 @@ const char *GetRetailDefaultGxApiCVarValue() {
 }
 
 bool IsSimplifiedChineseClientLocale() {
+  const auto &cvars = openwow::ui::game::CVarSystem::Instance();
+  if (cvars.Exists("locale") && cvars.GetCVar("locale") == "zhCN") {
+    return true;
+  }
   return openwow::game::ClientConfig::Get().GetLocale() == "zhCN";
 }
 

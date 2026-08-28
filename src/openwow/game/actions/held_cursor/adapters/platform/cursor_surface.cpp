@@ -354,7 +354,7 @@ bool CursorSurface::Initialize(SDL_Window* window) {
   if (cvars.Exists("gxCursor") && !cvars.GetCVarBool("gxCursor")) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kInfo,
-        "CursorSurface: macOS uses native hardware cursor presentation despite gxCursor=0");
+        "CursorSurface: macOS uses native Point cursor presentation with software game cursors");
   }
 #endif
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, "CursorSurface: initialized");
@@ -738,11 +738,15 @@ std::pair<int, int> CursorSurface::CursorTypeToHotspot(CursorType ) {
 }
 
 bool CursorSurface::WantsHardwareCursor() const {
-#if defined(__APPLE__)
-  return true;
-#else
   const auto& cvars = openwow::ui::game::CVarSystem::Instance();
-  return !cvars.Exists("gxCursor") || cvars.GetCVarBool("gxCursor");
+  if (!cvars.Exists("gxCursor") || cvars.GetCVarBool("gxCursor")) {
+    return true;
+  }
+#if defined(__APPLE__)
+  return !runtime_cursor_enabled_ && !custom_cursor_active_ &&
+         current_retail_type_ == 1u;
+#else
+  return false;
 #endif
 }
 
