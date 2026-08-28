@@ -14,6 +14,7 @@
 #include "openwow/ui/game/framescript/widgets/edit_box_methods.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_state.h"
 #include "openwow/ui/game/runtime/frame_input_router.h"
+#include "openwow/ui/game/runtime/frame_script_handler_fields.h"
 #include "openwow/ui/game/runtime/frame_store.h"
 #include "openwow/ui/game/runtime/frame_template_expander.h"
 #include "openwow/ui/game/runtime/frame_traversal_index.h"
@@ -103,7 +104,13 @@ void InitializeRuntimeMetadata(UiFrame& frame) {
   frame.runtime_uses_mouse_wheel = false;
   frame.runtime_uses_keyboard = frame.enable_keyboard;
   for (const auto& handler : frame.script_handlers) {
-
+    frame.runtime_uses_mouse |= std::any_of(
+        runtime::kMouseCategoryHandlerFields.begin(),
+        runtime::kMouseCategoryHandlerFields.end(),
+        [&](const runtime::FrameScriptHandlerFields& input_handler) {
+          return openwow::text::EqualsIgnoreCaseAscii(
+              handler.event, input_handler.direct);
+        });
     frame.runtime_uses_mouse_wheel |=
         openwow::text::EqualsIgnoreCaseAscii(handler.event, "OnMouseWheel");
   }
@@ -285,9 +292,16 @@ void FrameMaterializer::SyncRuntimeMetadata(int frame_index, UiFrame& frame) {
   auto mouse = optional_boolean("__ow_mouse_enabled");
   if (!mouse.has_value()) mouse = optional_boolean("__ow_enableMouse");
 
+  const bool has_mouse_handler = std::any_of(
+      runtime::kMouseCategoryHandlerFields.begin(),
+      runtime::kMouseCategoryHandlerFields.end(),
+      [&](const runtime::FrameScriptHandlerFields& handler) {
+        return has_handler(handler.direct);
+      });
   frame.runtime_uses_mouse =
       mouse.value_or(
-          openwow::ui::framexml::StockConstructorEnablesMouse(frame.kind));
+          openwow::ui::framexml::StockConstructorEnablesMouse(frame.kind) ||
+          has_mouse_handler);
   frame.runtime_uses_mouse_wheel = optional_boolean("__ow_mousewheel_enabled")
                                        .value_or(has_handler("OnMouseWheel"));
   auto keyboard = optional_boolean("__ow_keyboard_enabled");

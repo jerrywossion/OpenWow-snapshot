@@ -137,6 +137,18 @@ inline constexpr HandlerOrdinals kMouseWheelHandler{
                                          runtime::kMouseWheelHandlerFields.direct),
 };
 
+inline constexpr auto kMouseCategoryHandlers = [] {
+  std::array<HandlerOrdinals, runtime::kMouseCategoryHandlerFields.size()>
+      handlers{};
+  for (std::size_t index = 0; index < handlers.size(); ++index) {
+    handlers[index].stored = InternedLuaFieldKeyOrdinal(
+        kNames, runtime::kMouseCategoryHandlerFields[index].stored);
+    handlers[index].direct = InternedLuaFieldKeyOrdinal(
+        kNames, runtime::kMouseCategoryHandlerFields[index].direct);
+  }
+  return handlers;
+}();
+
 struct Source {
   int table;
   int keys;
@@ -1464,7 +1476,12 @@ static bool LuaFrameUsesMouseCategory(lua_State* L,
     return explicit_value;
   }
 
-  return openwow::ui::framexml::StockConstructorEnablesMouse(kind);
+  return openwow::ui::framexml::StockConstructorEnablesMouse(kind) ||
+         std::any_of(metadata_field::kMouseCategoryHandlers.begin(),
+                     metadata_field::kMouseCategoryHandlers.end(),
+                     [&](const metadata_field::HandlerOrdinals& handler) {
+                       return LuaFrameHasHandler(L, source, handler);
+                     });
 }
 
 static bool LuaFrameUsesMouseWheelCategory(

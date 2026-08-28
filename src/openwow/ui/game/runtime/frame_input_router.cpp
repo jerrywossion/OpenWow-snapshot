@@ -162,8 +162,7 @@ bool FrameUsesMouse(lua_State *state, const FrameStore &frames, std::string_view
         GetOptionalBooleanField(state, -1, "__ow_enableMouse", &enabled))) {
 
     const auto *frame = frames.FindFrame(frame_name);
-    enabled = frame != nullptr &&
-              openwow::ui::framexml::StockConstructorEnablesMouse(frame->kind);
+    enabled = frame != nullptr && frame->runtime_uses_mouse;
   }
   lua_settop(state, top);
   return enabled;
