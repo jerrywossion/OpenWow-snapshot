@@ -941,9 +941,16 @@ void WorldSession::OnLocalPlayerCreated(const ObjectGuid &guid) {
   interaction_.SendLfgGetStatus();
   interaction_.SendLfdPlayerLockInfoRequest();
 
+  // FrameXML is already live when the authoritative inventory post-image is
+  // installed. Preserve its container deltas until the object batch commits,
+  // and rehydrate controls that sampled the pre-player state during OnLoad.
   inventory_bridge_.FullResync();
-  (void)inventory_bridge_.ConsumeChangedContainers();
   QueueEquipmentPresentation();
+  ui::game::ScriptEventDispatch::Get().FireUnitInventoryChanged(
+      guid.GetRawValue());
+  if (!update_object_batch_active_) {
+    FlushInventoryReplicaTransaction();
+  }
   if (group_.IsRaid()) {
     const bool had_pending_raid_self_resolution = pending_raid_roster_local_player_resolution_;
     SyncObservedGroupStateToGroupSystem();

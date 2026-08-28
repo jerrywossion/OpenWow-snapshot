@@ -50,10 +50,15 @@ struct LuaTooltipObjectState final {
     std::string anchor;
     float minimum_width{0.0F};
     float padding{0.0F};
+    std::size_t committed_line_count{0u};
+    std::size_t committed_texture_count{0u};
+    float committed_minimum_width{0.0F};
+    float committed_padding{0.0F};
     float status_bar_min{0.0F};
     float status_bar_max{1.0F};
     float status_bar_value{0.0F};
     bool force_minimum_width{false};
+    bool committed_force_minimum_width{false};
     bool shown{false};
     bool has_status_bar{false};
     bool operator==(const PublishedPresentation&) const = default;
@@ -70,10 +75,16 @@ LuaTooltipObjectState::PublishedPresentation CapturePresentation(
       .anchor = tooltip.GetAnchor(),
       .minimum_width = tooltip.GetMinimumWidth(),
       .padding = tooltip.GetPadding(),
+      .committed_line_count = tooltip.GetCommittedLineCount(),
+      .committed_texture_count = tooltip.GetCommittedTextureCount(),
+      .committed_minimum_width = tooltip.GetCommittedMinimumWidth(),
+      .committed_padding = tooltip.GetCommittedPadding(),
       .status_bar_min = tooltip.GetStatusBarMin(),
       .status_bar_max = tooltip.GetStatusBarMax(),
       .status_bar_value = tooltip.GetStatusBarValue(),
       .force_minimum_width = tooltip.IsForceMinWidth(),
+      .committed_force_minimum_width =
+          tooltip.IsCommittedForceMinWidth(),
       .shown = tooltip.IsShown(),
       .has_status_bar = tooltip.HasStatusBar(),
   };
@@ -153,7 +164,7 @@ int DispatchLuaTooltipObjectMethod(lua_State* L) {
 }
 
 void LuaTooltipObjectState::SynchronizeRetainedFrame(
-    const bool fire_data_event) {
+    bool fire_data_event) {
   if (lua == nullptr || synchronizing) {
     return;
   }
@@ -172,6 +183,13 @@ void LuaTooltipObjectState::SynchronizeRetainedFrame(
   {
     TooltipSystem::ScopedActivation activation(tooltip);
     FirePendingTooltipMoneyScript(lua, tooltip_index);
+    const bool finalize_item_presentation =
+        fire_data_event && tooltip.GetItemId() != 0u;
+    if (finalize_item_presentation) {
+      FireDataEvent();
+      fire_data_event = false;
+      tooltip.Show();
+    }
     auto presentation = CapturePresentation(tooltip);
     if (!published_presentation.has_value() ||
         *published_presentation != presentation) {

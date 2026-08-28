@@ -11,7 +11,6 @@ inline constexpr std::string_view kPortraitIconTextureKeyPrefix =
     "__openwow_portrait_icon__|";
 inline constexpr std::string_view kPortraitIconMaskTexturePath =
     "Interface\\CharacterFrame\\TempPortraitAlphaMaskSmall";
-inline constexpr std::uint8_t kPortraitIconTextureMipLevel = 2u;
 inline constexpr std::uint32_t kPortraitIconTextureExtent = 64u;
 
 inline std::string BuildPortraitIconTextureKey(

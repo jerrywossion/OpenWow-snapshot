@@ -10,6 +10,7 @@
 #include "openwow/ui/game/framescript/core/frame_region_factory.h"
 #include "openwow/ui/game/framescript/core/frame_runtime_identity.h"
 #include "openwow/ui/game/framescript/core/lua_script_object_access.h"
+#include "openwow/ui/game/framescript/widgets/button_method_support.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_methods.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_state.h"
 #include "openwow/ui/game/runtime/frame_input_router.h"
@@ -107,6 +108,22 @@ void InitializeRuntimeMetadata(UiFrame& frame) {
         openwow::text::EqualsIgnoreCaseAscii(handler.event, "OnMouseWheel");
   }
   frame.runtime_state_initialized = true;
+}
+
+void ApplyImplicitAuthoredTextureGeometry(UiFrame& frame) {
+  if (openwow::ui::framexml::DeriveUiFrameRuntimeKind(frame.kind) !=
+          openwow::ui::framexml::UiFrame::RuntimeKind::Texture ||
+      frame.set_all_points || frame.set_all_points_explicit ||
+      !frame.anchors.empty() || frame.width.has_value() ||
+      frame.height.has_value() || frame.rel_width.has_value() ||
+      frame.rel_height.has_value()) {
+    return;
+  }
+
+  // Build 12340 makes an authored Texture with no explicit geometry fill its
+  // owner. Stock FrameXML relies on this for ItemButton icon regions and many
+  // other textures whose file is assigned later from Lua.
+  frame.set_all_points = true;
 }
 
 void LinkToParent(lua_State* state, int frame, int parent) {
@@ -520,6 +537,9 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
   auto plan = BuildExpandedFramePlan(std::move(root), std::move(local_children),
                                      templates_, parent_scope);
   if (plan.frames.empty()) return LUA_NOREF;
+  for (auto& frame : plan.frames) {
+    ApplyImplicitAuthoredTextureGeometry(frame);
+  }
   ++metrics_.tree_plans;
   metrics_.tree_source_nodes += plan.source_nodes;
   metrics_.tree_inherited_nodes += plan.inherited_nodes;
@@ -670,14 +690,9 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
         if (lua_istable(lua_, -1)) {
           const std::string text = openwow::game::ResolveLocalizedGlobalString(
               lua_, plan.frames[frame].text);
-          lua_getfield(lua_, -1, "SetText");
-          if (lua_isfunction(lua_, -1)) {
-            lua_pushvalue(lua_, -2);
-            const std::string& value =
-                text.empty() ? plan.frames[frame].text : text;
-            lua_pushlstring(lua_, value.data(), value.size());
-            (void)lua_pcall(lua_, 2, 0, 0);
-          }
+          const std::string& value =
+              text.empty() ? plan.frames[frame].text : text;
+          frame_api::SetButtonTextValue(lua_, -1, value.c_str());
         }
         lua_settop(lua_, top);
       }

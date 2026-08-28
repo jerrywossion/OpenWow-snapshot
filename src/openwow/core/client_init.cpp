@@ -1200,8 +1200,14 @@ void RegisterClientInitCVars() {
 
 std::string ResolveClientInitLocale(const std::string &preferred_locale) {
   const auto &startup_state = openwow::data::GetStartupFileSystemState();
-  return openwow::data::DetectLocaleRing(preferred_locale, startup_state.archive_data_path,
-                                         startup_state.retail_install_path_cache);
+  const std::string detected_locale = openwow::data::DetectLocaleRing(
+      preferred_locale, startup_state.archive_data_path,
+      startup_state.retail_install_path_cache);
+  const bool has_common_archive_layout = openwow::data::HasCommonArchiveLayout(
+      startup_state.archive_data_path,
+      startup_state.retail_install_path_cache);
+  return openwow::data::ResolveWowIniArchiveLocale(
+      detected_locale, has_common_archive_layout);
 }
 
 std::string BuildClientInitLocaleDataPath(const std::string &locale) {

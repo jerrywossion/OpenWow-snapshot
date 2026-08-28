@@ -52,7 +52,7 @@ namespace item_targeting = ::openwow::game::inventory::ui;
 
 namespace {
 
-constexpr int kBagPortraitLuaSlotCount = 4;
+constexpr int kBagPortraitLuaSlotCount = 11;
 
 constexpr int kFirstCarriedContainerId = 1;
 constexpr int kLastCarriedContainerId = 4;
@@ -1693,8 +1693,6 @@ int LuaSetBagPortraitTexture(lua_State* L) {
   if (zero_based_slot >= kBagPortraitLuaSlotCount) {
     return luaL_error(L, "Invalid slot in SetBagPortraitTexture");
   }
-
-  SetTextureOverrideField(L, 1, nullptr);
 
   const auto* bag_info = ResolveBagPortraitBagInfo(L, zero_based_slot);
   if (bag_info == nullptr || bag_info->IsEmpty()) {

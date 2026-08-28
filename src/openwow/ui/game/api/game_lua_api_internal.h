@@ -650,6 +650,8 @@ inline void BindPortraitUnitToken(lua_State *L, const int texture_index,
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitUnit,
                         unit_id);
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitGuid, {});
+  auto* const source = runtime::EnsureTextureRenderStateSource(L, texture_index);
+  source->portrait_request = std::make_shared<runtime::TexturePortraitRequest>();
 }
 
 inline void BindPortraitGuid(lua_State *L, const int texture_index, const ObjectGuid &guid) {
@@ -663,6 +665,8 @@ inline void BindPortraitGuid(lua_State *L, const int texture_index, const Object
 
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitGuid,
                         std::string_view(std::to_string(guid.GetRawValue())));
+  auto* const source = runtime::EnsureTextureRenderStateSource(L, texture_index);
+  source->portrait_request = std::make_shared<runtime::TexturePortraitRequest>();
 }
 
 inline int ValidateTextureWidgetArgument(lua_State *L) {

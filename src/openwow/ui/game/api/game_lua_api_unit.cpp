@@ -223,9 +223,7 @@ ResolveFactionTemplateForUnit(const openwow::data::dbc::DbcLoader &dbc,
     }
 
     const auto &identity = session.pending_character_identity();
-    return identity.is_available()
-               ? ResolveFactionTemplateForRace(dbc, identity.race_id)
-               : nullptr;
+    return ResolveFactionTemplateForRace(dbc, identity.race_id);
   }
 
   const auto guid = openwow::game::UnitQueryBridge::Get().ResolveToGuid(&session, unit_id);
@@ -265,13 +263,13 @@ ResolveFactionGroupStrings(const openwow::data::dbc::DbcLoader &dbc,
     if ((faction_template.faction_group & faction_group_mask) == 0u) {
       continue;
     }
-    if (entry.name.empty()) {
+    if (entry.internal_name.empty()) {
       continue;
     }
 
     return {
         .token = entry.internal_name,
-        .localized_name = entry.name,
+        .localized_name = entry.name.empty() ? entry.internal_name : entry.name,
         .valid = true,
     };
   }

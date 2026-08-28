@@ -1002,6 +1002,7 @@ static TextureRenderState& ResetTextureRenderStateForRegion(
 static void BindTexturePortraitFromTokens(
     const std::optional<std::string>& portrait_unit,
     const std::optional<std::string>& portrait_guid,
+    const std::shared_ptr<const void>& request_owner,
     openwow::game::WorldSession* session,
     const openwow::vfs::VirtualFileSystem* vfs,
     openwow::render::PortraitRenderer* portraits,
@@ -1018,7 +1019,7 @@ static void BindTexturePortraitFromTokens(
         }
 
         const auto binding =
-            portraits->Acquire(object->GetGuid(), object->GetDisplayId(),
+            portraits->Acquire(request_owner, object->GetDisplayId(),
                                object->GetPrimaryM2InstanceId(),
                                *portrait_view_id, portrait_view_limit);
         if (!binding.texture.has_value()) {
@@ -1057,6 +1058,8 @@ void BuildTextureRenderStateFromLuaFieldsInto(
   }
   TextureRenderState& state =
       ResetTextureRenderStateForRegion(frame, out_state);
+  const runtime::TextureRenderStateSource* const native_source =
+      runtime::FindTextureRenderStateSource(L, table_index);
 
   const texture_field::Source source{
       .table = lua_absindex(L, table_index),
@@ -1084,6 +1087,7 @@ void BuildTextureRenderStateFromLuaFieldsInto(
     BindTexturePortraitFromTokens(
         texture_field::ReadString(L, source, texture_field::kPortraitUnit),
         texture_field::ReadString(L, source, texture_field::kPortraitGuid),
+        native_source != nullptr ? native_source->portrait_request : nullptr,
         session, vfs, portraits, portrait_view_id, portrait_view_limit,
         state);
   }
@@ -1226,6 +1230,7 @@ void BuildTextureRenderStateInto(
   } else {
     state.texture_path = frame.file;
     BindTexturePortraitFromTokens(source->portrait_unit, source->portrait_guid,
+                                  source->portrait_request,
                                   session, vfs, portraits, portrait_view_id,
                                   portrait_view_limit, state);
   }
@@ -1366,16 +1371,27 @@ bool ShouldRenderNativeTextureRegion(
   if (lua_isboolean(L, -1) != 0 && lua_toboolean(L, -1) == 0) disabled = true;
   lua_pop(L, 1);
 
+  const auto has_texture_slot = [&](const char* const field) {
+    GetInternedLuaField(L, owner_index, field);
+    const bool present = lua_istable(L, -1) != 0;
+    lua_pop(L, 1);
+    return present;
+  };
+  const bool has_disabled_texture =
+      has_texture_slot("__ow_btn_disabled_tex");
+  const bool has_disabled_checked_texture =
+      has_texture_slot("__ow_disabled_checked_tex");
+
   bool visible = false;
   switch (frame.texture_role) {
     case TextureRole::ButtonNormal:
-      visible = !disabled && !pushed;
+      visible = !pushed && (!disabled || !has_disabled_texture);
       break;
     case TextureRole::ButtonPushed:
       visible = !disabled && pushed;
       break;
     case TextureRole::ButtonDisabled:
-      visible = disabled;
+      visible = disabled && has_disabled_texture;
       break;
     case TextureRole::ButtonHighlight:
       visible = !disabled &&
@@ -1384,10 +1400,12 @@ bool ShouldRenderNativeTextureRegion(
                                     frame_api::kLuaFrameHighlightLockField));
       break;
     case TextureRole::CheckButtonChecked:
-      visible = !disabled && GetLuaBooleanField(L, owner_index, "__ow_checked");
+      visible = GetLuaBooleanField(L, owner_index, "__ow_checked") &&
+                (!disabled || !has_disabled_checked_texture);
       break;
     case TextureRole::CheckButtonDisabledChecked:
-      visible = disabled && GetLuaBooleanField(L, owner_index, "__ow_checked");
+      visible = disabled && has_disabled_checked_texture &&
+                GetLuaBooleanField(L, owner_index, "__ow_checked");
       break;
     case TextureRole::SliderThumb:
     case TextureRole::StatusBarFill:

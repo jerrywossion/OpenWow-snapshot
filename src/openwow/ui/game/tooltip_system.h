@@ -169,12 +169,17 @@ class TooltipSystem {
   int GetNumLines() const;
   [[nodiscard]] std::uint64_t GetClearGeneration() const;
   [[nodiscard]] std::uint64_t GetPresentationRevision() const;
+  [[nodiscard]] std::size_t GetCommittedLineCount() const;
+  [[nodiscard]] std::size_t GetCommittedTextureCount() const;
 
   void SetMinimumWidth(float w, bool force = false);
   [[nodiscard]] float GetMinimumWidth() const;
   [[nodiscard]] bool IsForceMinWidth() const;
+  [[nodiscard]] float GetCommittedMinimumWidth() const;
+  [[nodiscard]] bool IsCommittedForceMinWidth() const;
   void SetPadding(float p);
   [[nodiscard]] float GetPadding() const;
+  [[nodiscard]] float GetCommittedPadding() const;
   void ClearTextures();
 
   void AddTexture(const std::string& filename, const float* tex_coords,
@@ -261,6 +266,7 @@ class TooltipSystem {
                                      const openwow::ui::TooltipItemInstanceData* instance_data,
                                      TooltipItemDisplayOptions display_options);
   void ResetPendingWorldGameObjectRefresh();
+  void CommitLayoutState() noexcept;
   void MarkPresentationChanged() noexcept;
   std::uint64_t clear_generation_{0};
   std::uint64_t presentation_revision_{0};
@@ -301,6 +307,13 @@ class TooltipSystem {
   float min_width_ = 0.0f;
   bool force_min_width_ = false;
   float padding_ = 0.0f;
+  // Authored rows remain observable immediately, while Show snapshots the
+  // subset that contributes to the currently published frame extent.
+  std::size_t committed_line_count_ = 0u;
+  std::size_t committed_texture_count_ = 0u;
+  float committed_min_width_ = 0.0f;
+  bool committed_force_min_width_ = false;
+  float committed_padding_ = 0.0f;
   bool fade_active_ = false;
   float fade_timer_ = 0.0f;
   std::vector<TooltipTextureData> textures_;

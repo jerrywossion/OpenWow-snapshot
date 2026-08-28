@@ -10,12 +10,15 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <new>
 #include <optional>
 #include <string>
 #include <string_view>
 
 namespace openwow::ui::game::runtime {
+
+struct TexturePortraitRequest final {};
 
 struct TextureRenderStateSource {
 
@@ -25,6 +28,7 @@ struct TextureRenderStateSource {
 
   std::optional<std::string> portrait_unit;
   std::optional<std::string> portrait_guid;
+  std::shared_ptr<const TexturePortraitRequest> portrait_request;
 
   bool has_tex_coord_quad{false};
   std::array<double, 8> tex_coord_quad{};
@@ -288,6 +292,7 @@ inline void SetTextureRenderStateString(
   switch (field) {
     case TextureRenderStateField::kTexture:
       source->texture = value;
+      source->portrait_request.reset();
       break;
     case TextureRenderStateField::kPortraitUnit:
       source->portrait_unit = value;

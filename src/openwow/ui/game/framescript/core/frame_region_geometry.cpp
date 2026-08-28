@@ -162,8 +162,22 @@ int SetLuaRegionDimension(lua_State *L, const char *method_name,
                       method_name, usage_argument);
   }
 
-  openwow::ui::WriteLuaNumberField(L, self_index, field_name, lua_tonumber(L, 2));
-  MarkLuaFontStringDimensionFromLayout(L, self_index, field_name, true);
+  const double value = lua_tonumber(L, 2);
+  lua_getfield(L, self_index, "__ow_type");
+  const char *type = lua_tostring(L, -1);
+  const bool intrinsic_font_string =
+      value == 0.0 && type != nullptr &&
+      std::strcmp(type, "FontString") == 0;
+  lua_pop(L, 1);
+
+  if (intrinsic_font_string) {
+    lua_pushnil(L);
+    lua_setfield(L, self_index, field_name);
+  } else {
+    openwow::ui::WriteLuaNumberField(L, self_index, field_name, value);
+  }
+  MarkLuaFontStringDimensionFromLayout(
+      L, self_index, field_name, !intrinsic_font_string);
   NotifyFrameInputMutation(L, self_index, false);
   return 0;
 }
