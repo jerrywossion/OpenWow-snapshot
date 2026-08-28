@@ -149,6 +149,8 @@ bool TryGetScriptFrameBoundsRect(lua_State* L, int frame_index,
   return true;
 }
 
+static bool IsLuaFontStringObject(lua_State* L, int index);
+
 int SetLuaRegionDimension(lua_State *L, const char *method_name,
                           const char *usage_argument,
                           const char *field_name) {
@@ -162,8 +164,18 @@ int SetLuaRegionDimension(lua_State *L, const char *method_name,
                       method_name, usage_argument);
   }
 
-  openwow::ui::WriteLuaNumberField(L, self_index, field_name, lua_tonumber(L, 2));
-  MarkLuaFontStringDimensionFromLayout(L, self_index, field_name, true);
+  const double value = lua_tonumber(L, 2);
+  const bool intrinsic_font_string =
+      value == 0.0 && IsLuaFontStringObject(L, self_index);
+
+  if (intrinsic_font_string) {
+    lua_pushnil(L);
+    lua_setfield(L, self_index, field_name);
+  } else {
+    openwow::ui::WriteLuaNumberField(L, self_index, field_name, value);
+  }
+  MarkLuaFontStringDimensionFromLayout(
+      L, self_index, field_name, !intrinsic_font_string);
   NotifyFrameInputMutation(L, self_index, false);
   return 0;
 }
@@ -178,10 +190,20 @@ int SetLuaRegionSize(lua_State *L) {
                       lua_adapter::ScriptObjectDisplayName(L, self_index));
   }
 
-  openwow::ui::WriteLuaNumberField(L, self_index, "__ow_width", lua_tonumber(L, 2));
-  openwow::ui::WriteLuaNumberField(L, self_index, "__ow_height", lua_tonumber(L, 3));
-  MarkLuaFontStringDimensionFromLayout(L, self_index, "__ow_width", true);
-  MarkLuaFontStringDimensionFromLayout(L, self_index, "__ow_height", true);
+  const bool is_font_string = IsLuaFontStringObject(L, self_index);
+  const auto set_axis = [&](const int argument, const char* const field) {
+    const double value = lua_tonumber(L, argument);
+    const bool intrinsic = is_font_string && value == 0.0;
+    if (intrinsic) {
+      lua_pushnil(L);
+      lua_setfield(L, self_index, field);
+    } else {
+      openwow::ui::WriteLuaNumberField(L, self_index, field, value);
+    }
+    MarkLuaFontStringDimensionFromLayout(L, self_index, field, !intrinsic);
+  };
+  set_axis(2, "__ow_width");
+  set_axis(3, "__ow_height");
   NotifyFrameInputMutation(L, self_index, false);
   return 0;
 }

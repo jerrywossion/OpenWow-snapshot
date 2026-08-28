@@ -223,9 +223,7 @@ ResolveFactionTemplateForUnit(const openwow::data::dbc::DbcLoader &dbc,
     }
 
     const auto &identity = session.pending_character_identity();
-    return identity.is_available()
-               ? ResolveFactionTemplateForRace(dbc, identity.race_id)
-               : nullptr;
+    return ResolveFactionTemplateForRace(dbc, identity.race_id);
   }
 
   const auto guid = openwow::game::UnitQueryBridge::Get().ResolveToGuid(&session, unit_id);

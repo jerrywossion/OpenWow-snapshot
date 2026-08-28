@@ -2929,6 +2929,8 @@ void GameLoop::FireWorldUiLifecycleEvent(const openwow::ui::game::WorldUiLifecyc
             openwow::ui::game::events::PLAYER_ENTERING_BATTLEGROUND);
       }
 
+      openwow::ui::game::ScriptEventDispatch::Get().FirePetBarUpdate();
+
       ChatFrame_SetWorldUiReadyAndFlush(world_session()->objects());
     }
     break;

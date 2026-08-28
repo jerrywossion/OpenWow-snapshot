@@ -814,9 +814,15 @@ void ObjectRenderer::PrepareVisibleInstances(
       continue;
     inst.animation_sample_frame = animation_sample_frame_;
 
-    inst.animation_sample_ready =
-        pose_installed &&
-        prepare.SamplePresentation(BuildM2FramePresentationRequest(inst));
+    if (pose_installed) {
+      auto request = BuildM2FramePresentationRequest(inst);
+
+      request.restart =
+          std::exchange(inst.base_animation_restart_pending, false);
+      inst.animation_sample_ready = prepare.SamplePresentation(request);
+    } else {
+      inst.animation_sample_ready = false;
+    }
   }
 }
 
@@ -829,7 +835,8 @@ bool ObjectRenderer::ResolveFrameAnimationSample(
   inst.animation_sample_frame = animation_sample_frame_;
 
   prepare.Suspend();
-  inst.animation_sample_ready = PrepareM2InstanceQuery(inst);
+  inst.animation_sample_ready = PrepareM2InstanceQuery(
+      inst, std::exchange(inst.base_animation_restart_pending, false));
   prepare.Resume();
   return inst.animation_sample_ready;
 }
@@ -1456,7 +1463,8 @@ bool ObjectRenderer::PrepareM2InstanceSpatialQuery(
   return inst.visible_submeshes_applied;
 }
 
-bool ObjectRenderer::PrepareM2InstanceQuery(const RenderInstance &inst) const {
+bool ObjectRenderer::PrepareM2InstanceQuery(const RenderInstance &inst,
+                                            const bool restart) const {
 
   m2::M2InstanceFramePrepareScope prepare(m2_system_);
   RenderMatrix4x4 world_transform{};
@@ -1465,7 +1473,9 @@ bool ObjectRenderer::PrepareM2InstanceQuery(const RenderInstance &inst) const {
   if (!prepared.pose_installed) {
     return false;
   }
-  return prepare.SamplePresentation(BuildM2FramePresentationRequest(inst));
+  auto request = BuildM2FramePresentationRequest(inst);
+  request.restart = restart;
+  return prepare.SamplePresentation(request);
 }
 
 m2::M2InstanceFrameSpatialRequest ObjectRenderer::BuildM2FrameSpatialRequest(
@@ -1904,14 +1914,26 @@ void ObjectRenderer::ApplyProjection(RenderInstance &inst, ObjectProjection &&pr
     const std::uint32_t locomotion_phase_ms = ResolveLocomotionPhaseStartMs(
         m2_system_, inst, projection.unit_animation.resolved_base_animation_id,
         projection.movement_flags);
-    inst.animation.SetAnimationAtPhase(
-        projection.unit_animation.resolved_base_animation_id,
-        projection.unit_animation.base_looping, locomotion_phase_ms);
+
+    if (!projection.unit_animation.base_looping &&
+        projection.unit_animation.resolved_base_animation_id ==
+            inst.animation.current_anim()) {
+      inst.animation.Restart(
+          projection.unit_animation.resolved_base_animation_id,
+          false);
+      inst.base_animation_restart_pending = true;
+    } else {
+      inst.animation.SetAnimationAtPhase(
+          projection.unit_animation.resolved_base_animation_id,
+          projection.unit_animation.base_looping, locomotion_phase_ms);
+    }
 
     if (projection.unit_animation.upper_body_only) {
       inst.upper_animation.Restart(
           projection.unit_animation.resolved_animation_id,
           projection.unit_animation.looping);
+
+      inst.upper_body_restart_pending = true;
     }
     inst.unit_animation = projection.unit_animation;
     inst.hand_pose_body_instance_id = 0u;
@@ -3512,7 +3534,8 @@ void ObjectRenderer::ApplyUpperBodyAnimationChannel(RenderInstance &inst) {
           inst.m2_instance_id, inst.upper_body_animation_slot,
           inst.upper_animation.current_anim(),
           inst.upper_animation.current_time_ms(), 1.0f,
-          inst.unit_animation.zero_blend) ==
+          inst.unit_animation.zero_blend,
+          std::exchange(inst.upper_body_restart_pending, false)) ==
       m2::M2ResultStatus::kReady) {
     inst.upper_body_slot_active = true;
   }

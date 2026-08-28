@@ -1374,8 +1374,10 @@ const WmoSubmitTelemetry& WmoRenderer::Render(
         effective_shader == data::wmo::kShaderEnvMetal ? 1.0f : 0.0f,
         mat && mat->alpha_test ? 1.0f : 0.0f,
     };
+
+    constexpr std::uint32_t kFogVolumeGlowArgb = 0u;
     const RenderVec4 emissive = EvaluateRetailWmoMaterialEmissive(
-        lighting_palette_.material_ambient_argb,
+        kFogVolumeGlowArgb,
         mat != nullptr ? mat->sidn_color_bgra : 0u,
         night_glow_intensity_,
         mat != nullptr && (mat->flags & data::wmo::kMatSidnNight) != 0u);

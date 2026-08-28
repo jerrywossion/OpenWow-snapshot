@@ -10,6 +10,7 @@
 #include "openwow/ui/game/framescript/core/frame_region_factory.h"
 #include "openwow/ui/game/framescript/core/frame_runtime_identity.h"
 #include "openwow/ui/game/framescript/core/lua_script_object_access.h"
+#include "openwow/ui/game/framescript/widgets/button_method_support.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_methods.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_state.h"
 #include "openwow/ui/game/runtime/frame_input_router.h"
@@ -670,14 +671,9 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
         if (lua_istable(lua_, -1)) {
           const std::string text = openwow::game::ResolveLocalizedGlobalString(
               lua_, plan.frames[frame].text);
-          lua_getfield(lua_, -1, "SetText");
-          if (lua_isfunction(lua_, -1)) {
-            lua_pushvalue(lua_, -2);
-            const std::string& value =
-                text.empty() ? plan.frames[frame].text : text;
-            lua_pushlstring(lua_, value.data(), value.size());
-            (void)lua_pcall(lua_, 2, 0, 0);
-          }
+          const std::string& value =
+              text.empty() ? plan.frames[frame].text : text;
+          frame_api::SetButtonTextValue(lua_, -1, value.c_str());
         }
         lua_settop(lua_, top);
       }

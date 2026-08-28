@@ -44,6 +44,25 @@ constexpr std::uint32_t kStormWholeStringCompareLength = 0x7FFFFFFFu;
 
 constexpr std::size_t kWowIniLocaleTagLength = 4;
 
+int FindWowLocaleIndex(const std::string& locale) {
+  const bool en_gb =
+      openwow::core::SStrCmpNoCase(locale.c_str(), "enGB",
+                                   kStormWholeStringCompareLength) == 0;
+  for (std::size_t index = 0; index < kWowIniLocaleTable.size(); ++index) {
+    const bool matches_locale =
+        openwow::core::SStrCmpNoCase(locale.c_str(), kWowIniLocaleTable[index],
+                                     kStormWholeStringCompareLength) == 0;
+    const bool matches_en_gb_alias =
+        en_gb && openwow::core::SStrCmpNoCase(
+                     kWowIniLocaleTable[index], "enUS",
+                     kStormWholeStringCompareLength) == 0;
+    if (matches_locale || matches_en_gb_alias) {
+      return static_cast<int>(index);
+    }
+  }
+  return -1;
+}
+
 bool ResizeRegisteredArchiveHandleArray(const std::size_t new_capacity) {
   g_registered_archive_handle_capacity = new_capacity;
 
@@ -184,29 +203,16 @@ std::string ResolveWowIniArchiveLocale(const std::string& locale_token,
   g_current_locale.country = read_wow_ini("Country");
 
   if (g_current_locale.language.empty() || g_current_locale.country.empty()) {
+
+    g_current_locale.locale_index = FindWowLocaleIndex(locale_token);
     return locale_token;
   }
 
   const std::string wow_ini_locale =
       (g_current_locale.language + g_current_locale.country)
           .substr(0, kWowIniLocaleTagLength);
-  const bool en_gb =
-      openwow::core::SStrCmpNoCase(wow_ini_locale.c_str(), "enGB",
-                                   kStormWholeStringCompareLength) == 0;
-
-  for (std::size_t index = 0; index < kWowIniLocaleTable.size(); ++index) {
-    const bool matches_locale =
-        openwow::core::SStrCmpNoCase(wow_ini_locale.c_str(),
-                                     kWowIniLocaleTable[index],
-                                     kStormWholeStringCompareLength) == 0;
-    const bool matches_en_gb_alias =
-        en_gb && openwow::core::SStrCmpNoCase(kWowIniLocaleTable[index], "enUS",
-                                              kStormWholeStringCompareLength) == 0;
-    if (!matches_locale && !matches_en_gb_alias) {
-      continue;
-    }
-
-    g_current_locale.locale_index = static_cast<int>(index);
+  g_current_locale.locale_index = FindWowLocaleIndex(wow_ini_locale);
+  if (g_current_locale.locale_index >= 0) {
     if ((layout_flags & kArchiveLayoutFlagsSplit) != 0) {
       if (callbacks.cvar_set_string) {
         callbacks.cvar_set_string("locale", wow_ini_locale);
@@ -215,7 +221,6 @@ std::string ResolveWowIniArchiveLocale(const std::string& locale_token,
       }
       return wow_ini_locale;
     }
-    break;
   }
 
   return locale_token;

@@ -268,20 +268,24 @@ static std::optional<std::string> ResolvePlayerInventoryTexturePath(
 
   if (slot >= kEquipmentSlotStart && slot <= kEquipmentSlotEnd &&
       player.GetVisibleItemEntry(static_cast<std::uint8_t>(slot)) != 0) {
-    return adapter.VisibleItemIcon(
-        L, player, static_cast<std::uint8_t>(slot));
+    if (auto icon = adapter.VisibleItemIcon(
+            L, player, static_cast<std::uint8_t>(slot));
+        icon.has_value()) {
+      return icon;
+    }
   }
 
   if (!owner.is_active_player) {
     return std::nullopt;
   }
 
-  const auto* item = GetLocalInventoryItemByAbsoluteSlot(L, slot);
-  if (item == nullptr || item->IsPendingRemoval()) {
+  const auto* item = adapter.inventory().GetItemInSlot(
+      static_cast<std::uint8_t>(slot));
+  if (item == nullptr || item->IsEmpty()) {
     return std::nullopt;
   }
 
-  const auto entry = item->GetEntry();
+  const auto entry = item->entry;
   if (entry == 0) {
     return std::nullopt;
   }

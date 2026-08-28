@@ -300,12 +300,13 @@ struct CameraClearancePrism {
   std::array<float, 6> world_bounds{};
 };
 
-constexpr float kCameraClearanceQuadScale = 1.75f;
+constexpr float kCameraClearanceDoodadQuadScale = 1.0f;
+constexpr float kCameraClearanceWorldQuadScale = 1.75f;
 
 std::optional<CameraClearancePrism> BuildCameraClearancePrism(
     const std::array<float, 3>& pivot, const std::array<float, 3>& eye,
     const float near_plane, const float arm, const float vertical_fov,
-    const float aspect, const float far_plane) {
+    const float aspect, const float far_plane, const float quad_scale) {
   if (!(arm > near_plane) || vertical_fov <= 0.0f || aspect <= 0.0f ||
       !(far_plane > near_plane)) {
     return std::nullopt;
@@ -344,9 +345,8 @@ std::optional<CameraClearancePrism> BuildCameraClearancePrism(
               prism.right[0] * prism.axis[1] - prism.right[1] * prism.axis[0]};
 
   const float tan_half_v = std::tan(vertical_fov * 0.5f);
-  prism.half_height = tan_half_v * near_plane * kCameraClearanceQuadScale;
-  prism.half_width =
-      tan_half_v * aspect * near_plane * kCameraClearanceQuadScale;
+  prism.half_height = tan_half_v * near_plane * quad_scale;
+  prism.half_width = tan_half_v * aspect * near_plane * quad_scale;
 
   prism.world_bounds = {std::numeric_limits<float>::max(),
                         std::numeric_limits<float>::max(),
@@ -373,14 +373,15 @@ std::optional<CameraClearancePrism> BuildCameraClearancePrism(
   return prism;
 }
 
-float PrismPenetrationFraction(const CameraClearancePrism& prism,
-                               const openwow::world::CollisionFacetView& facet) {
+float PrismPenetrationFraction(
+    const CameraClearancePrism& prism,
+    const std::array<std::array<float, 3>, 3>& vertices) {
 
   std::array<std::array<float, 3>, 9> polygon{};
   std::array<std::array<float, 3>, 9> scratch{};
   std::size_t count = 3;
   for (std::size_t index = 0; index < 3; ++index) {
-    const auto& vertex = facet.vertices[index];
+    const auto& vertex = vertices[index];
     const std::array<float, 3> offset{vertex[0] - prism.eye[0],
                                       vertex[1] - prism.eye[1],
                                       vertex[2] - prism.eye[2]};
@@ -810,26 +811,46 @@ WorldScene::WorldScene(render::TextureManager& texture_manager,
              const float near_plane, const float arm,
              const float vertical_fov, const float aspect,
              const float far_plane) -> float {
-        const auto prism = BuildCameraClearancePrism(
-            pivot, eye, near_plane, arm, vertical_fov, aspect, far_plane);
-        if (!prism.has_value()) {
-          return 0.0f;
-        }
         float penetration = 0.0f;
-        const auto reduce =
-            [&](const openwow::world::CollisionFacetView& facet) {
-              if ((facet.source_flags &
-                   openwow::data::wmo::kMopyNoCamCollide) != 0u) {
-                return;
-              }
-              penetration = std::max(penetration,
-                                     PrismPenetrationFraction(*prism, facet));
-            };
-        world_map_.VisitMovementCollisionFacets(prism->world_bounds, reduce);
-        collision_.terrain().VisitFacets(
-            prism->world_bounds[0], prism->world_bounds[3],
-            prism->world_bounds[1], prism->world_bounds[4],
-            prism->world_bounds[2], prism->world_bounds[5], reduce);
+
+        const auto world_prism = BuildCameraClearancePrism(
+            pivot, eye, near_plane, arm, vertical_fov, aspect, far_plane,
+            kCameraClearanceWorldQuadScale);
+        if (world_prism.has_value()) {
+          const auto reduce =
+              [&](const openwow::world::CollisionFacetView& facet) {
+                if ((facet.source_flags &
+                     openwow::data::wmo::kMopyNoCamCollide) != 0u) {
+                  return;
+                }
+                penetration =
+                    std::max(penetration,
+                             PrismPenetrationFraction(*world_prism,
+                                                      facet.vertices));
+              };
+          world_map_.VisitMovementCollisionFacets(world_prism->world_bounds,
+                                                  reduce);
+          collision_.terrain().VisitFacets(
+              world_prism->world_bounds[0], world_prism->world_bounds[3],
+              world_prism->world_bounds[1], world_prism->world_bounds[4],
+              world_prism->world_bounds[2], world_prism->world_bounds[5],
+              reduce);
+        }
+
+        const auto doodad_prism = BuildCameraClearancePrism(
+            pivot, eye, near_plane, arm, vertical_fov, aspect, far_plane,
+            kCameraClearanceDoodadQuadScale);
+        if (doodad_prism.has_value()) {
+          VisitDoodadCollisionTriangles(
+              doodad_prism->world_bounds,
+              [&](const render::DoodadCollisionTriangle& triangle) {
+                penetration =
+                    std::max(penetration,
+                             PrismPenetrationFraction(*doodad_prism,
+                                                      triangle.vertices));
+              });
+        }
+
         return penetration;
       });
 

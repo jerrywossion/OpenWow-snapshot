@@ -6,7 +6,6 @@
 #include "openwow/game/session_handler.h"
 #include "openwow/net/client_services.h"
 #include "openwow/net/wotlk/wow_client_connection.h"
-#include "openwow/ui/game/cvar_system.h"
 #include "openwow/foundation/diagnostics/logging.h"
 
 #include <algorithm>
@@ -147,39 +146,7 @@ bool HandleAccountDataTimes(const WorldPacket& pkt,
     return true;
   }
 
-  const auto& cvars = openwow::ui::game::CVarSystem::Instance();
-  if (!cvars.GetCVarBool("synchronizeSettings")) {
-    return true;
-  }
-
-  const struct SyncSlot {
-    openwow::game::AccountDataType type;
-    const char* cvar_name;
-  } sync_slots[] = {
-      {openwow::game::AccountDataType::GlobalConfig, "synchronizeConfig"},
-      {openwow::game::AccountDataType::GlobalBindings, "synchronizeBindings"},
-      {openwow::game::AccountDataType::GlobalMacros, "synchronizeMacros"},
-  };
-
-  for (const auto& slot : sync_slots) {
-    const auto index = static_cast<std::size_t>(slot.type);
-    if (times[index] == 0) {
-      continue;
-    }
-
-    if (slot.cvar_name != nullptr && cvars.Exists(slot.cvar_name) &&
-        !cvars.GetCVarBool(slot.cvar_name)) {
-      continue;
-    }
-
-    if (!account_data.MarkServerDownloadPending(slot.type)) {
-      continue;
-    }
-
-    WorldPacket request(Opcode::CMSG_REQUEST_ACCOUNT_DATA);
-    request.AppendU32(static_cast<std::uint32_t>(slot.type));
-    (void)context.send_packet(request);
-  }
+  (void)openwow::game::RequestStaleAccountDataOnTimesSync(context.send_packet);
 
   return true;
 }

@@ -801,7 +801,7 @@ void WorldSession::HandleDestroyObject(const net::wotlk::WorldPacket &pkt) {
     if (destroyed_active_pet) {
 
       ui::game::ScriptEventDispatch::Get().FireEvent(
-          ui::game::events::PET_UI_CLOSE);
+          ui::game::events::PET_UI_UPDATE);
     }
   }
 
@@ -942,8 +942,10 @@ void WorldSession::OnLocalPlayerCreated(const ObjectGuid &guid) {
   interaction_.SendLfdPlayerLockInfoRequest();
 
   inventory_bridge_.FullResync();
-  (void)inventory_bridge_.ConsumeChangedContainers();
   QueueEquipmentPresentation();
+  if (!update_object_batch_active_) {
+    FlushInventoryReplicaTransaction();
+  }
   if (group_.IsRaid()) {
     const bool had_pending_raid_self_resolution = pending_raid_roster_local_player_resolution_;
     SyncObservedGroupStateToGroupSystem();

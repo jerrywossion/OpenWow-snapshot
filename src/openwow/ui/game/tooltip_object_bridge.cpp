@@ -50,6 +50,7 @@ struct LuaTooltipObjectState final {
     std::string anchor;
     float minimum_width{0.0F};
     float padding{0.0F};
+    std::uint64_t layout_revision{0u};
     float status_bar_min{0.0F};
     float status_bar_max{1.0F};
     float status_bar_value{0.0F};
@@ -70,6 +71,7 @@ LuaTooltipObjectState::PublishedPresentation CapturePresentation(
       .anchor = tooltip.GetAnchor(),
       .minimum_width = tooltip.GetMinimumWidth(),
       .padding = tooltip.GetPadding(),
+      .layout_revision = tooltip.GetLayoutRevision(),
       .status_bar_min = tooltip.GetStatusBarMin(),
       .status_bar_max = tooltip.GetStatusBarMax(),
       .status_bar_value = tooltip.GetStatusBarValue(),
@@ -153,7 +155,7 @@ int DispatchLuaTooltipObjectMethod(lua_State* L) {
 }
 
 void LuaTooltipObjectState::SynchronizeRetainedFrame(
-    const bool fire_data_event) {
+    bool fire_data_event) {
   if (lua == nullptr || synchronizing) {
     return;
   }
@@ -172,6 +174,13 @@ void LuaTooltipObjectState::SynchronizeRetainedFrame(
   {
     TooltipSystem::ScopedActivation activation(tooltip);
     FirePendingTooltipMoneyScript(lua, tooltip_index);
+    const bool finalize_item_presentation =
+        fire_data_event && tooltip.GetItemId() != 0u;
+    if (finalize_item_presentation) {
+      FireDataEvent();
+      fire_data_event = false;
+      tooltip.Show();
+    }
     auto presentation = CapturePresentation(tooltip);
     if (!published_presentation.has_value() ||
         *published_presentation != presentation) {

@@ -108,6 +108,25 @@ void SyncUploadSnapshot(const AccountDataUploadContext& context) {
   }
 }
 
+bool SendAccountDataDownloadRequest(
+    const std::function<bool(const openwow::net::wotlk::WorldPacket&)>&
+        send_packet,
+    const AccountDataType type) {
+  auto& account_data = AccountData::Get();
+  if (!account_data.MarkServerDownloadPending(type)) {
+    return false;
+  }
+
+  openwow::net::wotlk::WorldPacket packet(
+      openwow::net::wotlk::Opcode::CMSG_REQUEST_ACCOUNT_DATA);
+  packet.AppendU32(static_cast<std::uint32_t>(type));
+  if (!send_packet(packet)) {
+    account_data.ClearServerDownloadPending(type);
+    return false;
+  }
+  return true;
+}
+
 }
 
 void SyncRuntimeConfigAccountData(
@@ -128,19 +147,55 @@ bool DownloadRuntimeAccountData(
        raw_type < static_cast<std::uint32_t>(AccountDataType::NumTypes);
        ++raw_type) {
     const auto type = static_cast<AccountDataType>(raw_type);
-    if (!account_data.ShouldDownload(type)
-        || !account_data.MarkServerDownloadPending(type)) {
+    if (!account_data.ShouldDownload(type)) {
       continue;
     }
+    sent_any = SendAccountDataDownloadRequest(send_packet, type) || sent_any;
+  }
 
-    openwow::net::wotlk::WorldPacket packet(
-        openwow::net::wotlk::Opcode::CMSG_REQUEST_ACCOUNT_DATA);
-    packet.AppendU32(raw_type);
-    if (!send_packet(packet)) {
-      account_data.ClearServerDownloadPending(type);
+  return sent_any;
+}
+
+bool RequestStaleAccountDataOnTimesSync(
+    const std::function<bool(const openwow::net::wotlk::WorldPacket&)>&
+        send_packet) {
+  if (!send_packet) {
+    return false;
+  }
+
+  const auto& cvars = openwow::ui::game::CVarSystem::Instance();
+  if (!cvars.GetCVarBool("synchronizeSettings")) {
+    return false;
+  }
+
+  static constexpr const char* kTimesSyncCVarGate[] = {
+      "synchronizeConfig",
+      "synchronizeConfig",
+      "synchronizeBindings",
+      "synchronizeBindings",
+      "synchronizeMacros",
+      "synchronizeMacros",
+      nullptr,
+      nullptr,
+  };
+
+  auto& account_data = AccountData::Get();
+  bool sent_any = false;
+  for (std::uint32_t raw_type = 0;
+       raw_type < static_cast<std::uint32_t>(AccountDataType::NumTypes);
+       ++raw_type) {
+    const auto type = static_cast<AccountDataType>(raw_type);
+    if (type == AccountDataType::PerCharacterLayout) {
       continue;
     }
-    sent_any = true;
+    const char* gate = kTimesSyncCVarGate[raw_type];
+    if (gate != nullptr && cvars.Exists(gate) && !cvars.GetCVarBool(gate)) {
+      continue;
+    }
+    if (!account_data.IsServerCopyNewer(type)) {
+      continue;
+    }
+    sent_any = SendAccountDataDownloadRequest(send_packet, type) || sent_any;
   }
 
   return sent_any;

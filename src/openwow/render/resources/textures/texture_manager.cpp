@@ -312,37 +312,135 @@ std::string MakeTabardEmblemRenderTargetCacheKey(
          (descriptor.copySourceAlpha ? "1" : "0");
 }
 
-std::optional<std::vector<std::uint8_t>> TryBuildPortraitIconTextureImage(
-    const std::vector<std::uint8_t>& source_texture_bytes,
-    const std::vector<std::uint8_t>& mask_texture_bytes) {
-  const auto parsed_source =
-      openwow::data::BLPTextureLoader::Load(source_texture_bytes);
-  if (!parsed_source.isValid ||
-      parsed_source.mipCount <= kPortraitIconTextureMipLevel) {
+struct PortraitIconTextureImage {
+  std::vector<std::uint8_t> rgba;
+  std::string mask_fallback_reason;
+  bool opaque{false};
+};
+
+bool HasCompleteRgbaPixels(const openwow::data::image::DecodedImage& image) {
+  if (!image.ok || image.width <= 0 || image.height <= 0) {
+    return false;
+  }
+  const auto width = static_cast<std::uint64_t>(image.width);
+  const auto height = static_cast<std::uint64_t>(image.height);
+  const std::uint64_t required = width * height * 4u;
+  return required != 0u && required <= image.pixels_rgba.size();
+}
+
+std::size_t SampleRgbaOffset(const std::uint32_t output_x,
+                             const std::uint32_t output_y,
+                             const int source_width,
+                             const int source_height) {
+  const auto source_x = std::min<std::uint64_t>(
+      static_cast<std::uint64_t>(output_x) *
+              static_cast<std::uint64_t>(source_width) /
+          kPortraitIconTextureExtent,
+      static_cast<std::uint64_t>(source_width - 1));
+  const auto source_y = std::min<std::uint64_t>(
+      static_cast<std::uint64_t>(output_y) *
+              static_cast<std::uint64_t>(source_height) /
+          kPortraitIconTextureExtent,
+      static_cast<std::uint64_t>(source_height - 1));
+  return (static_cast<std::size_t>(source_y) *
+              static_cast<std::size_t>(source_width) +
+          source_x) *
+         4u;
+}
+
+std::optional<std::vector<std::uint8_t>> TryDecodePortraitBlpMip(
+    const std::vector<std::uint8_t>& bytes, const std::size_t expected_bytes) {
+  const auto parsed = openwow::data::BLPTextureLoader::Load(bytes);
+  if (!parsed.isValid || parsed.mipCount <= kPortraitIconTextureMipLevel) {
     return std::nullopt;
   }
+  auto rgba = openwow::data::BLPTextureLoader::DecompressMip(
+      parsed, kPortraitIconTextureMipLevel);
+  if (rgba.size() != expected_bytes) {
+    return std::nullopt;
+  }
+  return rgba;
+}
 
-  auto source_mip_rgba = openwow::data::BLPTextureLoader::DecompressMip(
-      parsed_source, kPortraitIconTextureMipLevel);
+std::optional<std::vector<std::uint8_t>> DecodeAndResamplePortraitImage(
+    const std::vector<std::uint8_t>& bytes, std::string* const error) {
+  const auto image = openwow::data::image::DecodeImage(bytes);
+  if (!HasCompleteRgbaPixels(image)) {
+    if (error != nullptr) {
+      *error = image.error.empty() ? "decoded image has an invalid extent"
+                                   : image.error;
+    }
+    return std::nullopt;
+  }
   const std::size_t expected_bytes =
       static_cast<std::size_t>(kPortraitIconTextureExtent) *
       static_cast<std::size_t>(kPortraitIconTextureExtent) * 4u;
-  if (source_mip_rgba.size() != expected_bytes) {
-    return std::nullopt;
+  std::vector<std::uint8_t> rgba(expected_bytes);
+  for (std::uint32_t y = 0u; y < kPortraitIconTextureExtent; ++y) {
+    for (std::uint32_t x = 0u; x < kPortraitIconTextureExtent; ++x) {
+      const std::size_t source_offset =
+          SampleRgbaOffset(x, y, image.width, image.height);
+      const std::size_t destination_offset =
+          (static_cast<std::size_t>(y) * kPortraitIconTextureExtent + x) * 4u;
+      std::copy_n(image.pixels_rgba.data() + source_offset, 4u,
+                  rgba.data() + destination_offset);
+    }
+  }
+  return rgba;
+}
+
+std::optional<PortraitIconTextureImage> TryBuildPortraitIconTextureImage(
+    const std::vector<std::uint8_t>& source_texture_bytes,
+    const std::vector<std::uint8_t>* const tga_mask_texture_bytes,
+    const std::vector<std::uint8_t>* const blp_mask_texture_bytes,
+    std::string* const failure_reason) {
+  const std::size_t expected_bytes =
+      static_cast<std::size_t>(kPortraitIconTextureExtent) *
+      static_cast<std::size_t>(kPortraitIconTextureExtent) * 4u;
+  PortraitIconTextureImage result;
+  if (auto native_mip =
+          TryDecodePortraitBlpMip(source_texture_bytes, expected_bytes)) {
+
+    result.rgba = std::move(*native_mip);
+  } else {
+
+    auto source = DecodeAndResamplePortraitImage(source_texture_bytes,
+                                                  failure_reason);
+    if (!source.has_value()) {
+      return std::nullopt;
+    }
+    result.rgba = std::move(*source);
   }
 
-  const auto decoded_mask = openwow::data::image::DecodeImage(mask_texture_bytes);
-  if (!decoded_mask.ok || decoded_mask.width != kPortraitIconTextureExtent ||
-      decoded_mask.height != kPortraitIconTextureExtent ||
-      decoded_mask.pixels_rgba.size() != expected_bytes) {
-    return std::nullopt;
+  std::optional<std::vector<std::uint8_t>> mask_rgba;
+  std::string tga_error;
+  if (tga_mask_texture_bytes != nullptr) {
+    mask_rgba = DecodeAndResamplePortraitImage(*tga_mask_texture_bytes,
+                                                &tga_error);
+  }
+  if (!mask_rgba.has_value() && blp_mask_texture_bytes != nullptr) {
+    mask_rgba = TryDecodePortraitBlpMip(*blp_mask_texture_bytes,
+                                        expected_bytes);
+  }
+  if (!mask_rgba.has_value()) {
+    result.mask_fallback_reason =
+        tga_mask_texture_bytes == nullptr && blp_mask_texture_bytes == nullptr
+            ? "portrait alpha-mask sources are missing"
+            : "portrait alpha-mask decode failed" +
+                  (tga_error.empty() ? std::string{}
+                                     : ": " + tga_error);
+    result.opaque = true;
+    for (std::size_t offset = 3u; offset < expected_bytes; offset += 4u) {
+      result.rgba[offset] = 0xffu;
+    }
+    return result;
   }
 
-  for (std::size_t offset = 0; offset < expected_bytes; offset += 4u) {
-    source_mip_rgba[offset + 3] = decoded_mask.pixels_rgba[offset + 3];
+  for (std::size_t offset = 3u; offset < expected_bytes; offset += 4u) {
+    result.rgba[offset] = (*mask_rgba)[offset];
   }
 
-  return source_mip_rgba;
+  return result;
 }
 
 PreparedTextureUpload DecodeTextureUpload(
@@ -461,30 +559,48 @@ PreparedTextureUpload PrepareResolvedTextureUpload(
     };
     const auto source_identity =
         rows.Resolve(std::string(*portrait_source) + ".blp");
-    const auto mask_identity = rows.Resolve(
-        std::string(kPortraitIconMaskTexturePath) + ".blp");
     const auto source = rows.Load(source_identity, loader);
-    const auto mask = rows.Load(mask_identity, loader);
-    if (!source || !mask) {
-      prepared.error = "missing portrait texture dependency";
+    if (!source) {
+      prepared.error = "missing portrait color texture source";
       return prepared;
     }
+    const auto tga_mask_identity = rows.Resolve(
+        std::string(kPortraitIconMaskTexturePath) + ".tga");
+    const auto blp_mask_identity = rows.Resolve(
+        std::string(kPortraitIconMaskTexturePath) + ".blp");
+    const auto tga_mask = rows.Load(tga_mask_identity, loader);
+    const auto blp_mask = rows.Load(blp_mask_identity, loader);
 
-    auto portrait_rgba =
-        TryBuildPortraitIconTextureImage(*source.bytes, *mask.bytes);
-    if (!portrait_rgba.has_value() || portrait_rgba->empty() ||
-        portrait_rgba->size() >
+    std::string composition_error;
+    auto portrait = TryBuildPortraitIconTextureImage(
+        *source.bytes, tga_mask ? tga_mask.bytes.get() : nullptr,
+        blp_mask ? blp_mask.bytes.get() : nullptr,
+        &composition_error);
+    if (!portrait.has_value() || portrait->rgba.empty() ||
+        portrait->rgba.size() >
             static_cast<std::size_t>(
                 std::numeric_limits<std::uint32_t>::max())) {
-      prepared.error = "portrait texture composition failed";
+      prepared.error = "portrait texture composition failed for " +
+                       source_identity.path + ": " +
+                       (composition_error.empty()
+                            ? "invalid composed image"
+                            : composition_error);
       return prepared;
     }
-    prepared.rgba_bytes = std::move(*portrait_rgba);
+    if (!portrait->mask_fallback_reason.empty()) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "TextureManager: " + portrait->mask_fallback_reason + " for " +
+              std::string(kPortraitIconMaskTexturePath) +
+              "; using opaque alpha for " +
+              source_identity.path);
+    }
+    prepared.rgba_bytes = std::move(portrait->rgba);
     prepared.width = kPortraitIconTextureExtent;
     prepared.height = kPortraitIconTextureExtent;
     prepared.upload_size =
         static_cast<std::uint32_t>(prepared.rgba_bytes.size());
-    prepared.is_opaque = false;
+    prepared.is_opaque = portrait->opaque;
     prepared.valid = true;
     return prepared;
   }

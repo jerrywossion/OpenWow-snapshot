@@ -77,6 +77,8 @@ class AccountData {
   void FinishUploadAttempt(bool had_failure,
                            UploadClock::time_point now = UploadClock::now());
   [[nodiscard]] bool ShouldDownload(AccountDataType type) const;
+
+  [[nodiscard]] bool IsServerCopyNewer(AccountDataType type) const;
   [[nodiscard]] bool MarkServerDownloadPending(AccountDataType type);
   void ClearServerDownloadPending(AccountDataType type);
   [[nodiscard]] ServerDownloadResolution ResolveServerDownload(

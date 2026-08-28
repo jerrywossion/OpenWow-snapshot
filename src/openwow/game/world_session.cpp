@@ -20,6 +20,7 @@
 #include "openwow/data/wdb_persistence.h"
 #include "openwow/game/account_data.h"
 #include "openwow/game/account_data_runtime_sync.h"
+#include "openwow/net/client_services_packet_sender.h"
 #include "openwow/game/action_validation_utils.h"
 #include "openwow/game/achievements/application/tracked_achievement_state.h"
 #include "openwow/game/arena_system.h"
@@ -1279,6 +1280,11 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
                 account_data.SetAccountDataTimes(times);
                 account_data.SetNextUploadSequence(
                     account_data_times.server_time);
+
+                (void)RequestStaleAccountDataOnTimesSync(
+                    [](const openwow::net::wotlk::WorldPacket& pkt) {
+                      return openwow::net::ClientServices__SendPacket(pkt);
+                    });
               },
           .logout_response =
               [](const LogoutResponseInfo& response) {

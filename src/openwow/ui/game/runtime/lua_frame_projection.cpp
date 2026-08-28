@@ -1366,16 +1366,27 @@ bool ShouldRenderNativeTextureRegion(
   if (lua_isboolean(L, -1) != 0 && lua_toboolean(L, -1) == 0) disabled = true;
   lua_pop(L, 1);
 
+  const auto has_texture_slot = [&](const char* const field) {
+    GetInternedLuaField(L, owner_index, field);
+    const bool present = lua_istable(L, -1) != 0;
+    lua_pop(L, 1);
+    return present;
+  };
+  const bool has_disabled_texture =
+      has_texture_slot("__ow_btn_disabled_tex");
+  const bool has_disabled_checked_texture =
+      has_texture_slot("__ow_disabled_checked_tex");
+
   bool visible = false;
   switch (frame.texture_role) {
     case TextureRole::ButtonNormal:
-      visible = !disabled && !pushed;
+      visible = !pushed && (!disabled || !has_disabled_texture);
       break;
     case TextureRole::ButtonPushed:
       visible = !disabled && pushed;
       break;
     case TextureRole::ButtonDisabled:
-      visible = disabled;
+      visible = disabled && has_disabled_texture;
       break;
     case TextureRole::ButtonHighlight:
       visible = !disabled &&
@@ -1384,10 +1395,12 @@ bool ShouldRenderNativeTextureRegion(
                                     frame_api::kLuaFrameHighlightLockField));
       break;
     case TextureRole::CheckButtonChecked:
-      visible = !disabled && GetLuaBooleanField(L, owner_index, "__ow_checked");
+      visible = GetLuaBooleanField(L, owner_index, "__ow_checked") &&
+                (!disabled || !has_disabled_checked_texture);
       break;
     case TextureRole::CheckButtonDisabledChecked:
-      visible = disabled && GetLuaBooleanField(L, owner_index, "__ow_checked");
+      visible = disabled && has_disabled_checked_texture &&
+                GetLuaBooleanField(L, owner_index, "__ow_checked");
       break;
     case TextureRole::SliderThumb:
     case TextureRole::StatusBarFill:

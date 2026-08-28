@@ -1172,12 +1172,21 @@ void WorldMap::UpdateDayNightLightEnvironmentForFrame(
       });
 
   if (lighting_.loaded()) {
-    light_env.dwords[openwow::game::kLightEnvSunHaloColorIndex] =
-        active_sky_colors_.colors[static_cast<std::size_t>(
-            openwow::world::SkyColorSlot::kSunHalo)];
+    for (std::size_t slot = 0u;
+         slot < static_cast<std::size_t>(openwow::world::SkyColorSlot::kCount);
+         ++slot) {
+      if (slot ==
+          static_cast<std::size_t>(openwow::world::SkyColorSlot::kSkyFog)) {
+        continue;
+      }
+      light_env.dwords[openwow::game::kLightEnvSkyColorSlotBaseIndex + slot] =
+          active_sky_colors_.colors[slot];
+    }
   }
   openwow::game::DayNight_ComputeLightHeadingAndGlow();
   openwow::game::DayNight_UpdateFogBands();
+
+  openwow::game::DayNight_ApplySpellVisualLightingTint();
   openwow::game::DayNight_UpdateCloudLayerTexture();
   openwow::game::DayNight_UpdateGlobalStarsModelState();
 
@@ -2700,19 +2709,20 @@ WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
       light_env->ReadFloat(
           openwow::game::kDayNightDerivedDirectionCurrentBaseIndex + 2u)};
   const Vec3 model_direction = Normalize(direction);
-  const auto ambient_slot =
-      static_cast<std::size_t>(SkyColorSlot::kGlobalAmbient);
-  const auto diffuse_slot =
-      static_cast<std::size_t>(SkyColorSlot::kGlobalDiffuse);
   environment_.model_light_direction = model_direction;
   environment_.light_direction = {-model_direction[0], -model_direction[1],
                                   -model_direction[2]};
+
   environment_.model_ambient =
-      lighting_.loaded() ? UnitRgb(active_sky_colors_.colors[ambient_slot])
-                              : Vec3{1.0f, 1.0f, 1.0f};
+      lighting_.loaded()
+          ? UnitRgb(light_env->dwords[
+                openwow::game::kDayNightDerivedColorCurrentAmbientIndex])
+          : Vec3{1.0f, 1.0f, 1.0f};
   environment_.model_diffuse =
-      lighting_.loaded() ? UnitRgb(active_sky_colors_.colors[diffuse_slot])
-                              : Vec3{};
+      lighting_.loaded()
+          ? UnitRgb(light_env->dwords[
+                openwow::game::kDayNightDerivedColorCurrentDiffuseIndex])
+          : Vec3{};
   environment_.ambient = environment_.model_ambient;
   environment_.diffuse = environment_.model_diffuse;
   environment_.wmo_outdoor_diffuse = UnitRgb(light_env->dwords[
@@ -2723,8 +2733,6 @@ WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
       openwow::game::kDayNightDerivedColorCurrentMidpointIndex]);
   environment_.window_ambient = UnitRgb(light_env->dwords[
       openwow::game::kDayNightDerivedColorCurrentBrightenedMidpointIndex]);
-  environment_.wmo_material_ambient_argb = light_env->dwords[
-      openwow::game::kDayNightDerivedColorCurrentAmbientIndex];
   environment_.fog_start = fog.params[0];
   environment_.fog_end = fog.params[1];
   environment_.fog_density = std::clamp(fog.params[2], 0.0f, 1.0f);

@@ -1392,6 +1392,7 @@ void TooltipSystem::AppendToFirstLine(const std::string &text) {
   }
 
   lines_.front().left_text = ExpandSimpleRenderTooltipText(lines_.front().left_text + text);
+  CommitLayoutState();
   MarkPresentationChanged();
 }
 
@@ -1439,9 +1440,7 @@ const std::vector<TooltipTextureData> &TooltipSystem::GetTextures() const {
 
 void TooltipSystem::Show() {
   ClearFadeState();
-  if (shown_) {
-    return;
-  }
+  CommitLayoutState();
   shown_ = true;
   MarkPresentationChanged();
 }
@@ -1817,7 +1816,6 @@ bool TooltipSystem::SetItemInternal(std::uint32_t itemId, std::int32_t randomPro
     AppendEquipmentSetMembershipLine(*this, equipment_, itemGuid);
     AppendMerchantRequirementLines(*this, itemId, dbc_);
   }
-  Show();
   return item != nullptr;
 }
 
@@ -2130,6 +2128,14 @@ std::uint64_t TooltipSystem::GetClearGeneration() const {
 
 std::uint64_t TooltipSystem::GetPresentationRevision() const {
   return presentation_revision_;
+}
+
+std::uint64_t TooltipSystem::GetLayoutRevision() const {
+  return layout_revision_;
+}
+
+void TooltipSystem::CommitLayoutState() noexcept {
+  ++layout_revision_;
 }
 
 void TooltipSystem::MarkPresentationChanged() noexcept {

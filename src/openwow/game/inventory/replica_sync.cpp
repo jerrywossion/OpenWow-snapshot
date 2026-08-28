@@ -613,6 +613,12 @@ void PlayerInventoryReplicaSync::TrackChangedRootSlot(const std::uint8_t abs_slo
     using namespace InventorySlots;
     if (abs_slot >= kBackpackStart && abs_slot < kBackpackEnd) {
         changed_containers_.push_back(0);
+    } else if (abs_slot >= kBagSlotsStart && abs_slot < kBagSlotsEnd) {
+        changed_containers_.push_back(
+            static_cast<std::int32_t>(abs_slot - kBagSlotsStart + 1));
+    } else if (abs_slot >= kBankBagStart && abs_slot < kBankBagEnd) {
+        changed_containers_.push_back(
+            static_cast<std::int32_t>(abs_slot - kBankBagStart + 5));
     } else if (abs_slot >= kKeyringStart && abs_slot < kKeyringEnd) {
         changed_containers_.push_back(-2);
     } else if (abs_slot >= kCurrencyStart && abs_slot < kCurrencyEnd) {

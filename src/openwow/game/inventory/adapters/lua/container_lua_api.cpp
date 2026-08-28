@@ -52,7 +52,7 @@ namespace item_targeting = ::openwow::game::inventory::ui;
 
 namespace {
 
-constexpr int kBagPortraitLuaSlotCount = 4;
+constexpr int kBagPortraitLuaSlotCount = 11;
 
 constexpr int kFirstCarriedContainerId = 1;
 constexpr int kLastCarriedContainerId = 4;

@@ -451,14 +451,12 @@ inline constexpr std::size_t kLightEnvSceneVisibilityIndex = 75;
 
 inline constexpr std::size_t kLightEnvGlowBlendFactorIndex = 34;
 
-inline constexpr std::size_t kDayNightDbcAmbientUpperColorIndex = 55;
-inline constexpr std::size_t kDayNightDbcAmbientLowerColorIndex = 56;
-inline constexpr std::size_t kDayNightDbcDiffuseUpperColorIndex = 57;
-inline constexpr std::size_t kDayNightDbcDiffuseLowerColorIndex = 58;
-inline constexpr std::size_t kDayNightDbcGlowUpperColorIndex = 59;
-inline constexpr std::size_t kDayNightDbcGlowLowerColorIndex = 60;
-
+inline constexpr std::size_t kLightEnvSkyColorSlotBaseIndex = 53;
 inline constexpr std::size_t kLightEnvSunHaloColorIndex = 62;
+
+inline constexpr std::size_t kLightEnvCloudEdgeColorIndex = 63;
+inline constexpr std::size_t kLightEnvCloudColorIndex = 64;
+inline constexpr std::size_t kLightEnvCloudHilightColorIndex = 65;
 inline constexpr std::size_t kDayNightInterpolatedAmbientColorIndex = 53;
 inline constexpr std::size_t kDayNightInterpolatedDiffuseColorIndex = 54;
 inline constexpr std::size_t kDayNightDerivedColorHistoryBaseIndex = 92;
@@ -550,6 +548,8 @@ void DayNight_EvaluateFullLightState();
 void DayNight_ComputeLightHeadingAndGlow();
 
 void DayNight_DeriveAmbientDiffuseColorCache(DayNightLightEnv &env);
+
+void DayNight_ApplySpellVisualLightingTint();
 
 inline constexpr std::size_t kDayNightActiveAreaBlendWeightIndex = 39;
 inline constexpr std::size_t kDayNightActiveAreaOwnerIndex = 48;

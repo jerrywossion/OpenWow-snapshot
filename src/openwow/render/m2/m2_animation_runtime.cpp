@@ -86,11 +86,20 @@ constexpr double kAnimationInstanceMicroseconds = 1.15;
                                 model, selection.resolved_sequence_index)
                           : 0u;
 
-  if (selection.resolved && previous.active &&
+  const bool previous_slot_valid =
+      previous.active &&
       previous.sequence_index != kInvalidM2AnimationSequenceIndex &&
-      previous.sequence_index != selection.resolved_sequence_index &&
       static_cast<std::size_t>(previous.sequence_index) <
-          model.animation_sequences.size() &&
+          model.animation_sequences.size();
+
+  const bool previous_play_unfinished =
+      previous_slot_valid && previous.time_seconds > 0.0f &&
+      previous.time_seconds * 1000.0f + 0.5f <
+          static_cast<float>(
+              model.animation_sequences[previous.sequence_index].length_ms);
+  if (selection.resolved && previous_slot_valid &&
+      (previous.sequence_index != selection.resolved_sequence_index ||
+       previous_play_unfinished) &&
       static_cast<std::size_t>(selection.resolved_sequence_index) <
           model.animation_sequences.size()) {
 
@@ -483,10 +492,18 @@ void M2AnimationRuntime::ApplyAnimationSelectionLocked(
         request.zero_blend
             ? 0.0f
             : static_cast<float>(sequence.blend_time_ms) * kMillisecondsToSeconds;
-    if (blend_time > 0.0f &&
+    const bool previous_sequence_valid =
         previous_sequence != kInvalidM2AnimationSequenceIndex &&
-        previous_sequence < model.animation_sequences.size() &&
-        previous_sequence != selection.resolved_sequence_index) {
+        previous_sequence < model.animation_sequences.size();
+
+    const bool previous_play_unfinished =
+        previous_sequence_valid && previous_time > 0.0f &&
+        previous_time * 1000.0f + 0.5f <
+            static_cast<float>(
+                model.animation_sequences[previous_sequence].length_ms);
+    if (blend_time > 0.0f && previous_sequence_valid &&
+        (previous_sequence != selection.resolved_sequence_index ||
+         previous_play_unfinished)) {
 
       const bool keep_existing_blend = [&] {
         if (previous_blend_source == kInvalidM2AnimationSequenceIndex ||
@@ -903,7 +920,8 @@ void M2AnimationRuntime::RecordSampleOnPendingLocked(
 
 M2ResultStatus M2AnimationRuntime::SetAnimationSample(
     const std::uint32_t instance_id, const std::uint32_t animation_id,
-    const std::uint32_t time_ms, const float speed, const bool zero_blend) {
+    const std::uint32_t time_ms, const float speed, const bool zero_blend,
+    const bool restart) {
   PumpSequenceLoads();
   bool needs_request = false;
   {
@@ -916,7 +934,9 @@ M2ResultStatus M2AnimationRuntime::SetAnimationSample(
                                            speed)) {
       return M2ResultStatus::kNotReady;
     }
-    needs_request = SampleNeedsRequestLocked(*it->second, animation_id);
+
+    needs_request =
+        SampleNeedsRequestLocked(*it->second, animation_id) || restart;
   }
   M2ResultStatus result = M2ResultStatus::kReady;
   if (needs_request) {
@@ -1114,7 +1134,7 @@ M2ResultStatus M2AnimationRuntime::SetAnimationSlotRequest(
 M2ResultStatus M2AnimationRuntime::SetAnimationSlotSample(
     const std::uint32_t instance_id, const std::uint32_t slot_index,
     const std::uint32_t animation_id, const std::uint32_t time_ms,
-    const float speed, const bool zero_blend) {
+    const float speed, const bool zero_blend, const bool restart) {
   PumpSequenceLoads();
   if (slot_index >= kM2RetailAnimationSlotCount) {
     return M2ResultStatus::kFailed;
@@ -1134,7 +1154,9 @@ M2ResultStatus M2AnimationRuntime::SetAnimationSlotSample(
       return M2ResultStatus::kNotReady;
     }
     const auto &slot = it->second->animation_slots[slot_index];
-    needs_request = !slot.active || slot.requested_animation_id != animation_id;
+
+    needs_request = !slot.active ||
+                    slot.requested_animation_id != animation_id || restart;
   }
   M2ResultStatus result = M2ResultStatus::kReady;
   if (needs_request) {
@@ -1830,7 +1852,8 @@ void M2InstanceFramePreparer::PumpSequenceLoadsUnlocked() {
 
 M2ResultStatus M2InstanceFramePreparer::ApplyAnimationSample(
     const std::uint32_t instance_id, const std::uint32_t animation_id,
-    const std::uint32_t time_ms, const float speed, const bool zero_blend) {
+    const std::uint32_t time_ms, const float speed, const bool zero_blend,
+    const bool restart) {
 
   PumpSequenceLoadsUnlocked();
   detail::M2Instance *instance = ResolveInstance(instance_id);
@@ -1842,7 +1865,8 @@ M2ResultStatus M2InstanceFramePreparer::ApplyAnimationSample(
     return M2ResultStatus::kNotReady;
   }
   const bool needs_request =
-      M2AnimationRuntime::SampleNeedsRequestLocked(*instance, animation_id);
+      M2AnimationRuntime::SampleNeedsRequestLocked(*instance, animation_id) ||
+      restart;
   M2ResultStatus result = M2ResultStatus::kReady;
   if (needs_request) {
 
@@ -1925,7 +1949,8 @@ bool M2InstanceFramePreparer::SamplePresentation(
     }
     if (ApplyAnimationSample(request.instance_id, request.animation_id,
                              sample_time_ms, request.speed,
-                             request.zero_blend) != M2ResultStatus::kReady) {
+                             request.zero_blend,
+                             request.restart) != M2ResultStatus::kReady) {
       return false;
     }
   }

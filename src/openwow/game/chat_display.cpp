@@ -4,7 +4,6 @@
 #include "openwow/core/storm_error.h"
 #include "openwow/core/storm_string.h"
 #include "openwow/data/formats/dbc/dbc_loader.h"
-#include "openwow/game/channel_manager.h"
 #include "openwow/game/chat_bubble.h"
 #include "openwow/game/chat_link.h"
 #include "openwow/game/chat_system.h"
@@ -1863,7 +1862,6 @@ void Chat_Shutdown(openwow::audio::SoundRuntime& sound_runtime) {
   ChatSystem::Get().Reset();
   ui::ChatFrameManager::Get().Reset();
   ui::game::ChatWindowState::Get().Reset();
-  ChannelManager::Get().Reset();
   VoiceChat::Get().Reset(sound_runtime);
 
   diagnostics::Log(diagnostics::LogLevel::kInfo, "Chat_Shutdown: chat runtime reset");

@@ -1,0 +1,22 @@
+bgfx maps TextureFormat::BC1 to VK_FORMAT_BC1_RGB_UNORM_BLOCK, the alpha-less
+BC1 variant that decodes the c0<=c1 punch-through mode as opaque black. Every
+other bgfx backend gives BC1 punch-through-alpha semantics (D3D11
+DXGI_FORMAT_BC1_UNORM, Metal MTLPixelFormatBC1_RGBA, and bimg's own CPU
+decoder decodeBlockDxt1 writes {0,0,0,0}), as did the D3D9 D3DFMT_DXT1 the
+WoW 3.3.5a client shipped against. On drivers with native BC support (RADV)
+the RGB variant made every DXT1-with-1-bit-alpha texture (foliage, UI cutout
+art, chat tabs) render opaque black; MoltenVK masked it because Apple GPUs
+report BC1 unsupported and bgfx falls back to the alpha-correct CPU decode.
+BC1_RGB and BC1_RGBA are jointly gated by textureCompressionBC, so support is
+identical.
+--- a/bgfx/src/renderer_vk.cpp
++++ b/bgfx/src/renderer_vk.cpp
+@@ -167,7 +167,7 @@
+ #define $G VK_COMPONENT_SWIZZLE_G
+ #define $B VK_COMPONENT_SWIZZLE_B
+ #define $A VK_COMPONENT_SWIZZLE_A
+-		{ VK_FORMAT_BC1_RGB_UNORM_BLOCK,       VK_FORMAT_BC1_RGB_UNORM_BLOCK,      VK_FORMAT_UNDEFINED,           VK_FORMAT_BC1_RGB_SRGB_BLOCK,       { $_, $_, $_, $_ } }, // BC1
++		{ VK_FORMAT_BC1_RGBA_UNORM_BLOCK,      VK_FORMAT_BC1_RGBA_UNORM_BLOCK,     VK_FORMAT_UNDEFINED,           VK_FORMAT_BC1_RGBA_SRGB_BLOCK,      { $_, $_, $_, $_ } }, // BC1
+ 		{ VK_FORMAT_BC2_UNORM_BLOCK,           VK_FORMAT_BC2_UNORM_BLOCK,          VK_FORMAT_UNDEFINED,           VK_FORMAT_BC2_SRGB_BLOCK,           { $_, $_, $_, $_ } }, // BC2
+ 		{ VK_FORMAT_BC3_UNORM_BLOCK,           VK_FORMAT_BC3_UNORM_BLOCK,          VK_FORMAT_UNDEFINED,           VK_FORMAT_BC3_SRGB_BLOCK,           { $_, $_, $_, $_ } }, // BC3
+ 		{ VK_FORMAT_BC4_UNORM_BLOCK,           VK_FORMAT_BC4_UNORM_BLOCK,          VK_FORMAT_UNDEFINED,           VK_FORMAT_UNDEFINED,                { $_, $_, $_, $_ } }, // BC4

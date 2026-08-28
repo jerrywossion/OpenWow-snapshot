@@ -14,7 +14,6 @@ constexpr std::uint16_t kPortraitExtent = 64u;
 
 struct PortraitEntry {
   std::unique_ptr<ModelPortrait> target;
-  std::uint32_t display_id{};
   std::uint32_t model_instance_id{};
   std::uint64_t visual_revision{};
   m2::M2ResultStatus status{m2::M2ResultStatus::kNotReady};
@@ -40,8 +39,7 @@ struct PortraitRenderer::Impl {
       std::unordered_map<Key, PortraitEntry>& cache, const Key key,
       const std::uint32_t display_id,
       const std::uint32_t model_instance_id,
-      const std::uint64_t visual_revision, std::uint8_t& next_view_id,
-      const std::uint16_t view_id_limit) {
+      std::uint8_t& next_view_id, const std::uint16_t view_id_limit) {
     if (display_id == 0u || model_instance_id == 0u) {
       return Failure(m2::M2ResultStatus::kFailed,
                      m2::M2ResultReason::kInvalidHandle,
@@ -49,12 +47,14 @@ struct PortraitRenderer::Impl {
     }
 
     auto& entry = cache[key];
-    if (entry.display_id != display_id ||
-        entry.model_instance_id != model_instance_id ||
-        entry.visual_revision != visual_revision) {
-      entry.display_id = display_id;
+
+    if (entry.visual_revision == 0u) {
+      const auto visual = models.QueryVisualTreeRevision(model_instance_id);
+      if (visual.status != m2::M2ResultStatus::kReady) {
+        return Failure(visual.status, visual.reason, visual.detail);
+      }
       entry.model_instance_id = model_instance_id;
-      entry.visual_revision = visual_revision;
+      entry.visual_revision = visual.revision;
       entry.status = m2::M2ResultStatus::kNotReady;
       entry.reason = m2::M2ResultReason::kNone;
       entry.detail.clear();
@@ -71,7 +71,8 @@ struct PortraitRenderer::Impl {
                        "portrait framebuffer creation failed");
       }
     }
-    entry.target->SetSourceInstance(model_instance_id, visual_revision);
+    entry.target->SetSourceInstance(entry.model_instance_id,
+                                    entry.visual_revision);
     if (!bgfx::isValid(entry.target->GetTexture())) {
       return Failure(m2::M2ResultStatus::kNotReady,
                      m2::M2ResultReason::kGpuGeometryNotReady,
@@ -140,6 +141,7 @@ void PortraitRenderer::Shutdown() {
 void PortraitRenderer::InvalidatePlayer(const game::ObjectGuid guid) {
   if (const auto found = impl_->players.find(guid.GetRawValue());
       found != impl_->players.end()) {
+    found->second.visual_revision = 0u;
     found->second.dirty = true;
   }
 }
@@ -147,10 +149,12 @@ void PortraitRenderer::InvalidatePlayer(const game::ObjectGuid guid) {
 void PortraitRenderer::InvalidateAll() {
   for (auto& [key, entry] : impl_->players) {
     static_cast<void>(key);
+    entry.visual_revision = 0u;
     entry.dirty = true;
   }
   for (auto& [key, entry] : impl_->units) {
     static_cast<void>(key);
+    entry.visual_revision = 0u;
     entry.dirty = true;
   }
 }
@@ -164,18 +168,14 @@ PortraitAcquireResult PortraitRenderer::Acquire(
                    m2::M2ResultReason::kGpuGeometryNotReady,
                    "portrait renderer is not initialized");
   }
-  const auto visual = impl_->models.QueryVisualTreeRevision(model_instance_id);
-  if (visual.status != m2::M2ResultStatus::kReady) {
-    return Failure(visual.status, visual.reason, visual.detail);
-  }
   view_id_limit = std::min<std::uint16_t>(view_id_limit, 255u);
   if (guid.IsPlayer()) {
     return impl_->AcquireFrom(impl_->players, guid.GetRawValue(), display_id,
-                              model_instance_id, visual.revision, next_view_id,
+                              model_instance_id, next_view_id,
                               view_id_limit);
   }
   return impl_->AcquireFrom(impl_->units, display_id, display_id,
-                            model_instance_id, visual.revision, next_view_id,
+                            model_instance_id, next_view_id,
                             view_id_limit);
 }
 

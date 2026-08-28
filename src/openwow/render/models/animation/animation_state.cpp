@@ -15,14 +15,10 @@ void AnimationState::SetAnimation(std::uint16_t anim_id, bool looping) {
     return;
   }
 
-  previous_anim_ = current_anim_;
-  previous_time_ms_ = current_time_ms_;
-
   current_anim_ = anim_id;
   current_time_ms_ = 0.0;
   is_looping_ = looping;
   is_one_shot_ = false;
-  blend_factor_ = 0.0f;
 }
 
 bool AnimationState::SetAnimationAtPhase(const std::uint16_t anim_id,
@@ -38,15 +34,12 @@ bool AnimationState::SetAnimationAtPhase(const std::uint16_t anim_id,
 }
 
 void AnimationState::Restart(const std::uint16_t anim_id, const bool looping) {
-  previous_anim_ = current_anim_;
-  previous_time_ms_ = current_time_ms_;
   current_anim_ = anim_id;
   current_time_ms_ = 0.0;
 
   is_looping_ = looping;
   is_one_shot_ = false;
   did_complete_ = false;
-  blend_factor_ = 0.0f;
 }
 
 void AnimationState::PlayOneShot(std::uint16_t anim_id) {
@@ -54,14 +47,10 @@ void AnimationState::PlayOneShot(std::uint16_t anim_id) {
 
   fallback_anim_ = current_anim_;
 
-  previous_anim_ = current_anim_;
-  previous_time_ms_ = current_time_ms_;
-
   current_anim_ = anim_id;
   current_time_ms_ = 0.0;
   is_looping_ = false;
   is_one_shot_ = true;
-  blend_factor_ = 0.0f;
 }
 
 void AnimationState::Update(float dt, std::uint32_t duration_ms) {
@@ -69,17 +58,7 @@ void AnimationState::Update(float dt, std::uint32_t duration_ms) {
   const double advance_ms =
       static_cast<double>(std::max(dt, 0.0f)) * 1000.0;
 
-  if (blend_factor_ < 1.0f) {
-    if (blend_duration_ > 0.0f) {
-      blend_factor_ += std::max(dt, 0.0f) / blend_duration_;
-    } else {
-      blend_factor_ = 1.0f;
-    }
-    blend_factor_ = std::min(blend_factor_, 1.0f);
-  }
-
   current_time_ms_ += advance_ms;
-  previous_time_ms_ += advance_ms;
 
   if (duration_ms > 0) {
     if (is_looping_) {
@@ -111,11 +90,8 @@ void AnimationState::Update(float dt, std::uint32_t duration_ms) {
 
 void AnimationState::Reset() {
   current_anim_ = AnimId::kStand;
-  previous_anim_ = AnimId::kStand;
   fallback_anim_ = AnimId::kStand;
   current_time_ms_ = 0.0;
-  previous_time_ms_ = 0.0;
-  blend_factor_ = 1.0f;
   is_looping_ = true;
   is_one_shot_ = false;
   did_complete_ = false;
@@ -150,10 +126,6 @@ namespace {
 
 std::uint32_t AnimationState::current_time_ms() const {
   return SaturatingMilliseconds(current_time_ms_);
-}
-
-std::uint32_t AnimationState::previous_time_ms() const {
-  return SaturatingMilliseconds(previous_time_ms_);
 }
 
 std::string AnimationState::GetAnimationName(std::uint16_t anim_id) {

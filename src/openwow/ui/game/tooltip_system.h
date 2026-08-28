@@ -169,6 +169,7 @@ class TooltipSystem {
   int GetNumLines() const;
   [[nodiscard]] std::uint64_t GetClearGeneration() const;
   [[nodiscard]] std::uint64_t GetPresentationRevision() const;
+  [[nodiscard]] std::uint64_t GetLayoutRevision() const;
 
   void SetMinimumWidth(float w, bool force = false);
   [[nodiscard]] float GetMinimumWidth() const;
@@ -261,6 +262,7 @@ class TooltipSystem {
                                      const openwow::ui::TooltipItemInstanceData* instance_data,
                                      TooltipItemDisplayOptions display_options);
   void ResetPendingWorldGameObjectRefresh();
+  void CommitLayoutState() noexcept;
   void MarkPresentationChanged() noexcept;
   std::uint64_t clear_generation_{0};
   std::uint64_t presentation_revision_{0};
@@ -301,6 +303,8 @@ class TooltipSystem {
   float min_width_ = 0.0f;
   bool force_min_width_ = false;
   float padding_ = 0.0f;
+
+  std::uint64_t layout_revision_{0u};
   bool fade_active_ = false;
   float fade_timer_ = 0.0f;
   std::vector<TooltipTextureData> textures_;
