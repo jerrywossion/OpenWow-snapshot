@@ -28,6 +28,16 @@ void ApplyMinimumClientSize(SDL_Window* window,
                              static_cast<int>(min_height));
 }
 
+WindowMode WindowModeFromFlags(const Uint32 flags) {
+    if ((flags & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP) {
+        return WindowMode::WindowedFullscreen;
+    }
+    if ((flags & SDL_WINDOW_FULLSCREEN) != 0) {
+        return WindowMode::Fullscreen;
+    }
+    return WindowMode::Windowed;
+}
+
 }
 
 WindowManager& WindowManager::Get() {
@@ -146,13 +156,7 @@ void WindowManager::AdoptExternalWindow(void* sdl_window) {
     const Uint32 flags = SDL_GetWindowFlags(sdl_window_ptr);
     minimized_ = (flags & SDL_WINDOW_MINIMIZED) != 0;
     focused_ = (flags & SDL_WINDOW_INPUT_FOCUS) != 0;
-    if ((flags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
-        mode_ = WindowMode::WindowedFullscreen;
-    } else if ((flags & SDL_WINDOW_FULLSCREEN) != 0) {
-        mode_ = WindowMode::Fullscreen;
-    } else {
-        mode_ = WindowMode::Windowed;
-    }
+    mode_ = WindowModeFromFlags(flags);
 }
 
 void WindowManager::Shutdown() {
@@ -200,7 +204,14 @@ float WindowManager::GetAspectRatio() const {
 }
 
 bool WindowManager::IsFullscreen() const {
-    return mode_ == WindowMode::Fullscreen || mode_ == WindowMode::WindowedFullscreen;
+    if (initialized_ && window_ != nullptr) {
+        const auto actual_mode =
+            WindowModeFromFlags(SDL_GetWindowFlags(static_cast<SDL_Window*>(window_)));
+        return actual_mode == WindowMode::Fullscreen ||
+               actual_mode == WindowMode::WindowedFullscreen;
+    }
+    return mode_ == WindowMode::Fullscreen ||
+           mode_ == WindowMode::WindowedFullscreen;
 }
 
 bool WindowManager::IsMinimized() const { return minimized_; }
@@ -219,9 +230,14 @@ std::string WindowManager::GetTitle() const {
 }
 
 void WindowManager::SetWindowMode(WindowMode mode) {
-    if (!initialized_ || mode == mode_) return;
+    if (!initialized_ || window_ == nullptr) return;
 
     auto* sdl_win = static_cast<SDL_Window*>(window_);
+    const WindowMode actual_mode = WindowModeFromFlags(SDL_GetWindowFlags(sdl_win));
+    if (mode == actual_mode) {
+        mode_ = mode;
+        return;
+    }
     uint32_t flag = 0;
 
     switch (mode) {
@@ -237,7 +253,12 @@ void WindowManager::SetWindowMode(WindowMode mode) {
             break;
     }
 
-    SDL_SetWindowFullscreen(sdl_win, flag);
+    if (SDL_SetWindowFullscreen(sdl_win, flag) != 0) {
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kWarn,
+            std::string("WindowManager: SDL_SetWindowFullscreen failed: ") + SDL_GetError());
+        return;
+    }
     mode_ = mode;
 
     int w = 0, h = 0;
@@ -326,7 +347,7 @@ bool WindowManager::ApplyDisplayMode(const DisplayModeRequest& request) {
             SDL_SetWindowFullscreen(sdl_window, SDL_WINDOW_FULLSCREEN) != 0) {
             return false;
         }
-    } else if (mode != mode_) {
+    } else if (mode != WindowModeFromFlags(SDL_GetWindowFlags(sdl_window))) {
         const uint32_t fullscreen_flag =
             mode == WindowMode::WindowedFullscreen
                 ? SDL_WINDOW_FULLSCREEN_DESKTOP

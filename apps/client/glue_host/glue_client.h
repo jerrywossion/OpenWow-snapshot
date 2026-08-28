@@ -291,7 +291,6 @@ class GlueClient {
   int layout_height_{720};
   bool layout_dirty_{true};
   std::string last_window_title_;
-  bool is_fullscreen_desktop_{false};
   bool window_focused_{false};
   bool running_{false};
   bool trace_input_{false};

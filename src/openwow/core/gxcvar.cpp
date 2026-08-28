@@ -1398,6 +1398,24 @@ bool GxRestartCurrentDisplayMode() {
   return ApplyGxRestart(false);
 }
 
+bool GxToggleFullscreen() {
+  GxDisplayCVarState requested_state = s_gx_restart_runtime.active_state;
+  requested_state.window_mode =
+      openwow::platform::WindowManager::Get().IsFullscreen() ? 1 : 0;
+
+  const auto applied_state = TryApplyDisplayState(requested_state);
+  if (!applied_state.has_value()) {
+    EmitDisplayRestartFailure(kUnableToSetRequestedDisplayMode);
+    return false;
+  }
+
+  s_gx_restart_runtime.active_state = *applied_state;
+  s_gx_restart_runtime.last_good_state = *applied_state;
+  (void)openwow::ui::game::CVarSystem::Instance().SetRegisteredCVarValueDirect(
+      "gxWindow", FormatDisplayInteger(applied_state->window_mode));
+  return true;
+}
+
 void GxCVarRegister() {
   using F = openwow::ui::game::CVarFlags;
   auto &sys = openwow::ui::game::CVarSystem::Instance();

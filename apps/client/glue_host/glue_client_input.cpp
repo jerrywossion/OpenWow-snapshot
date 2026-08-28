@@ -3,6 +3,7 @@
 
 #include "openwow/audio/playback/sound_interface.h"
 #include "openwow/core/client_init.h"
+#include "openwow/core/gxcvar.h"
 #include "openwow/net/client_services.h"
 #include "openwow/runtime/scheduling/evt_sched.h"
 #include "openwow/runtime/time/game_clock.h"
@@ -925,10 +926,7 @@ void GlueClient::HandleKeyDown(const SDL_Event &event) {
   if ((event.key.keysym.mod & KMOD_ALT) != 0 &&
       (scancode == SDL_SCANCODE_RETURN ||
        scancode == SDL_SCANCODE_KP_ENTER)) {
-    const auto next_flag = is_fullscreen_desktop_ ? 0U : SDL_WINDOW_FULLSCREEN_DESKTOP;
-    if (SDL_SetWindowFullscreen(window_, next_flag) == 0) {
-      is_fullscreen_desktop_ = !is_fullscreen_desktop_;
-
+    if (openwow::core::ida::GxToggleFullscreen()) {
       RefreshLayout();
     } else {
       openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,

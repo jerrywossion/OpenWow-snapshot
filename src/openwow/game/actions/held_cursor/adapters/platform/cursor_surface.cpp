@@ -349,6 +349,14 @@ bool CursorSurface::Initialize(SDL_Window* window) {
 
   SetActiveCursorSurface(this);
 
+#if defined(__APPLE__)
+  const auto& cvars = openwow::ui::game::CVarSystem::Instance();
+  if (cvars.Exists("gxCursor") && !cvars.GetCVarBool("gxCursor")) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kInfo,
+        "CursorSurface: macOS uses native hardware cursor presentation despite gxCursor=0");
+  }
+#endif
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, "CursorSurface: initialized");
   return true;
 }
@@ -730,8 +738,12 @@ std::pair<int, int> CursorSurface::CursorTypeToHotspot(CursorType ) {
 }
 
 bool CursorSurface::WantsHardwareCursor() const {
+#if defined(__APPLE__)
+  return true;
+#else
   const auto& cvars = openwow::ui::game::CVarSystem::Instance();
   return !cvars.Exists("gxCursor") || cvars.GetCVarBool("gxCursor");
+#endif
 }
 
 bool CursorSurface::ShouldRenderSoftwareCursor() const {
@@ -1062,13 +1074,6 @@ void CursorSurface::ReassertPresentation() {
   }
 
   RefreshPresentationMode();
-
-  if (!visible_ || ShouldRenderSoftwareCursor()) {
-
-    return;
-  }
-
-  SDL_SetCursor(nullptr);
 }
 
 SDL_Cursor* CursorSurface::CreateCursorFromBLP(

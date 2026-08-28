@@ -2567,6 +2567,11 @@ void GlueClient::Render(std::uint32_t now_ms, std::uint32_t frame_delta_ms,
                                     .widescreen = cvars.GetCVarBool("widescreen"),
                                     .particle_density = cvars.GetCVarFloat("particleDensity"),
                                 });
+      if (const auto cursor_view = ResolveFrameGraphView(
+              renderer_context_.get(), openwow::render::api::FrameGraphPassId::DebugOverlay)) {
+        game_loop_.cursor_manager().RenderOverlay(
+            *cursor_view, static_cast<float>(width), static_cast<float>(height));
+      }
     }
 
     for (auto &ev : glue_widgets_.ConsumeCursorChangedEvents()) {
