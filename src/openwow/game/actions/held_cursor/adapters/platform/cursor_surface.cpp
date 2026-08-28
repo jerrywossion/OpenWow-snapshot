@@ -795,12 +795,22 @@ void CursorSurface::RenderOverlay(std::uint8_t view_id, float screen_w, float sc
     return;
   }
 
+  int logical_width = 0;
+  int logical_height = 0;
+  SDL_GetWindowSize(window_, &logical_width, &logical_height);
+  const float logical_to_drawable_x =
+      logical_width > 0 ? screen_w / static_cast<float>(logical_width) : 1.0f;
+  const float logical_to_drawable_y =
+      logical_height > 0 ? screen_h / static_cast<float>(logical_height) : 1.0f;
+
   bool rendered = false;
   if (runtime_cursor_enabled_ && runtime_cursor_pixels_valid_) {
     rendered = software_renderer_.RenderCustomPixels(
         view_id,
         screen_w,
         screen_h,
+        logical_to_drawable_x,
+        logical_to_drawable_y,
         mouse_x,
         mouse_y,
         runtime_visible_hotspot_.first,
@@ -813,6 +823,8 @@ void CursorSurface::RenderOverlay(std::uint8_t view_id, float screen_w, float sc
         view_id,
         screen_w,
         screen_h,
+        logical_to_drawable_x,
+        logical_to_drawable_y,
         mouse_x,
         mouse_y,
         runtime_visible_hotspot_.first,
@@ -823,6 +835,8 @@ void CursorSurface::RenderOverlay(std::uint8_t view_id, float screen_w, float sc
         view_id,
         screen_w,
         screen_h,
+        logical_to_drawable_x,
+        logical_to_drawable_y,
         mouse_x,
         mouse_y,
         active_hotspot_.first,
@@ -835,6 +849,8 @@ void CursorSurface::RenderOverlay(std::uint8_t view_id, float screen_w, float sc
         view_id,
         screen_w,
         screen_h,
+        logical_to_drawable_x,
+        logical_to_drawable_y,
         mouse_x,
         mouse_y,
         active_hotspot_.first,
