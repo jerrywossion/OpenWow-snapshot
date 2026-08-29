@@ -368,6 +368,9 @@ void CursorSurface::Shutdown() {
   custom_cursor_handle_ = nullptr;
   SDL_Cursor* stale_runtime_cursor_handle = runtime_cursor_handle_;
   runtime_cursor_handle_ = nullptr;
+  SDL_Cursor* stale_suppression_handle = native_cursor_suppression_handle_;
+  native_cursor_suppression_handle_ = nullptr;
+  native_cursor_suppression_failure_logged_ = false;
 
   runtime_cursor_enabled_ = false;
   ResetRuntimeCursorTextureState();
@@ -385,10 +388,12 @@ void CursorSurface::Shutdown() {
   cached_custom_cursor_request_.clear();
   custom_cursor_rgba_.fill(0);
   visible_ = true;
-  RefreshPresentationMode();
+  SDL_SetCursor(nullptr);
+  SDL_ShowCursor(SDL_ENABLE);
   FreeCursorHandle(stale_builtin_cursor_handle);
   FreeCursorHandle(stale_custom_cursor_handle);
   FreeCursorHandle(stale_runtime_cursor_handle);
+  FreeCursorHandle(stale_suppression_handle);
   if (GetActiveCursorSurface() == this) {
     SetActiveCursorSurface(nullptr);
   }
@@ -1080,12 +1085,12 @@ void CursorSurface::RefreshPresentationMode() {
   }
 
   if (!visible_ || ShouldRenderSoftwareCursor()) {
-    SDL_ShowCursor(SDL_DISABLE);
+    SuppressNativeCursor();
     return;
   }
 
-  SDL_ShowCursor(SDL_ENABLE);
   ApplyHardwareCursor();
+  SDL_ShowCursor(SDL_ENABLE);
 }
 
 void CursorSurface::ReassertPresentation() {
@@ -1094,6 +1099,34 @@ void CursorSurface::ReassertPresentation() {
   }
 
   RefreshPresentationMode();
+}
+
+void CursorSurface::SuppressNativeCursor() {
+  if (native_cursor_suppression_handle_ == nullptr) {
+    std::array<std::uint8_t, detail::kCursor32x32PixelBytes> transparent_rgba{};
+    native_cursor_suppression_handle_ =
+        CreateCursorFromPixels(transparent_rgba, 0, 0);
+    if (native_cursor_suppression_handle_ == nullptr &&
+        !native_cursor_suppression_failure_logged_) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          std::string("CursorSurface: failed to create native cursor suppression handle: ") +
+              SDL_GetError());
+      native_cursor_suppression_failure_logged_ = true;
+    }
+  }
+
+  if (native_cursor_suppression_handle_ != nullptr) {
+    SDL_SetCursor(native_cursor_suppression_handle_);
+  }
+  if (SDL_ShowCursor(SDL_DISABLE) < 0 &&
+      !native_cursor_suppression_failure_logged_) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        std::string("CursorSurface: failed to suppress native cursor: ") +
+            SDL_GetError());
+    native_cursor_suppression_failure_logged_ = true;
+  }
 }
 
 SDL_Cursor* CursorSurface::CreateCursorFromBLP(
