@@ -73,9 +73,6 @@ bool IsDefined(float v) {
 }
 
 float SynthesizeHorizontalSide(float center, float opposite, float size) {
-  if (IsDefined(center) && IsDefined(opposite)) {
-    return center + center - opposite;
-  }
   if (IsDefined(opposite) && size != 0.0F) {
     return opposite + size;
   }
