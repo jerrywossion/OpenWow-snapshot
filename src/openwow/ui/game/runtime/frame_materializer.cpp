@@ -657,6 +657,33 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
                                         parent_index != 0);
     if (parent_pushed) lua_pop(lua_, 1);
   }
+
+  // <ScrollChild> is structural FrameXML syntax rather than a runtime widget.
+  // Its direct child is already parented to the ScrollFrame and marked as part
+  // of the scroll subtree by the parser; publish the corresponding script
+  // object relationship so GetScrollChild() observes the authored child.
+  for (std::size_t owner = 0; owner < plan.frames.size(); ++owner) {
+    if (refs[owner] == LUA_NOREF ||
+        !openwow::text::EqualsIgnoreCaseAscii(plan.frames[owner].kind,
+                                              "ScrollFrame")) {
+      continue;
+    }
+    for (const std::size_t child : plan.children[owner]) {
+      if (child >= refs.size() || refs[child] == LUA_NOREF ||
+          plan.frames[child].scroll_child_membership_count <=
+              plan.frames[owner].scroll_child_membership_count) {
+        continue;
+      }
+      const int top = lua_gettop(lua_);
+      lua_rawgeti(lua_, LUA_REGISTRYINDEX, refs[owner]);
+      lua_rawgeti(lua_, LUA_REGISTRYINDEX, refs[child]);
+      if (lua_istable(lua_, -2) && lua_istable(lua_, -1)) {
+        lua_setfield(lua_, -2, "__ow_sf_child");
+      }
+      lua_settop(lua_, top);
+      break;
+    }
+  }
   if (record_default_declarations) {
     for (std::size_t i = 0; i < plan.frames.size(); ++i)
       if (refs[i] != LUA_NOREF && !plan.frames[i].name.empty())
