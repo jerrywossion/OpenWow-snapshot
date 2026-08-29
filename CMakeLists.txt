@@ -39,6 +39,22 @@ find_package(imgui CONFIG REQUIRED)
 find_package(bgfx CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  # The vcpkg bgfx export carries macOS's IOKit framework into every Apple
+  # target even though the iOS archive has no IOKit references. Keeping that
+  # item would give the app a private, arm64e-only runtime dependency.
+  get_target_property(OPENWOW_BGFX_LINK_LIBRARIES
+    bgfx::bgfx INTERFACE_LINK_LIBRARIES)
+  set(OPENWOW_BGFX_IOS_LINK_LIBRARIES "")
+  foreach(OPENWOW_BGFX_LINK_ITEM IN LISTS OPENWOW_BGFX_LINK_LIBRARIES)
+    string(REPLACE " -framework IOKit" ""
+      OPENWOW_BGFX_LINK_ITEM "${OPENWOW_BGFX_LINK_ITEM}")
+    list(APPEND OPENWOW_BGFX_IOS_LINK_LIBRARIES "${OPENWOW_BGFX_LINK_ITEM}")
+  endforeach()
+  set_property(TARGET bgfx::bgfx PROPERTY INTERFACE_LINK_LIBRARIES
+    "${OPENWOW_BGFX_IOS_LINK_LIBRARIES}")
+endif()
+
 find_package(ZLIB REQUIRED)
 
 find_package(PkgConfig REQUIRED)

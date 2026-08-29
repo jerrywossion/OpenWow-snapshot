@@ -1,9 +1,9 @@
 # Content and writable roots
 
 OpenWoW keeps stock build-12340 content, project-owned replacements, runtime
-downloads, and user state in separate roots. This lets a macOS application
-bundle and a future iOS target consume the same content layout without writing
-into signed application resources.
+downloads, and user state in separate roots. macOS and iOS application bundles
+consume the same content layout without writing into signed application
+resources.
 
 ## Workspace layout
 
@@ -51,6 +51,10 @@ On Apple platforms the default is:
 ~/Library/Application Support/OpenWoW/
 ```
 
+On iOS, `~` is the application's private data container, so configuration,
+logs, cache data and downloaded content remain writable without modifying or
+invalidating the signed `.app`.
+
 Runtime-generated content that must participate in VFS lookup is stored under
 `ContentOverrides/`. `OPENWOW_USER_DATA` is available for isolated development
 or automation runs.
@@ -69,7 +73,14 @@ Configure with `-DOPENWOW_EMBED_GAME_DATA=ON` to also install:
 OpenWoW.app/Contents/Resources/GameRoot/Data/
 ```
 
-The runtime also recognizes the corresponding iOS bundle-root layout:
-`GameRoot/Data` and `OpenWoWOverrides`. The current CMake client target is still
-desktop-only; an iOS target must supply the renderer, window/input lifecycle,
-and platform packaging before that path support becomes a runnable iOS app.
+iOS bundles use the shallow resource layout produced by Xcode:
+
+```text
+OpenWoW.app/GameRoot/Data/
+OpenWoW.app/OpenWoWOverrides/
+```
+
+The standard `ios-simulator` and `ios-device` presets embed the local `Data/`
+tree and therefore need no path picker, environment variable, or launch
+argument. The signed bundle remains read-only; all runtime mutations go to the
+private user-data root described above.

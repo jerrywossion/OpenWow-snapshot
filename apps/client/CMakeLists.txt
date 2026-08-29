@@ -87,7 +87,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   function(openwow_add_ios_resource_tree target source_root bundle_root)
     file(GLOB_RECURSE resource_files CONFIGURE_DEPENDS
       LIST_DIRECTORIES FALSE "${source_root}/*")
-    list(FILTER resource_files EXCLUDE REGEX "/\\.gitkeep$")
+    list(FILTER resource_files EXCLUDE REGEX "/(\\.gitkeep|\\.DS_Store)$")
     foreach(resource_file IN LISTS resource_files)
       file(RELATIVE_PATH resource_relative "${source_root}" "${resource_file}")
       get_filename_component(resource_directory "${resource_relative}" DIRECTORY)
@@ -112,6 +112,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     MACOSX_BUNDLE ON
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info-iOS.plist"
     OUTPUT_NAME "OpenWoW"
+    SKIP_BUILD_RPATH ON
     XCODE_GENERATE_SCHEME ON
     XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
     XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
@@ -134,24 +135,37 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     openwow_link_apple_framework(openwow-client "${framework}")
   endforeach()
 
-  if(CMAKE_OSX_SYSROOT MATCHES "[iI]PhoneSimulator|iphonesimulator")
-    # actool requires a matching installed simulator runtime even when only
-    # compiling an app icon. Keep code-only simulator builds independent of
-    # that optional Xcode component; device builds still compile AppIcon.
-    set(OPENWOW_IOS_SIMULATOR_ICON
-      "${OPENWOW_PACKAGING_DIR}/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
-    target_sources(openwow-client PRIVATE "${OPENWOW_IOS_SIMULATOR_ICON}")
-    set_source_files_properties("${OPENWOW_IOS_SIMULATOR_ICON}" PROPERTIES
+  # Xcode's asset catalog compiler requires a simulator runtime matching the
+  # selected SDK, including for device-only builds. Generate the deployment
+  # icon sizes directly so a device build depends only on the iPhoneOS SDK.
+  find_program(OPENWOW_SIPS_EXECUTABLE NAMES sips REQUIRED)
+  set(OPENWOW_IOS_ICON_SOURCE
+    "${OPENWOW_PACKAGING_DIR}/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+  set(OPENWOW_IOS_ICON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/ios-icons")
+  file(MAKE_DIRECTORY "${OPENWOW_IOS_ICON_OUTPUT_DIR}")
+  foreach(icon_spec IN ITEMS
+      "AppIcon60x60@2x.png;120"
+      "AppIcon76x76@2x~ipad.png;152"
+      "AppIcon83.5x83.5@2x~ipad.png;167")
+    list(GET icon_spec 0 icon_name)
+    list(GET icon_spec 1 icon_pixels)
+    set(icon_output "${OPENWOW_IOS_ICON_OUTPUT_DIR}/${icon_name}")
+    execute_process(
+      COMMAND "${OPENWOW_SIPS_EXECUTABLE}"
+        -z "${icon_pixels}" "${icon_pixels}"
+        "${OPENWOW_IOS_ICON_SOURCE}" --out "${icon_output}"
+      RESULT_VARIABLE icon_result
+      OUTPUT_QUIET
+      ERROR_VARIABLE icon_error)
+    if(NOT icon_result EQUAL 0)
+      message(FATAL_ERROR
+        "Failed to generate iOS icon ${icon_name}: ${icon_error}")
+    endif()
+    target_sources(openwow-client PRIVATE "${icon_output}")
+    set_source_files_properties("${icon_output}" PROPERTIES
+      GENERATED TRUE
       MACOSX_PACKAGE_LOCATION Resources)
-  else()
-    set(OPENWOW_IOS_ASSET_CATALOG
-      "${OPENWOW_PACKAGING_DIR}/ios/Assets.xcassets")
-    target_sources(openwow-client PRIVATE "${OPENWOW_IOS_ASSET_CATALOG}")
-    set_source_files_properties("${OPENWOW_IOS_ASSET_CATALOG}" PROPERTIES
-      MACOSX_PACKAGE_LOCATION Resources)
-    set_target_properties(openwow-client PROPERTIES
-      XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
-  endif()
+  endforeach()
 
   openwow_add_ios_resource_tree(openwow-client
     "${OPENWOW_PROJECT_OVERRIDE_ROOT}" "OpenWoWOverrides")

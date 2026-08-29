@@ -82,7 +82,7 @@
         "VCPKG_HOST_TRIPLET": "arm64-osx",
         "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-overlay-triplets",
         "BUILD_TESTING": "OFF",
-        "OPENWOW_EMBED_GAME_DATA": "OFF"
+        "OPENWOW_EMBED_GAME_DATA": "ON"
       },
       "condition": {
         "type": "equals",
@@ -110,6 +110,30 @@
       "cacheVariables": {
         "CMAKE_OSX_SYSROOT": "iphoneos",
         "VCPKG_TARGET_TRIPLET": "arm64-ios"
+      }
+    },
+    {
+      "name": "ios-simulator-code-only",
+      "displayName": "iOS Simulator arm64 (code only)",
+      "description": "Build the native iOS application without copying the local build-12340 Data directory into the bundle.",
+      "inherits": [
+        "ios-simulator"
+      ],
+      "cacheVariables": {
+        "CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED": "NO",
+        "OPENWOW_EMBED_GAME_DATA": "OFF"
+      }
+    },
+    {
+      "name": "ios-device-code-only",
+      "displayName": "iOS device arm64 (code only)",
+      "description": "Build the native iOS application without copying the local build-12340 Data directory into the bundle.",
+      "inherits": [
+        "ios-device"
+      ],
+      "cacheVariables": {
+        "CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED": "NO",
+        "OPENWOW_EMBED_GAME_DATA": "OFF"
       }
     },
     {
@@ -262,6 +286,16 @@
     {
       "name": "ios-device",
       "configurePreset": "ios-device",
+      "configuration": "Release"
+    },
+    {
+      "name": "ios-simulator-code-only",
+      "configurePreset": "ios-simulator-code-only",
+      "configuration": "Release"
+    },
+    {
+      "name": "ios-device-code-only",
+      "configurePreset": "ios-device-code-only",
       "configuration": "Release"
     },
     {
