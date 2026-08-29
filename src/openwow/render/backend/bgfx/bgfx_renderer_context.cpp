@@ -323,7 +323,11 @@ bool FillPlatformData(SDL_Window* window, bgfx::PlatformData* out) {
   }
 #endif
 #if defined(__APPLE__)
+#if defined(OPENWOW_PLATFORM_IOS)
+  if (wmi.subsystem == SDL_SYSWM_UIKIT) {
+#else
   if (wmi.subsystem == SDL_SYSWM_COCOA) {
+#endif
     if (s_metal_view != nullptr) {
       SDL_Metal_DestroyView(static_cast<SDL_MetalView>(s_metal_view));
       s_metal_view = nullptr;
@@ -333,9 +337,11 @@ bool FillPlatformData(SDL_Window* window, bgfx::PlatformData* out) {
       s_metal_view = metal_view;
       pd.nwh = SDL_Metal_GetLayer(metal_view);
     }
+#if !defined(OPENWOW_PLATFORM_IOS)
     if (pd.nwh == nullptr) {
       pd.nwh = wmi.info.cocoa.window;
     }
+#endif
   }
 #endif
 

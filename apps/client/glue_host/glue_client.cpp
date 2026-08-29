@@ -2926,15 +2926,19 @@ int GlueClient::Run() {
   UpdateTextInputState();
 
   while (running_) {
-
-    const double elapsed_sec = clock.Tick();
-    const std::uint32_t now_ms =
-        SDL_GetTicks();
-    const std::uint32_t frame_delta_ms = static_cast<std::uint32_t>(clock.FrameDeltaMs());
-
     PumpPendingWindowEvents();
     if (!running_)
       break;
+    if (!application_active_) {
+      (void)clock.Tick();
+      SDL_Delay(50);
+      continue;
+    }
+
+    const double elapsed_sec = clock.Tick();
+    const std::uint32_t now_ms = SDL_GetTicks();
+    const std::uint32_t frame_delta_ms =
+        static_cast<std::uint32_t>(clock.FrameDeltaMs());
 
     if (debug_ui_control_adapter_) {
       debug_ui_control_adapter_->Pump(game_loop_.game_ui());

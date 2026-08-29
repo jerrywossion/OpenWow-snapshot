@@ -6,7 +6,11 @@ set(OPENWOW_LOCAL_CONTENT_ROOT
   "Local build-12340 content root containing Data/ (kept outside Git)"
 )
 option(OPENWOW_EMBED_GAME_DATA
-  "Copy OPENWOW_LOCAL_CONTENT_ROOT/Data into the macOS application bundle" OFF)
+  "Copy OPENWOW_LOCAL_CONTENT_ROOT/Data into an Apple application bundle" OFF)
+set(OPENWOW_IOS_BUNDLE_IDENTIFIER "org.openwow.client" CACHE STRING
+  "Bundle identifier for the native iOS application")
+set(OPENWOW_IOS_DEVELOPMENT_TEAM "" CACHE STRING
+  "Apple development team used for automatic iOS code signing")
 
 option(OPENWOW_ENABLE_STREAMING_TELEMETRY
   "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)

@@ -1618,7 +1618,7 @@ MacHardwareClassification ClassifyMacHardware(
   return result;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
 template <typename T>
 bool ReadMacHardwareSysctl(const char *name, T &value) {
   std::size_t size = sizeof(value);
@@ -1670,7 +1670,7 @@ void DetectHardware(const openwow::vfs::VirtualFileSystem *vfs) {
     s_hw_info.driver_lo = adapter_identity.driver_lo;
   }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
   const MacHardwareSpecs mac_specs = CollectMacHardwareSpecs(
       has_adapter_identity ? adapter_identity.video_memory_bytes : 0u);
   const MacHardwareClassification mac_classification =

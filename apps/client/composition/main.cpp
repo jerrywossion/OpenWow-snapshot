@@ -530,8 +530,12 @@ int RunClientProcess(int argc, char** argv) {
     openwow::debug::ErrorHandler::Get().SetAssertLogPath(assert_log);
   }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
   (void)SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "0");
+#endif
+#if defined(OPENWOW_PLATFORM_IOS)
+  (void)SDL_SetHint("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight");
+  (void)SDL_SetHint("SDL_IOS_HIDE_HOME_INDICATOR", "2");
 #endif
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) != 0) {
@@ -549,9 +553,15 @@ int RunClientProcess(int argc, char** argv) {
 
   (void)SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
 
+  Uint32 window_flags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
+#if defined(OPENWOW_PLATFORM_IOS)
+  window_flags |= SDL_WINDOW_FULLSCREEN;
+#else
+  window_flags |= SDL_WINDOW_RESIZABLE;
+#endif
   SDL_Window* window = SDL_CreateWindow(
       "World of Warcraft", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1280, 720,
-      SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+      window_flags);
   if (!window) {
     if (startup_trace.has_value()) startup_trace->Add("platform.window_create.fail");
     std::cerr << "SDL_CreateWindow failed: " << SDL_GetError() << '\n';

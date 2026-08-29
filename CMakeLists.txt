@@ -9,6 +9,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 
 project(OpenWoW VERSION 0.1.2 LANGUAGES C CXX)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_compile_definitions(OPENWOW_PLATFORM_IOS=1)
+endif()
+
 if(APPLE)
   if(POLICY CMP0156)
     cmake_policy(SET CMP0156 NEW)

@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
 #include <ApplicationServices/ApplicationServices.h>
 #endif
 
@@ -513,7 +513,7 @@ bool WindowManager::BeginRelativeCursorMode() {
         return true;
     }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
 
     if (window_ != nullptr) {
         (void)CGAssociateMouseAndMouseCursorPosition(false);
@@ -542,7 +542,7 @@ void WindowManager::EndRelativeCursorMode() {
         return;
     }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
 
     (void)CGAssociateMouseAndMouseCursorPosition(true);
 #else
@@ -563,7 +563,7 @@ RelativeCursorMotion WindowManager::HandleRelativeCursorMotion() {
         return motion;
     }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
     if (window_ != nullptr) {
 
         int32_t dx = 0;
@@ -678,9 +678,15 @@ void* WindowManager::GetNativeHandle() const {
     }
 #endif
 #if defined(__APPLE__)
+#if defined(OPENWOW_PLATFORM_IOS)
+    if (wmi.subsystem == SDL_SYSWM_UIKIT) {
+        return wmi.info.uikit.window;
+    }
+#else
     if (wmi.subsystem == SDL_SYSWM_COCOA) {
         return wmi.info.cocoa.window;
     }
+#endif
 #endif
 
     return nullptr;

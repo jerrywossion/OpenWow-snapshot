@@ -76,7 +76,100 @@ target_link_libraries(openwow-client PRIVATE
 set(OPENWOW_PACKAGING_DIR "${PROJECT_SOURCE_DIR}/packaging")
 set(OPENWOW_VERSION "${PROJECT_VERSION}")
 
-if(APPLE)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  if(NOT CMAKE_GENERATOR STREQUAL "Xcode")
+    message(FATAL_ERROR "The native iOS application target requires the Xcode generator")
+  endif()
+  if(NOT TARGET SDL2::SDL2main)
+    message(FATAL_ERROR "The iOS SDL2 package does not provide SDL2::SDL2main")
+  endif()
+
+  function(openwow_add_ios_resource_tree target source_root bundle_root)
+    file(GLOB_RECURSE resource_files CONFIGURE_DEPENDS
+      LIST_DIRECTORIES FALSE "${source_root}/*")
+    list(FILTER resource_files EXCLUDE REGEX "/\\.gitkeep$")
+    foreach(resource_file IN LISTS resource_files)
+      file(RELATIVE_PATH resource_relative "${source_root}" "${resource_file}")
+      get_filename_component(resource_directory "${resource_relative}" DIRECTORY)
+      if(resource_directory STREQUAL "")
+        set(resource_location "Resources/${bundle_root}")
+      else()
+        set(resource_location "Resources/${bundle_root}/${resource_directory}")
+      endif()
+      set_source_files_properties("${resource_file}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION "${resource_location}")
+    endforeach()
+    target_sources(${target} PRIVATE ${resource_files})
+  endfunction()
+
+  configure_file(
+    "${OPENWOW_PACKAGING_DIR}/ios/Info.plist.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/Info-iOS.plist"
+    @ONLY
+  )
+
+  set_target_properties(openwow-client PROPERTIES
+    MACOSX_BUNDLE ON
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info-iOS.plist"
+    OUTPUT_NAME "OpenWoW"
+    XCODE_GENERATE_SCHEME ON
+    XCODE_ATTRIBUTE_CODE_SIGN_STYLE "Automatic"
+    XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+    XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${CMAKE_OSX_DEPLOYMENT_TARGET}"
+    XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
+    XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS "iphoneos iphonesimulator"
+    XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "NO"
+    XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+  )
+  if(OPENWOW_IOS_DEVELOPMENT_TEAM)
+    set_target_properties(openwow-client PROPERTIES
+      XCODE_ATTRIBUTE_DEVELOPMENT_TEAM "${OPENWOW_IOS_DEVELOPMENT_TEAM}"
+    )
+  endif()
+
+  target_link_libraries(openwow-client PRIVATE SDL2::SDL2main)
+  foreach(framework IN ITEMS
+      AudioToolbox AVFoundation Foundation GameController Metal QuartzCore
+      Security SystemConfiguration UIKit)
+    openwow_link_apple_framework(openwow-client "${framework}")
+  endforeach()
+
+  if(CMAKE_OSX_SYSROOT MATCHES "[iI]PhoneSimulator|iphonesimulator")
+    # actool requires a matching installed simulator runtime even when only
+    # compiling an app icon. Keep code-only simulator builds independent of
+    # that optional Xcode component; device builds still compile AppIcon.
+    set(OPENWOW_IOS_SIMULATOR_ICON
+      "${OPENWOW_PACKAGING_DIR}/ios/Assets.xcassets/AppIcon.appiconset/AppIcon.png")
+    target_sources(openwow-client PRIVATE "${OPENWOW_IOS_SIMULATOR_ICON}")
+    set_source_files_properties("${OPENWOW_IOS_SIMULATOR_ICON}" PROPERTIES
+      MACOSX_PACKAGE_LOCATION Resources)
+  else()
+    set(OPENWOW_IOS_ASSET_CATALOG
+      "${OPENWOW_PACKAGING_DIR}/ios/Assets.xcassets")
+    target_sources(openwow-client PRIVATE "${OPENWOW_IOS_ASSET_CATALOG}")
+    set_source_files_properties("${OPENWOW_IOS_ASSET_CATALOG}" PROPERTIES
+      MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(openwow-client PROPERTIES
+      XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME "AppIcon")
+  endif()
+
+  openwow_add_ios_resource_tree(openwow-client
+    "${OPENWOW_PROJECT_OVERRIDE_ROOT}" "OpenWoWOverrides")
+  if(OPENWOW_EMBED_GAME_DATA)
+    if(NOT IS_DIRECTORY "${OPENWOW_LOCAL_CONTENT_ROOT}/Data")
+      message(FATAL_ERROR
+        "OPENWOW_EMBED_GAME_DATA requires Data/ under "
+        "OPENWOW_LOCAL_CONTENT_ROOT=${OPENWOW_LOCAL_CONTENT_ROOT}")
+    endif()
+    openwow_add_ios_resource_tree(openwow-client
+      "${OPENWOW_LOCAL_CONTENT_ROOT}/Data" "GameRoot/Data")
+  endif()
+
+  install(TARGETS openwow-client
+    BUNDLE DESTINATION .
+    COMPONENT client
+  )
+elseif(APPLE)
 
   set(OPENWOW_MACOS_BUNDLE_NAME "OpenWoW.app")
   set(OPENWOW_MACOS_BUNDLE_EXECUTABLE "$<TARGET_FILE_NAME:openwow-client>")

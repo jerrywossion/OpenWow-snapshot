@@ -271,6 +271,25 @@ void GlueClient::ApplyWindowFocusChange(const bool focused) {
   UpdateTextInputState();
 }
 
+void GlueClient::ApplyApplicationActiveChange(const bool active) {
+  if (application_active_ == active) {
+    return;
+  }
+
+  application_active_ = active;
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      active ? "Application entered foreground" : "Application entered background");
+  if (!active) {
+    ApplyWindowFocusChange(false);
+    return;
+  }
+
+  present_pacer_.Reset();
+  layout_dirty_ = true;
+  ReconcileWindowFocus();
+}
+
 void GlueClient::ReconcileWindowFocus() {
   if (window_ == nullptr) {
     return;
@@ -283,6 +302,23 @@ void GlueClient::ReconcileWindowFocus() {
 }
 
 void GlueClient::HandleEvent(const SDL_Event &event) {
+  if (event.type == SDL_APP_WILLENTERBACKGROUND ||
+      event.type == SDL_APP_DIDENTERBACKGROUND) {
+    ApplyApplicationActiveChange(false);
+    return;
+  }
+  if (event.type == SDL_APP_DIDENTERFOREGROUND) {
+    ApplyApplicationActiveChange(true);
+    return;
+  }
+  if (event.type == SDL_APP_LOWMEMORY) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+                              "Application received a low-memory warning");
+    texture_manager_.ClearCache();
+    sound_runtime_.ClearSoundKitProviderCaches();
+    return;
+  }
+
   const std::uint32_t mouse_button_flag =
       (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP)
           ? WowMouseButtonBitmaskFromSdlButton(event.button.button)

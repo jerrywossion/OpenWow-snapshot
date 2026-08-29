@@ -68,6 +68,51 @@
       }
     },
     {
+      "name": "ios-base",
+      "hidden": true,
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/.vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
+        "CMAKE_SUPPRESS_REGENERATION": "ON",
+        "VCPKG_HOST_TRIPLET": "arm64-osx",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/vcpkg-overlay-triplets",
+        "BUILD_TESTING": "OFF",
+        "OPENWOW_EMBED_GAME_DATA": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "ios-simulator",
+      "displayName": "iOS Simulator arm64",
+      "inherits": [
+        "ios-base"
+      ],
+      "cacheVariables": {
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator"
+      }
+    },
+    {
+      "name": "ios-device",
+      "displayName": "iOS device arm64",
+      "inherits": [
+        "ios-base"
+      ],
+      "cacheVariables": {
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios"
+      }
+    },
+    {
       "name": "ci-base",
       "hidden": true,
       "inherits": [
@@ -208,6 +253,16 @@
     {
       "name": "release-pgo-use",
       "configurePreset": "release-pgo-use"
+    },
+    {
+      "name": "ios-simulator",
+      "configurePreset": "ios-simulator",
+      "configuration": "Release"
+    },
+    {
+      "name": "ios-device",
+      "configurePreset": "ios-device",
+      "configuration": "Release"
     },
     {
       "name": "ci-linux-gcc",

@@ -349,7 +349,7 @@ bool CursorSurface::Initialize(SDL_Window* window) {
 
   SetActiveCursorSurface(this);
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
   const auto& cvars = openwow::ui::game::CVarSystem::Instance();
   if (cvars.Exists("gxCursor") && !cvars.GetCVarBool("gxCursor")) {
     openwow::diagnostics::Log(
@@ -747,7 +747,7 @@ bool CursorSurface::WantsHardwareCursor() const {
   if (!cvars.Exists("gxCursor") || cvars.GetCVarBool("gxCursor")) {
     return true;
   }
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
   return !runtime_cursor_enabled_ && !custom_cursor_active_ &&
          current_retail_type_ == 1u;
 #else
