@@ -15,7 +15,6 @@ struct WmoLightingPalette {
   RenderVec3 outdoor_diffuse{};
   RenderVec3 window_ambient{};
   RenderVec3 window_diffuse{};
-  std::uint32_t material_ambient_argb{};
 };
 
 struct WmoVertexLightingInput {
@@ -72,25 +71,24 @@ EvaluateRetailWmoVertexColor(const WmoVertexLightingInput &input) noexcept {
 }
 
 [[nodiscard]] inline RenderVec4 EvaluateRetailWmoMaterialEmissive(
-    const std::uint32_t material_ambient_argb,
+    const std::uint32_t fog_volume_glow_argb,
     const std::uint32_t sidn_argb, const float intensity,
     const bool sidn_enabled) noexcept {
-  const auto half_sum = [=](const std::uint32_t shift) {
-    const std::uint32_t ambient =
-        (material_ambient_argb >> shift) & 0xffu;
+  const auto quarter_sum = [=](const std::uint32_t shift) {
+    const std::uint32_t fog_glow = (fog_volume_glow_argb >> shift) & 0xffu;
     const std::uint32_t sidn = sidn_enabled
                                    ? ScaleRetailWmoNightGlowChannel(
                                          static_cast<std::uint8_t>(
                                              (sidn_argb >> shift) & 0xffu),
                                          intensity)
                                    : 0u;
-    return static_cast<float>((std::min(ambient + sidn, 255u)) >> 1u) /
-           255.0f;
+
+    return static_cast<float>((sidn + fog_glow) >> 2u) / 255.0f;
   };
   return {
-      half_sum(16u),
-      half_sum(8u),
-      half_sum(0u),
+      quarter_sum(16u),
+      quarter_sum(8u),
+      quarter_sum(0u),
       0.0f,
   };
 }

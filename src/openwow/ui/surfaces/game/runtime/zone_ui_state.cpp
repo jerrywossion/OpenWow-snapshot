@@ -1,7 +1,6 @@
 #include "openwow/ui/surfaces/game/runtime/zone_ui_state.h"
 
 #include "openwow/data/streaming_init.h"
-#include "openwow/game/channel_manager.h"
 #include "openwow/game/chat_cache.h"
 #include "openwow/game/objects/cgplayer.h"
 #include "openwow/game/world_scene_state.h"
@@ -47,12 +46,6 @@ void ZoneUiState::Apply(const ZoneUiUpdate &update, openwow::game::WorldSession 
 
   if (!update.text.real_zone.empty() && real_zone_text_ != update.text.real_zone) {
     real_zone_text_.assign(update.text.real_zone);
-    if ((session == nullptr ||
-         !session->spell_visual().cinematic_active()) &&
-        (session == nullptr || !openwow::game::CGPlayer_C_IsLoading(*session))) {
-      openwow::game::ChannelManager::Get().AutoJoinDefaults(
-          static_cast<std::uint32_t>(location_.area.value()));
-    }
   }
 
   const std::string &minimap_text = subzone_text_.empty() ? zone_text_ : subzone_text_;

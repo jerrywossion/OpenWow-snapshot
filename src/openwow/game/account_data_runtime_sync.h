@@ -72,6 +72,10 @@ bool DownloadRuntimeAccountData(
     const std::function<bool(const openwow::net::wotlk::WorldPacket&)>&
         send_packet);
 
+bool RequestStaleAccountDataOnTimesSync(
+    const std::function<bool(const openwow::net::wotlk::WorldPacket&)>&
+        send_packet);
+
 bool UploadRuntimeAccountData(const AccountDataUploadContext& context);
 
 bool PumpRuntimeAccountDataUpload(

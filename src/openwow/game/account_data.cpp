@@ -264,6 +264,18 @@ bool AccountData::ShouldDownload(AccountDataType type) const {
   return entry.dirty || entry.timestamp != entry.synchronized_timestamp;
 }
 
+bool AccountData::IsServerCopyNewer(AccountDataType type) const {
+  const auto idx = static_cast<std::size_t>(type);
+  if (idx >= entries_.size()) {
+    return false;
+  }
+
+  std::lock_guard lock(mutex_);
+  const auto& entry = entries_[idx];
+
+  return !entry.dirty && entry.timestamp < entry.synchronized_timestamp;
+}
+
 bool AccountData::MarkServerDownloadPending(AccountDataType type) {
   const auto idx = static_cast<std::size_t>(type);
   if (idx >= entries_.size()) {

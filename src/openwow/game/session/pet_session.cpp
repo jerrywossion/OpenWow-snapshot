@@ -209,24 +209,37 @@ void WorldSession::HandlePetSpells(const net::wotlk::WorldPacket &pkt) {
   dispatch.FireSpellsChanged();
   dispatch.FireEvent(ui::game::events::TRAINER_UPDATE);
 
-  if (!pet_changed) {
-    return;
+  if (pet_changed) {
+    ui::game::UnitTokenRegistry::Get().SetPet(current_guid);
+    if (!pet_.pet_bar().active || current_guid == 0) {
+
+      dispatch.FirePetBarUpdateUsable();
+    } else {
+
+      const auto *pet_unit = map_runtime_.objects().GetUnit(pet_.pet_bar().guid);
+      if (pet_unit != nullptr && pet_unit->State().IsHunterPet()) {
+        dispatch.FireEvent(ui::game::events::PET_UI_CLOSE);
+      }
+    }
+
+    const auto *player = map_runtime_.objects().GetLocalPlayer();
+    if (player) {
+      dispatch.FireUnitPet(player->GetGuid().GetRawValue());
+    }
   }
 
-  ui::game::UnitTokenRegistry::Get().SetPet(current_guid);
-  const auto *player = map_runtime_.objects().GetLocalPlayer();
-  if (player) {
-    dispatch.FireUnitPet(player->GetGuid().GetRawValue());
-  }
+  dispatch.FirePetBarUpdate();
 
-  const auto *active_player = map_runtime_.objects().GetActivePlayer();
-  if (active_player != nullptr && active_player->State().GetHealth() == 0 &&
-      pet_.pet_bar().active && current_guid != 0) {
-    dispatch.FireEvent(ui::game::events::RAISED_AS_GHOUL);
-  }
-  if (pet_.pet_bar().active) {
+  if (pet_changed) {
 
-    dispatch.FireEvent(ui::game::events::PET_BAR_UPDATE_USABLE);
+    const auto *active_player = map_runtime_.objects().GetActivePlayer();
+    if (active_player != nullptr && active_player->State().GetHealth() == 0) {
+      if (pet_.pet_bar().active && current_guid != 0) {
+        dispatch.FireEvent(ui::game::events::RAISED_AS_GHOUL);
+      } else {
+        EvaluateActivePlayerLifeLevel(false);
+      }
+    }
   }
 }
 

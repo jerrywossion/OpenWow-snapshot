@@ -54,6 +54,7 @@ struct LuaTooltipObjectState final {
     std::size_t committed_texture_count{0u};
     float committed_minimum_width{0.0F};
     float committed_padding{0.0F};
+    std::uint64_t layout_revision{0u};
     float status_bar_min{0.0F};
     float status_bar_max{1.0F};
     float status_bar_value{0.0F};
@@ -79,6 +80,7 @@ LuaTooltipObjectState::PublishedPresentation CapturePresentation(
       .committed_texture_count = tooltip.GetCommittedTextureCount(),
       .committed_minimum_width = tooltip.GetCommittedMinimumWidth(),
       .committed_padding = tooltip.GetCommittedPadding(),
+      .layout_revision = tooltip.GetLayoutRevision(),
       .status_bar_min = tooltip.GetStatusBarMin(),
       .status_bar_max = tooltip.GetStatusBarMax(),
       .status_bar_value = tooltip.GetStatusBarValue(),

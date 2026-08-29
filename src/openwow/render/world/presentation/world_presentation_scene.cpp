@@ -633,8 +633,6 @@ void WorldPresentationScene::Render(
   env.wmo.outdoor_diffuse = snapshot.environment.wmo_outdoor_diffuse;
   env.wmo.window_ambient = snapshot.environment.window_ambient;
   env.wmo.window_diffuse = snapshot.environment.window_diffuse;
-  env.wmo.material_ambient_argb =
-      snapshot.environment.wmo_material_ambient_argb;
 
   env.point_lights = doodads_->scene_point_lights();
   world::SkyColors sky_colors{};

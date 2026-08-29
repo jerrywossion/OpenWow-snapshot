@@ -60,7 +60,8 @@ public:
 
   [[nodiscard]] M2ResultStatus SetAnimationSample(
       std::uint32_t instance_id, std::uint32_t animation_id,
-      std::uint32_t time_ms, float speed, bool zero_blend = false);
+      std::uint32_t time_ms, float speed, bool zero_blend = false,
+      bool restart = false);
   [[nodiscard]] M2ResultStatus SetAnimationSequenceSample(
       std::uint32_t instance_id, std::uint16_t sequence_index,
       std::uint32_t time_ms, float speed);
@@ -71,7 +72,7 @@ public:
   [[nodiscard]] M2ResultStatus SetAnimationSlotSample(
       std::uint32_t instance_id, std::uint32_t slot_index,
       std::uint32_t animation_id, std::uint32_t time_ms, float speed,
-      bool zero_blend = false);
+      bool zero_blend = false, bool restart = false);
   [[nodiscard]] M2ResultStatus SetAnimationSlotTimes(
       std::uint32_t instance_id, std::span<const std::uint32_t> slot_indices,
       std::uint32_t time_ms);
@@ -215,7 +216,7 @@ private:
 
   [[nodiscard]] M2ResultStatus ApplyAnimationSample(
       std::uint32_t instance_id, std::uint32_t animation_id,
-      std::uint32_t time_ms, float speed, bool zero_blend);
+      std::uint32_t time_ms, float speed, bool zero_blend, bool restart);
 
   [[nodiscard]] std::uint32_t ResolvePresentationDurationMs(
       const M2InstanceFramePresentationRequest &request);

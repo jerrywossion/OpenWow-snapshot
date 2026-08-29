@@ -1,0 +1,45 @@
+The pinned bgfx unconditionally prefers INHERIT/PRE_MULTIPLIED/POST_MULTIPLIED
+composite alpha over OPAQUE whenever the surface advertises them. Mesa's
+Wayland WSI advertises non-opaque bits, so the client window was composited
+against the desktop wherever backbuffer alpha < 1. Upstream bgfx later gated
+this selection behind BGFX_RESET_TRANSPARENT_BACKBUFFER (master
+renderer_vk.cpp:8359-8375); this backports that gate, keeping the non-opaque
+preference chain as the fallback for surfaces that do not support OPAQUE at
+all.
+--- a/bgfx/src/renderer_vk.cpp
++++ b/bgfx/src/renderer_vk.cpp
+@@ -7305,16 +7305,20 @@
+         VkCompositeAlphaFlagBitsKHR compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+-
+-		if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
+-		{
+-			compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+-		}
+-		else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+-		{
+-			compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
+-		}
+-		else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
+-		{
+-			compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
+-		}
+-
++
++		if ( (m_resolution.reset & BGFX_RESET_TRANSPARENT_BACKBUFFER)
++		||  !(surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) )
++		{
++			if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR)
++			{
++				compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
++			}
++			else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
++			{
++				compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
++			}
++			else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR)
++			{
++				compositeAlpha = VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;
++			}
++		}
++
+         const VkImageUsageFlags imageUsageMask = 0

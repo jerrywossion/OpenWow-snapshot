@@ -132,23 +132,11 @@ class AnimationState {
 
   [[nodiscard]] std::uint16_t current_anim() const { return current_anim_; }
 
-  [[nodiscard]] std::uint16_t previous_anim() const { return previous_anim_; }
-
-  [[nodiscard]] float blend_factor() const { return blend_factor_; }
-
   [[nodiscard]] std::uint32_t current_time_ms() const;
-
-  [[nodiscard]] std::uint32_t previous_time_ms() const;
 
   [[nodiscard]] bool is_looping() const { return is_looping_; }
 
-  [[nodiscard]] bool is_blending() const { return blend_factor_ < 1.0f; }
-
   void Reset();
-
-  static constexpr float kDefaultBlendDuration = 0.2f;
-
-  void SetBlendDuration(float seconds) { blend_duration_ = seconds; }
 
   [[nodiscard]] float GetProgress(std::uint32_t duration_ms) const;
 
@@ -168,14 +156,9 @@ class AnimationState {
 
  private:
   std::uint16_t current_anim_{AnimId::kStand};
-  std::uint16_t previous_anim_{AnimId::kStand};
   std::uint16_t fallback_anim_{AnimId::kStand};
 
   double current_time_ms_{0.0};
-  double previous_time_ms_{0.0};
-
-  float blend_factor_{1.0f};
-  float blend_duration_{kDefaultBlendDuration};
 
   bool is_looping_{true};
   bool is_one_shot_{false};

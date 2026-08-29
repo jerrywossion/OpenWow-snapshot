@@ -522,6 +522,15 @@ bool WindowManager::BeginRelativeCursorMode() {
         int32_t discard_y = 0;
         CGGetLastMouseDelta(&discard_x, &discard_y);
     }
+#else
+
+    if (window_ != nullptr) {
+        SDL_SetRelativeMouseMode(SDL_TRUE);
+
+        int discard_x = 0;
+        int discard_y = 0;
+        SDL_GetRelativeMouseState(&discard_x, &discard_y);
+    }
 #endif
 
     relative_cursor_mode_active_ = true;
@@ -536,6 +545,9 @@ void WindowManager::EndRelativeCursorMode() {
 #if defined(__APPLE__)
 
     (void)CGAssociateMouseAndMouseCursorPosition(true);
+#else
+
+    SDL_SetRelativeMouseMode(SDL_FALSE);
 #endif
 
     relative_cursor_mode_active_ = false;
@@ -559,6 +571,16 @@ RelativeCursorMotion WindowManager::HandleRelativeCursorMotion() {
         CGGetLastMouseDelta(&dx, &dy);
         motion.delta_x = static_cast<int>(dx);
         motion.delta_y = static_cast<int>(dy);
+        motion.has_delta = (dx != 0 || dy != 0);
+    }
+#else
+    if (window_ != nullptr) {
+
+        int dx = 0;
+        int dy = 0;
+        SDL_GetRelativeMouseState(&dx, &dy);
+        motion.delta_x = dx;
+        motion.delta_y = dy;
         motion.has_delta = (dx != 0 || dy != 0);
     }
 #endif

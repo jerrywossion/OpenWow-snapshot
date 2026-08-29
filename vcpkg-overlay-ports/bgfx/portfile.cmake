@@ -23,6 +23,8 @@ vcpkg_extract_source_archive(
     metal-pipeline-state-memo.patch
     nvtt-isvalidptr-any-64bit.patch
     shaderc-uniform-array-regcount.patch
+    vulkan-bc1-punchthrough-alpha.patch
+    vulkan-opaque-composite-alpha.patch
 )
 file(REMOVE_RECURSE
   "${SOURCE_PATH}/bgfx/3rdparty/dear-imgui"

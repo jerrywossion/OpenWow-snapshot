@@ -55,6 +55,7 @@ constexpr const char *kTooltipCursorPixelScaleField =
     "__ow_tooltip_cursor_pixel_scale";
 constexpr const char *kTooltipClearGenerationField = "__ow_tooltip_clear_generation";
 constexpr const char *kTooltipPresentationRevisionField = "__ow_tooltip_presentation_revision";
+constexpr const char *kTooltipLayoutRevisionField = "__ow_tooltip_layout_revision";
 constexpr const char* kTooltipUsedTextureCountField =
     "__ow_tooltip_used_texture_count";
 constexpr const char *kTooltipPairLeftField = "left";
@@ -984,10 +985,18 @@ void FinalizeTooltipLuaLayout(lua_State *L, int tooltip_index) {
 void SyncTooltipRegisteredLinesFromSystem(lua_State *L, int tooltip_index) {
   tooltip_index = lua_absindex(L, tooltip_index);
   SyncTooltipClearGeneration(L, tooltip_index);
+  const auto &tooltip_system = openwow::ui::game::TooltipSystem::Get();
+  lua_getfield(L, tooltip_index, kTooltipLayoutRevisionField);
+  const bool has_published_layout = lua_isnumber(L, -1) != 0;
+  const bool layout_is_current =
+      has_published_layout
+          ? static_cast<std::uint64_t>(lua_tointeger(L, -1)) ==
+                tooltip_system.GetLayoutRevision()
+          : tooltip_system.GetLayoutRevision() == 0u;
+  lua_pop(L, 1);
   const int previous_line_count =
       ClearTooltipRegisteredFontStrings(L, tooltip_index);
 
-  const auto &tooltip_system = openwow::ui::game::TooltipSystem::Get();
   const auto &lines = tooltip_system.GetLines();
   int slot_index = 0;
   for (const auto &line : lines) {
@@ -1003,7 +1012,12 @@ void SyncTooltipRegisteredLinesFromSystem(lua_State *L, int tooltip_index) {
   SetTooltipUsedLineCount(L, tooltip_index, slot_index);
   const int synchronized_texture_count =
       SyncTooltipRegisteredTextures(L, tooltip_index);
-  FinalizeTooltipLuaLayout(L, tooltip_index);
+  if (!layout_is_current) {
+    FinalizeTooltipLuaLayout(L, tooltip_index);
+    lua_pushinteger(
+        L, static_cast<lua_Integer>(tooltip_system.GetLayoutRevision()));
+    lua_setfield(L, tooltip_index, kTooltipLayoutRevisionField);
+  }
 
   if (tooltip_system.IsShown()) {
 

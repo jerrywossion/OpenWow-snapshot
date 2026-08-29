@@ -305,6 +305,9 @@ struct RenderInstance {
   std::uint32_t upper_body_animation_slot{kNoKeyBoneAnimationSlot};
   bool upper_body_slot_resolved{false};
   bool upper_body_slot_active{false};
+
+  bool base_animation_restart_pending{false};
+  bool upper_body_restart_pending{false};
   std::vector<ModelAttachmentBinding> model_attachments;
 
   std::shared_ptr<const std::string> character_appearance_settled_key;
@@ -742,7 +745,8 @@ private:
   [[nodiscard]] static RenderAssetKind ClassifyRenderAssetPath(const std::string &path);
   [[nodiscard]] bool IsM2RenderReady(const RenderInstance &inst) const;
 
-  [[nodiscard]] bool PrepareM2InstanceQuery(const RenderInstance &inst) const;
+  [[nodiscard]] bool PrepareM2InstanceQuery(const RenderInstance &inst,
+                                            bool restart = false) const;
 
   [[nodiscard]] m2::M2InstanceFrameSpatialRequest BuildM2FrameSpatialRequest(
       const RenderInstance &inst, RenderMatrix4x4 *world_transform_storage,

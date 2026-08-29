@@ -171,6 +171,7 @@ class TooltipSystem {
   [[nodiscard]] std::uint64_t GetPresentationRevision() const;
   [[nodiscard]] std::size_t GetCommittedLineCount() const;
   [[nodiscard]] std::size_t GetCommittedTextureCount() const;
+  [[nodiscard]] std::uint64_t GetLayoutRevision() const;
 
   void SetMinimumWidth(float w, bool force = false);
   [[nodiscard]] float GetMinimumWidth() const;
@@ -314,6 +315,7 @@ class TooltipSystem {
   float committed_min_width_ = 0.0f;
   bool committed_force_min_width_ = false;
   float committed_padding_ = 0.0f;
+  std::uint64_t layout_revision_{0u};
   bool fade_active_ = false;
   float fade_timer_ = 0.0f;
   std::vector<TooltipTextureData> textures_;

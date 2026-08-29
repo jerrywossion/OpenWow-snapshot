@@ -171,11 +171,11 @@ class M2System final : public api::RendererDeviceLifecycleObserver {
   [[nodiscard]] M2ResultStatus SetAnimationRequest(std::uint32_t instance, const M2AnimationRequest& request);
   [[nodiscard]] M2ResultStatus SetAnimation(std::uint32_t instance, std::uint32_t animation, float speed = 1.0f);
 
-  [[nodiscard]] M2ResultStatus SetAnimationSample(std::uint32_t instance, std::uint32_t animation, std::uint32_t time, float speed = 1.0f, bool zero_blend = false);
+  [[nodiscard]] M2ResultStatus SetAnimationSample(std::uint32_t instance, std::uint32_t animation, std::uint32_t time, float speed = 1.0f, bool zero_blend = false, bool restart = false);
   [[nodiscard]] M2ResultStatus SetAnimationSequenceSample(std::uint32_t instance, std::uint16_t sequence, std::uint32_t time, float speed = 1.0f);
   [[nodiscard]] M2ResultStatus SetAnimationSlotRequest(std::uint32_t instance, std::uint32_t slot, const M2AnimationRequest& request);
 
-  [[nodiscard]] M2ResultStatus SetAnimationSlotSample(std::uint32_t instance, std::uint32_t slot, std::uint32_t animation, std::uint32_t time, float speed = 1.0f, bool zero_blend = false);
+  [[nodiscard]] M2ResultStatus SetAnimationSlotSample(std::uint32_t instance, std::uint32_t slot, std::uint32_t animation, std::uint32_t time, float speed = 1.0f, bool zero_blend = false, bool restart = false);
   [[nodiscard]] M2ResultStatus SetAnimationSlotTimes(std::uint32_t instance, std::span<const std::uint32_t> slots, std::uint32_t time);
   [[nodiscard]] M2ResultStatus ClearAnimationSlot(std::uint32_t instance, std::uint32_t slot);
 

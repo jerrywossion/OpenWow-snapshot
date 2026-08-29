@@ -801,7 +801,7 @@ void WorldSession::HandleDestroyObject(const net::wotlk::WorldPacket &pkt) {
     if (destroyed_active_pet) {
 
       ui::game::ScriptEventDispatch::Get().FireEvent(
-          ui::game::events::PET_UI_CLOSE);
+          ui::game::events::PET_UI_UPDATE);
     }
   }
 

@@ -56,7 +56,6 @@ struct WorldEnvironmentPresentation {
   std::array<float, 3> wmo_outdoor_diffuse{};
   std::array<float, 3> window_ambient{};
   std::array<float, 3> window_diffuse{};
-  std::uint32_t wmo_material_ambient_argb{};
   std::array<float, 4> fog_color{};
   float fog_start{0.0f};
   float fog_end{0.0f};

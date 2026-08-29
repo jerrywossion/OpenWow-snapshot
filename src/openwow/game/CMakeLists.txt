@@ -230,7 +230,6 @@ openwow_add_component(openwow_game
   cinematic_player.cpp
   chat_sender.cpp
   chat_system.cpp
-  channel_manager.cpp
   comsat_client.cpp
   comsat_sound_io.cpp
   comsat_sound_io_sound_engine.cpp

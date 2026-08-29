@@ -1224,73 +1224,6 @@ void DayNight_EvaluateFullLightState() {
 
   }
 
-  std::uint32_t ambient_upper = s_lightEnv.dwords[kDayNightDbcAmbientUpperColorIndex];
-  std::uint32_t ambient_lower = s_lightEnv.dwords[kDayNightDbcAmbientLowerColorIndex];
-  std::uint32_t diffuse_upper = s_lightEnv.dwords[kDayNightDbcDiffuseUpperColorIndex];
-  std::uint32_t diffuse_lower = s_lightEnv.dwords[kDayNightDbcDiffuseLowerColorIndex];
-  std::uint32_t glow_upper = s_lightEnv.dwords[kDayNightDbcGlowUpperColorIndex];
-  std::uint32_t glow_lower = s_lightEnv.dwords[kDayNightDbcGlowLowerColorIndex];
-
-  const bool has_dbc_data = (ambient_upper != 0u || ambient_lower != 0u ||
-                              diffuse_upper != 0u || diffuse_lower != 0u);
-  if (!has_dbc_data) {
-    ambient_upper = 0x00404040u;
-    ambient_lower = 0x00202020u;
-    diffuse_upper = 0x00FFFFFFu;
-    diffuse_lower = 0x00C0C0C0u;
-    glow_upper = 0x00808080u;
-    glow_lower = 0x00404040u;
-  }
-
-  const float dir_z = s_lightEnv.ReadFloat(kLightEnvLightDirectionIndex + 2);
-  const float vertical_blend = std::clamp(dir_z * 0.5f + 0.5f, 0.0f, 1.0f);
-
-  const auto blend_hemispheres = [](std::uint32_t upper, std::uint32_t lower,
-                                     float blend) -> std::uint32_t {
-
-    const auto blend_byte = static_cast<std::uint8_t>(
-        static_cast<std::int32_t>(std::nearbyint(blend * 255.0f)));
-    if (blend_byte == 0u) {
-      return (lower & 0xFF000000u) | (lower & 0x00FFFFFFu);
-    }
-    if (blend_byte >= 0xFFu) {
-      return (upper & 0xFF000000u) | (upper & 0x00FFFFFFu);
-    }
-    return BlendPackedArgbRgb(lower, blend_byte, upper);
-  };
-
-  std::uint32_t ambient_color = blend_hemispheres(ambient_upper, ambient_lower, vertical_blend);
-  std::uint32_t diffuse_color = blend_hemispheres(diffuse_upper, diffuse_lower, vertical_blend);
-  std::uint32_t glow_color = blend_hemispheres(glow_upper, glow_lower, vertical_blend);
-
-  const float glow_factor = s_lightEnv.ReadFloat(kLightEnvGlowBlendFactorIndex);
-  if (glow_factor > 0.0f) {
-
-    const auto glow_blend_byte = static_cast<std::uint8_t>(
-        static_cast<std::int32_t>(std::nearbyint(glow_factor * 255.0f)));
-    if (glow_blend_byte >= 0xFFu) {
-      ambient_color = (ambient_color & 0xFF000000u) | (glow_color & 0x00FFFFFFu);
-      diffuse_color = (diffuse_color & 0xFF000000u) | (glow_color & 0x00FFFFFFu);
-    } else {
-      ambient_color = BlendPackedArgbRgb(ambient_color, glow_blend_byte, glow_color);
-      diffuse_color = BlendPackedArgbRgb(diffuse_color, glow_blend_byte, glow_color);
-    }
-  }
-
-  const auto &tint = s_spellVisualLightingTint;
-  if (tint.blend_factor != 0u) {
-    if (tint.blend_factor >= 0xFFu) {
-      ambient_color = (ambient_color & 0xFF000000u) | (tint.packed_argb & 0x00FFFFFFu);
-      diffuse_color = (diffuse_color & 0xFF000000u) | (tint.packed_argb & 0x00FFFFFFu);
-    } else {
-      ambient_color = BlendPackedArgbRgb(ambient_color, tint.blend_factor, tint.packed_argb);
-      diffuse_color = BlendPackedArgbRgb(diffuse_color, tint.blend_factor, tint.packed_argb);
-    }
-  }
-
-  s_lightEnv.dwords[kDayNightInterpolatedAmbientColorIndex] = ambient_color;
-  s_lightEnv.dwords[kDayNightInterpolatedDiffuseColorIndex] = diffuse_color;
-
 }
 
 void DayNight_ComputeLightHeadingAndGlow() {
@@ -1393,6 +1326,20 @@ void DayNight_DeriveAmbientDiffuseColorCache(DayNightLightEnv &env) {
   env.dwords[kDayNightDerivedColorCurrentDimAmbientIndex] = PackArgb(
       reduced_alpha, ComputeReducedAmbientByte(ambient_rgb.red),
       ComputeReducedAmbientByte(ambient_rgb.green), ComputeReducedAmbientByte(ambient_rgb.blue));
+}
+
+void DayNight_ApplySpellVisualLightingTint() {
+
+  const auto &tint = s_spellVisualLightingTint;
+  if (tint.blend_factor == 0u) {
+    return;
+  }
+  for (const std::size_t index :
+       {kCurrentFogBandBaseIndex, kDayNightDerivedColorCurrentAmbientIndex,
+        kDayNightDerivedColorCurrentDiffuseIndex}) {
+    s_lightEnv.dwords[index] = BlendPackedArgbRgb(
+        s_lightEnv.dwords[index], tint.blend_factor, tint.packed_argb);
+  }
 }
 
 void DayNight_ClearActiveAreaOwner(const std::uint32_t owner_token) {
@@ -1596,9 +1543,6 @@ constexpr float kCloudGlowBaseRadius = 64.0f;
 constexpr float kCloudGlowHorizonRadiusScale = 192.0f;
 constexpr float kCloudGlowHorizonStrengthScale = 0.75f;
 constexpr float kByteToUnitRgbScale = 0.0039215689f;
-constexpr std::size_t kLightEnvCloudEdgeColorIndex = 63;
-constexpr std::size_t kLightEnvCloudColorIndex = 64;
-constexpr std::size_t kLightEnvCloudHilightColorIndex = 65;
 constexpr WrappedFloatCurvePoint kCloudGlowStrengthCurve[] = {
     {0.16666667f, 1.0f},
     {0.19444445f, 1.0f},

@@ -2146,6 +2146,11 @@ void TooltipSystem::CommitLayoutState() noexcept {
   committed_min_width_ = min_width_;
   committed_force_min_width_ = force_min_width_;
   committed_padding_ = padding_;
+  ++layout_revision_;
+}
+
+std::uint64_t TooltipSystem::GetLayoutRevision() const {
+  return layout_revision_;
 }
 
 void TooltipSystem::MarkPresentationChanged() noexcept {

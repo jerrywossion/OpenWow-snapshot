@@ -1262,6 +1262,8 @@ struct M2InstanceFramePresentationRequest {
   bool clamp_to_duration = false;
   float speed = 1.0f;
   bool zero_blend = false;
+
+  bool restart = false;
   bool visible = true;
   RenderVec4 tint_rgba{1.0f, 1.0f, 1.0f, 1.0f};
   float alpha = 1.0f;
