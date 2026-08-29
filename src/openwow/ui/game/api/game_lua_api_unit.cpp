@@ -2969,10 +2969,7 @@ int LuaUnitRangedAttack(lua_State *L) {
       if (auto slot = player->FindActiveSkillSlot(
               static_cast<std::uint16_t>(skill_line_id))) {
         auto skill = player->GetSkill(*slot);
-        base_skill = skill.value;
-        if (base_skill != 0) {
-          base_skill += static_cast<std::uint16_t>(skill.step_modifier);
-        }
+        base_skill = static_cast<int>(skill.EffectiveValue());
         modifier = skill.modifier;
       }
     }

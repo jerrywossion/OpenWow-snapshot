@@ -1826,17 +1826,13 @@ void WorldSession::RegisterActivePlayerSkillRefresh(const ObjectGuid &guid) {
           }
 
           const auto skill = player->GetSkill(slot);
-          std::uint32_t new_adjusted_value = skill.value;
-          if (new_adjusted_value != 0u) {
-            new_adjusted_value += static_cast<std::uint16_t>(skill.step_modifier);
-          }
 
           OnSkillValueDescriptorChanged(
               *this,
               {.slot_index = slot,
                .old_raw_value =
                    static_cast<std::uint16_t>(change.old_words.front()),
-               .new_adjusted_value = new_adjusted_value,
+               .new_adjusted_value = skill.EffectiveValue(),
                .skill_line_id = skill.skill_id,
                .race = player->State().GetRace(),
                .player_class = player->State().GetClass(),
