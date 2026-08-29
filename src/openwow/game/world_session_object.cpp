@@ -871,10 +871,8 @@ void WorldSession::OnLocalPlayerCreated(const ObjectGuid &guid) {
   if (dbc_ != nullptr) {
     if (const auto *const player = objects().GetLocalPlayerTyped();
         player != nullptr) {
-      auto &talent_store = TalentInfoStore::Get();
-      talent_store.LoadFromDbc(*dbc_);
-      talent_store.InitFromPlayer(player->State().GetClass(),
-                                  player->State().GetRace());
+      TalentInfoStore::Get().InitFromPlayer(player->State().GetClass(),
+                                            player->State().GetRace());
     }
   }
   if (const auto *player = objects().GetLocalPlayerTyped(); player != nullptr) {

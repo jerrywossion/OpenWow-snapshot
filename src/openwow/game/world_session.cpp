@@ -741,6 +741,11 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
       consume_legacy_token_seed_verification_(
           std::move(consume_legacy_token_seed_verification)),
       build_bot_detected_digest_(std::move(build_bot_detected_digest)) {
+  // SMSG_TALENTS_INFO is part of the initial login burst and normally arrives
+  // before the local player object.  Talent packet decoding joins talent IDs
+  // against this catalog, so the DBC side must be ready when the session starts
+  // rather than waiting for OnLocalPlayerCreated().
+  TalentInfoStore::Get().LoadFromDbc(dbc_loader);
   SpellbookSystem::Get().SetDbcLoader(
       &dbc_loader, map_runtime_.objects());
   combat_log_.SetObjectManagerProvider(
