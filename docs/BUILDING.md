@@ -53,6 +53,8 @@ sequence: build with `release-pgo-generate`, exercise the client, then build
 | --- | --- | --- |
 | `OPENWOW_BUILD_CLIENT` | ON | build `openwow-client` |
 | `OPENWOW_ENABLE_MPQ_VFS` | ON | StormLib-backed MPQ VFS (required to read a game install) |
+| `OPENWOW_LOCAL_CONTENT_ROOT` | `../LocalData/335a` | local build-12340 content root containing `Data/`; compiled in only when present |
+| `OPENWOW_EMBED_GAME_DATA` | OFF | copy the local `Data/` into the installed macOS `.app` for path-free startup |
 | `OPENWOW_WARNINGS_AS_ERRORS` | OFF | `-Werror` / `/WX` |
 | `OPENWOW_ENABLE_CLANG_TIDY` | OFF | run clang-tidy while compiling |
 | `OPENWOW_ENABLE_THINLTO` | OFF | ThinLTO (clang) / LTCG (MSVC) / `-flto=auto` (GCC) |
@@ -83,11 +85,19 @@ Developer Command Prompt (`vcvarsall x64`) so Ninja finds `cl.exe`.
 `SDL2::SDL2main` is linked automatically and the executable is a GUI-subsystem
 app, so it opens without a console window.
 
-## 4. Running
+## 4. Content roots and running
 
-The client needs the data files from your own copy of the game — the `Data/`
-directory containing the MPQ archives. None of that is distributed here, and
-the client will not start without it.
+The client needs the data files from your own copy of the game. The workspace
+default is `../LocalData/335a/Data`, outside this Git repository. When that
+directory exists at configure time, local builds find it automatically; no
+folder picker or launch argument is needed. `--game-data <path>` and
+`OPENWOW_GAME_DATA` remain available as explicit overrides.
+
+Project-owned replacement files belong under `assets/overrides` using their
+client logical paths. They are mounted above the original archives and are
+included in the macOS application bundle. Runtime downloads and generated
+content are kept separately under the platform user-data directory. See
+`docs/CONTENT_ROOTS.md` for precedence, writable paths, and bundle layout.
 
 ## 5. Packaging
 
@@ -99,3 +109,8 @@ resource templates, and the Linux AppImage runner and desktop entry.
 ```sh
 cmake --build build/release --target package
 ```
+
+To create a self-contained macOS application bundle, configure with
+`-DOPENWOW_EMBED_GAME_DATA=ON` before packaging. This copies the local `Data/`
+into `OpenWoW.app/Contents/Resources/GameRoot/Data`; it does not add those files
+to Git.

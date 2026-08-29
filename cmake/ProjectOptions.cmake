@@ -1,5 +1,12 @@
 option(OPENWOW_BUILD_CLIENT "Build the retail client executable" ON)
 option(OPENWOW_ENABLE_MPQ_VFS "Enable MPQ VFS via StormLib" ON)
+set(OPENWOW_LOCAL_CONTENT_ROOT
+  "${PROJECT_SOURCE_DIR}/../LocalData/335a"
+  CACHE PATH
+  "Local build-12340 content root containing Data/ (kept outside Git)"
+)
+option(OPENWOW_EMBED_GAME_DATA
+  "Copy OPENWOW_LOCAL_CONTENT_ROOT/Data into the macOS application bundle" OFF)
 
 option(OPENWOW_ENABLE_STREAMING_TELEMETRY
   "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)

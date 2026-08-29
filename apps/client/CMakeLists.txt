@@ -41,6 +41,24 @@ target_compile_definitions(openwow-client PRIVATE
   $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>
 )
 
+if(IS_DIRECTORY "${OPENWOW_LOCAL_CONTENT_ROOT}/Data")
+  target_compile_definitions(openwow-client PRIVATE
+    OPENWOW_DEVELOPMENT_CONTENT_ROOT="${OPENWOW_LOCAL_CONTENT_ROOT}"
+  )
+  message(STATUS "OpenWoW local content root: ${OPENWOW_LOCAL_CONTENT_ROOT}")
+else()
+  message(STATUS
+    "OpenWoW local content root is not present at ${OPENWOW_LOCAL_CONTENT_ROOT}; "
+    "the client will use explicit, bundled, or colocated Data")
+endif()
+
+set(OPENWOW_PROJECT_OVERRIDE_ROOT "${PROJECT_SOURCE_DIR}/assets/overrides")
+if(IS_DIRECTORY "${OPENWOW_PROJECT_OVERRIDE_ROOT}")
+  target_compile_definitions(openwow-client PRIVATE
+    OPENWOW_DEVELOPMENT_OVERRIDE_ROOT="${OPENWOW_PROJECT_OVERRIDE_ROOT}"
+  )
+endif()
+
 target_compile_options(openwow-client PRIVATE
   $<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
@@ -105,6 +123,24 @@ if(APPLE)
     DESTINATION "${OPENWOW_MACOS_BUNDLE_NAME}/Contents/Resources"
     COMPONENT client
   )
+  install(DIRECTORY "${OPENWOW_PROJECT_OVERRIDE_ROOT}/"
+    DESTINATION "${OPENWOW_MACOS_BUNDLE_NAME}/Contents/Resources/OpenWoWOverrides"
+    COMPONENT client
+    PATTERN ".gitkeep" EXCLUDE
+  )
+
+  if(OPENWOW_EMBED_GAME_DATA)
+    if(NOT IS_DIRECTORY "${OPENWOW_LOCAL_CONTENT_ROOT}/Data")
+      message(FATAL_ERROR
+        "OPENWOW_EMBED_GAME_DATA requires Data/ under "
+        "OPENWOW_LOCAL_CONTENT_ROOT=${OPENWOW_LOCAL_CONTENT_ROOT}")
+    endif()
+    install(DIRECTORY "${OPENWOW_LOCAL_CONTENT_ROOT}/Data"
+      DESTINATION "${OPENWOW_MACOS_BUNDLE_NAME}/Contents/Resources/GameRoot"
+      COMPONENT client
+      USE_SOURCE_PERMISSIONS
+    )
+  endif()
 elseif(WIN32)
 
   set_target_properties(openwow-client PROPERTIES WIN32_EXECUTABLE ON)
