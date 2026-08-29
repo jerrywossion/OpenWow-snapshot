@@ -1737,16 +1737,31 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
     quad.v1 = frame.tex_bottom;
     quad.blend = texture_state.blend;
 
+    const float solid_r = texture_state.solid_color_texture
+                              ? texture_state.solid_color_r
+                              : 1.0F;
+    const float solid_g = texture_state.solid_color_texture
+                              ? texture_state.solid_color_g
+                              : 1.0F;
+    const float solid_b = texture_state.solid_color_texture
+                              ? texture_state.solid_color_b
+                              : 1.0F;
+    const float solid_a = texture_state.solid_color_texture
+                              ? texture_state.solid_color_a
+                              : 1.0F;
     quad.abgr = PackStraightTextureAbgr(
-        texture_state.color_r, texture_state.color_g, texture_state.color_b,
-        texture_state.color_a, alpha);
+        texture_state.color_r * solid_r,
+        texture_state.color_g * solid_g,
+        texture_state.color_b * solid_b,
+        texture_state.color_a * solid_a, alpha);
     if (texture_state.has_gradient) {
       quad.has_vertex_colors = true;
       for (std::size_t color_index = 0; color_index < quad.vertex_abgr.size();
            ++color_index) {
         const auto& color = texture_state.gradient_colors[color_index];
-        quad.vertex_abgr[color_index] =
-            PackStraightTextureAbgr(color.r, color.g, color.b, color.a, alpha);
+        quad.vertex_abgr[color_index] = PackStraightTextureAbgr(
+            color.r * solid_r, color.g * solid_g, color.b * solid_b,
+            color.a * solid_a, alpha);
       }
       quad.abgr = quad.vertex_abgr[0];
     }

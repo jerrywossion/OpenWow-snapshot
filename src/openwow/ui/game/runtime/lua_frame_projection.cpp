@@ -847,10 +847,19 @@ static void ApplyFrameTextureDefaultsExceptPath(
   state->tile_x = frame.tile_x;
   state->tile_y = frame.tile_y;
   state->clamp_v_wrap = frame.clamp_v_wrap;
-  state->color_r = frame.color_r;
-  state->color_g = frame.color_g;
-  state->color_b = frame.color_b;
-  state->color_a = frame.texture_alpha.value_or(frame.color_a);
+  state->solid_color_texture = frame.file.empty() && frame.has_vertex_color;
+  if (state->solid_color_texture) {
+    state->solid_color_r = frame.color_r;
+    state->solid_color_g = frame.color_g;
+    state->solid_color_b = frame.color_b;
+    state->solid_color_a = frame.color_a;
+    state->color_a = frame.texture_alpha.value_or(1.0F);
+  } else {
+    state->color_r = frame.color_r;
+    state->color_g = frame.color_g;
+    state->color_b = frame.color_b;
+    state->color_a = frame.texture_alpha.value_or(frame.color_a);
+  }
 
   const std::string_view alpha_mode = frame.alpha_mode;
   if (openwow::text::EqualsIgnoreCaseAscii(alpha_mode, "DISABLE")) {
@@ -863,7 +872,6 @@ static void ApplyFrameTextureDefaultsExceptPath(
     state->blend = openwow::render::ui::BlendMode::kModulate;
   }
 
-  state->solid_color_texture = frame.file.empty() && frame.has_vertex_color;
   state->has_gradient = frame.gradient.enabled;
   if (frame.gradient.enabled) {
     const auto colors = frame.gradient.ToUiRendererCornerColors();
@@ -1104,6 +1112,15 @@ void BuildTextureRenderStateFromLuaFieldsInto(
         state);
   }
 
+  if (!state.texture_path.empty() || state.clear_texture ||
+      bgfx::isValid(state.dynamic_texture)) {
+    state.solid_color_texture = false;
+    state.solid_color_r = 1.0F;
+    state.solid_color_g = 1.0F;
+    state.solid_color_b = 1.0F;
+    state.solid_color_a = 1.0F;
+  }
+
   TextureQuadUv custom_uv_quad{};
   if (TryGetLuaTextureUvQuad(L, source, &custom_uv_quad)) {
     state.uv_quad = custom_uv_quad;
@@ -1142,22 +1159,22 @@ void BuildTextureRenderStateFromLuaFieldsInto(
   if (state.texture_path.empty() && !state.clear_texture) {
     if (texture_field::ReadNumber(L, source, texture_field::kSolidColorR,
                                   &component)) {
-      state.color_r = static_cast<float>(component);
+      state.solid_color_r = static_cast<float>(component);
       state.solid_color_texture = true;
     }
     if (texture_field::ReadNumber(L, source, texture_field::kSolidColorG,
                                   &component)) {
-      state.color_g = static_cast<float>(component);
+      state.solid_color_g = static_cast<float>(component);
       state.solid_color_texture = true;
     }
     if (texture_field::ReadNumber(L, source, texture_field::kSolidColorB,
                                   &component)) {
-      state.color_b = static_cast<float>(component);
+      state.solid_color_b = static_cast<float>(component);
       state.solid_color_texture = true;
     }
     if (texture_field::ReadNumber(L, source, texture_field::kSolidColorA,
                                   &component)) {
-      state.color_a = static_cast<float>(component);
+      state.solid_color_a = static_cast<float>(component);
       state.solid_color_texture = true;
     }
   }
@@ -1247,6 +1264,15 @@ void BuildTextureRenderStateInto(
                                   portrait_view_limit, state);
   }
 
+  if (!state.texture_path.empty() || state.clear_texture ||
+      bgfx::isValid(state.dynamic_texture)) {
+    state.solid_color_texture = false;
+    state.solid_color_r = 1.0F;
+    state.solid_color_g = 1.0F;
+    state.solid_color_b = 1.0F;
+    state.solid_color_a = 1.0F;
+  }
+
   if (source->has_tex_coord_quad) {
     const auto& quad = source->tex_coord_quad;
     state.uv_quad = {
@@ -1280,19 +1306,19 @@ void BuildTextureRenderStateInto(
 
   if (state.texture_path.empty() && !state.clear_texture) {
     if (source->solid_color[0].has_value()) {
-      state.color_r = static_cast<float>(*source->solid_color[0]);
+      state.solid_color_r = static_cast<float>(*source->solid_color[0]);
       state.solid_color_texture = true;
     }
     if (source->solid_color[1].has_value()) {
-      state.color_g = static_cast<float>(*source->solid_color[1]);
+      state.solid_color_g = static_cast<float>(*source->solid_color[1]);
       state.solid_color_texture = true;
     }
     if (source->solid_color[2].has_value()) {
-      state.color_b = static_cast<float>(*source->solid_color[2]);
+      state.solid_color_b = static_cast<float>(*source->solid_color[2]);
       state.solid_color_texture = true;
     }
     if (source->solid_color[3].has_value()) {
-      state.color_a = static_cast<float>(*source->solid_color[3]);
+      state.solid_color_a = static_cast<float>(*source->solid_color[3]);
       state.solid_color_texture = true;
     }
   }
