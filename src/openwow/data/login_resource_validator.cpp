@@ -182,6 +182,20 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
         });
   }
 
+  const auto runtime_override_root =
+      ResolveStartupWritablePath("ContentOverrides");
+  std::error_code runtime_override_ec;
+  if (fs::is_directory(runtime_override_root, runtime_override_ec) &&
+      !runtime_override_ec) {
+    vfs.Mount({
+        .id = "runtime-override",
+        .kind = openwow::vfs::MountKind::kEnhancedOverride,
+        .source_root = runtime_override_root,
+        .priority = kRuntimeOverridePriority,
+        .enabled = true,
+    });
+  }
+
   if (!enhanced_assets_root.empty()) {
     vfs.Mount({
         .id = "enhanced-override",

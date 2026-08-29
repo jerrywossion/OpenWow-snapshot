@@ -483,8 +483,8 @@ std::string PlatformLayer::GetArchName() {
 std::string PlatformLayer::GetUserDataPath() {
 #if defined(_WIN32)
     const char* appdata = std::getenv("APPDATA");
-    if (appdata) return std::string(appdata) + "\\WTF";
-    return "WTF";
+    if (appdata) return std::string(appdata) + "\\OpenWoW";
+    return "OpenWoW";
 #elif defined(__APPLE__)
     const char* home = std::getenv("HOME");
     if (home) return std::string(home) + "/Library/Application Support/OpenWoW";

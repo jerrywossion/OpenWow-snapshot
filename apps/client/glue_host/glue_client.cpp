@@ -917,7 +917,7 @@ void GlueClient::DispatchPendingScrollRangeChangedEvents() {
 void GlueClient::RefreshLoginConfiguration() {
   auto &cvars = openwow::ui::game::CVarSystem::Instance();
   const std::string detected_locale = openwow::data::DetectLocaleRing(
-      cvars.GetCVar("locale"), launch_context_.game_root.string(),
+      cvars.GetCVar("locale"), launch_context_.content_root.string(),
       openwow::data::GetStartupFileSystemState().retail_install_path_cache);
   openwow::data::DefaultLoadLoginConfigs(1, detected_locale.c_str());
 
@@ -988,8 +988,8 @@ void GlueClient::DoLoginAttempt() {
 
 void GlueClient::BuildAndPublishLoginVfs() {
   const auto &cvars = openwow::ui::game::CVarSystem::Instance();
-  login_vfs_ = openwow::data::BuildLoginVfs(launch_context_.game_root.string(),
-                                            launch_context_.enhanced_assets_root.string(),
+  login_vfs_ = openwow::data::BuildLoginVfs(launch_context_.content_root.string(),
+                                            launch_context_.override_content_root.string(),
                                             cvars.GetCVar("locale"));
 
   RealmAddonHandshakeComposition::BindContentVfs(&login_vfs_);
@@ -1480,7 +1480,7 @@ bool GlueClient::InitCVars() {
 bool GlueClient::InitVFS() {
   if (startup_trace_)
     startup_trace_->Add("glue.InitVFS.begin");
-  const std::string game_data = launch_context_.game_root.string();
+  const std::string game_data = launch_context_.content_root.string();
 
   {
     const auto mfil_path = std::filesystem::path(game_data) / "WoW.mfil";

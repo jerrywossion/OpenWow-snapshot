@@ -42,17 +42,6 @@ std::filesystem::path BuildNativePath(std::string path) {
     return std::filesystem::path(path);
 }
 
-std::filesystem::path GetStartupPathFallbackRoot() {
-    std::error_code ec;
-    const std::filesystem::path current_directory =
-        std::filesystem::current_path(ec);
-    if (ec) {
-        return {};
-    }
-
-    return current_directory;
-}
-
 std::filesystem::path ResolveConfigPathForIo(
     const std::filesystem::path& path) {
     const std::filesystem::path native_path = BuildNativePath(path.string());
@@ -60,18 +49,7 @@ std::filesystem::path ResolveConfigPathForIo(
         return native_path.lexically_normal();
     }
 
-    const auto& startup_state = openwow::data::GetStartupFileSystemState();
-    if (!startup_state.executable_base_path.empty()) {
-        return (BuildNativePath(startup_state.executable_base_path) / native_path)
-            .lexically_normal();
-    }
-
-    const std::filesystem::path fallback_root = GetStartupPathFallbackRoot();
-    if (fallback_root.empty()) {
-        return native_path;
-    }
-
-    return (fallback_root / native_path).lexically_normal();
+    return openwow::data::ResolveStartupWritablePath(native_path);
 }
 
 std::filesystem::path ResolvePrimaryConfigPathForIo() {

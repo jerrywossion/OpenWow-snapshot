@@ -16,6 +16,7 @@
 #include "openwow/debug/diagnostics/error_handler.h"
 #include "openwow/core/fpu_control.h"
 #include "openwow/platform/diagnostics/crash_handler.h"
+#include "openwow/platform/adapters/sdl/platform_layer.h"
 #include "openwow/platform/process/os_platform.h"
 #include "openwow/platform/window/window_manager.h"
 #include "openwow/platform/window/single_instance_guard.h"
@@ -64,28 +65,38 @@ bool HasDataSubdirectory(const std::filesystem::path& root) {
   return std::filesystem::is_directory(root / "Data", ec) && !ec;
 }
 
-std::filesystem::path BundleContainerDirectory(
+std::filesystem::path BundleResourcesDirectory(
     const std::filesystem::path& exe_dir) {
 
-  std::filesystem::path macos_dir = exe_dir.lexically_normal();
-  if (macos_dir.filename().empty()) {
-    macos_dir = macos_dir.parent_path();
+  std::filesystem::path normalized_exe_dir = exe_dir.lexically_normal();
+  if (normalized_exe_dir.filename().empty()) {
+    normalized_exe_dir = normalized_exe_dir.parent_path();
   }
-  if (macos_dir.filename() != "MacOS") {
-    return {};
+  if (normalized_exe_dir.filename() == "MacOS") {
+    const std::filesystem::path contents_dir = normalized_exe_dir.parent_path();
+    if (contents_dir.filename() == "Contents" &&
+        contents_dir.parent_path().extension() == ".app") {
+      return contents_dir / "Resources";
+    }
   }
-  const std::filesystem::path contents_dir = macos_dir.parent_path();
-  if (contents_dir.filename() != "Contents") {
-    return {};
+
+  if (normalized_exe_dir.extension() == ".app") {
+    return normalized_exe_dir;
   }
-  const std::filesystem::path bundle_dir = contents_dir.parent_path();
-  if (bundle_dir.extension() != ".app") {
-    return {};
-  }
-  return bundle_dir.parent_path();
+
+  return {};
 }
 
-std::filesystem::path ResolveGameRoot(const std::string& cli_game_data_path) {
+std::filesystem::path BundleSiblingDirectory(
+    const std::filesystem::path& exe_dir) {
+  const auto resources_dir = BundleResourcesDirectory(exe_dir);
+  if (resources_dir.empty() || resources_dir.filename() != "Resources") {
+    return {};
+  }
+  return resources_dir.parent_path().parent_path().parent_path();
+}
+
+std::filesystem::path ResolveContentRoot(const std::string& cli_game_data_path) {
   if (!cli_game_data_path.empty()) {
     return AbsolutePathFromCurrentRoot(std::filesystem::path(cli_game_data_path));
   }
@@ -93,6 +104,15 @@ std::filesystem::path ResolveGameRoot(const std::string& cli_game_data_path) {
   const char* env_game_data = std::getenv("OPENWOW_GAME_DATA");
   if (env_game_data != nullptr && env_game_data[0] != '\0') {
     return AbsolutePathFromCurrentRoot(std::filesystem::path(env_game_data));
+  }
+
+  const auto exe_dir = ExecutableDirectory();
+  const auto bundle_resources = BundleResourcesDirectory(exe_dir);
+  if (!bundle_resources.empty()) {
+    const auto bundled_content_root = bundle_resources / "GameRoot";
+    if (HasDataSubdirectory(bundled_content_root)) {
+      return bundled_content_root;
+    }
   }
 
   std::error_code ec;
@@ -104,15 +124,22 @@ std::filesystem::path ResolveGameRoot(const std::string& cli_game_data_path) {
     }
   }
 
-  auto exe_dir = ExecutableDirectory();
   if (HasDataSubdirectory(exe_dir)) {
     return exe_dir;
   }
 
-  const auto bundle_container = BundleContainerDirectory(exe_dir);
-  if (!bundle_container.empty() && HasDataSubdirectory(bundle_container)) {
-    return bundle_container;
+  const auto bundle_sibling = BundleSiblingDirectory(exe_dir);
+  if (!bundle_sibling.empty() && HasDataSubdirectory(bundle_sibling)) {
+    return bundle_sibling;
   }
+
+#if defined(OPENWOW_DEVELOPMENT_CONTENT_ROOT)
+  const auto development_content_root =
+      AbsolutePathFromCurrentRoot(std::filesystem::path(OPENWOW_DEVELOPMENT_CONTENT_ROOT));
+  if (HasDataSubdirectory(development_content_root)) {
+    return development_content_root;
+  }
+#endif
 
   if (!cwd.empty()) {
     return cwd;
@@ -120,12 +147,72 @@ std::filesystem::path ResolveGameRoot(const std::string& cli_game_data_path) {
   return exe_dir;
 }
 
-std::filesystem::path ResolveEnhancedAssetsRoot() {
+std::filesystem::path ResolveOverrideContentRoot() {
   const char* env_assets = std::getenv("OPENWOW_ENHANCED_ASSETS");
-  if (env_assets == nullptr || env_assets[0] == '\0') {
-    return {};
+  if (env_assets != nullptr && env_assets[0] != '\0') {
+    return AbsolutePathFromCurrentRoot(std::filesystem::path(env_assets));
   }
-  return AbsolutePathFromCurrentRoot(std::filesystem::path(env_assets));
+
+  const auto bundle_resources = BundleResourcesDirectory(ExecutableDirectory());
+  if (!bundle_resources.empty()) {
+    const auto bundled_override_root = bundle_resources / "OpenWoWOverrides";
+    std::error_code ec;
+    if (std::filesystem::is_directory(bundled_override_root, ec) && !ec) {
+      return bundled_override_root;
+    }
+  }
+
+#if defined(OPENWOW_DEVELOPMENT_OVERRIDE_ROOT)
+  const auto development_override_root =
+      AbsolutePathFromCurrentRoot(std::filesystem::path(OPENWOW_DEVELOPMENT_OVERRIDE_ROOT));
+  std::error_code ec;
+  if (std::filesystem::is_directory(development_override_root, ec) && !ec) {
+    return development_override_root;
+  }
+#endif
+
+  return {};
+}
+
+std::filesystem::path ResolveUserDataRoot() {
+  const char* env_user_data = std::getenv("OPENWOW_USER_DATA");
+  if (env_user_data != nullptr && env_user_data[0] != '\0') {
+    return AbsolutePathFromCurrentRoot(std::filesystem::path(env_user_data));
+  }
+
+  const std::string platform_user_data =
+      openwow::core::PlatformLayer::GetUserDataPath();
+  if (!platform_user_data.empty()) {
+    return AbsolutePathFromCurrentRoot(std::filesystem::path(platform_user_data));
+  }
+
+  return AbsolutePathFromCurrentRoot(ExecutableDirectory() / "OpenWoWUserData");
+}
+
+bool PrepareUserDataRoot(const std::filesystem::path& user_data_root) {
+  const std::filesystem::path required_directories[] = {
+      user_data_root,
+      user_data_root / "ContentOverrides",
+  };
+  for (const auto& directory : required_directories) {
+    std::error_code ec;
+    std::filesystem::create_directories(directory, ec);
+    if (ec) {
+      std::cerr << "OpenWoW: failed to create user data directory "
+                << directory.string() << ": " << ec.message() << '\n';
+      return false;
+    }
+    if (!std::filesystem::is_directory(directory, ec) || ec) {
+      std::cerr << "OpenWoW: user data path is not a directory: "
+                << directory.string();
+      if (ec) {
+        std::cerr << ": " << ec.message();
+      }
+      std::cerr << '\n';
+      return false;
+    }
+  }
+  return true;
 }
 
 class ScenarioProfileIsolation {
@@ -193,6 +280,9 @@ class ScenarioProfileIsolation {
       original_working_directory_.clear();
       return false;
     }
+    original_writable_base_path_ =
+        openwow::data::GetStartupFileSystemState().writable_base_path;
+    openwow::data::SetStartupWritableBasePath(root_.string());
     entered_ = true;
     return true;
   }
@@ -203,6 +293,7 @@ class ScenarioProfileIsolation {
     }
     std::error_code ec;
     std::filesystem::current_path(original_working_directory_, ec);
+    openwow::data::SetStartupWritableBasePath(original_writable_base_path_);
     entered_ = false;
   }
 
@@ -218,6 +309,7 @@ class ScenarioProfileIsolation {
  private:
   std::filesystem::path root_;
   std::filesystem::path original_working_directory_;
+  std::string original_writable_base_path_;
   bool prepared_{false};
   bool entered_{false};
 };
@@ -369,13 +461,14 @@ int RunClientProcess(int argc, char** argv) {
     render_submit_trace_ref = *render_submit_trace;
   }
 
-  auto game_root = ResolveGameRoot(cli_game_data_path);
-  auto enhanced_assets_root = ResolveEnhancedAssetsRoot();
+  const auto content_root = ResolveContentRoot(cli_game_data_path);
+  const auto override_content_root = ResolveOverrideContentRoot();
+  const auto user_data_root = ResolveUserDataRoot();
 
   if (artifacts_dir.empty()) {
-    artifacts_dir = game_root / "artifacts";
+    artifacts_dir = user_data_root / "artifacts";
   } else if (artifacts_dir.is_relative()) {
-    artifacts_dir = game_root / artifacts_dir;
+    artifacts_dir = user_data_root / artifacts_dir;
   }
   artifacts_dir = artifacts_dir.lexically_normal();
   if (scenario_opts.has_value()) {
@@ -390,15 +483,23 @@ int RunClientProcess(int argc, char** argv) {
         artifacts_dir / "render_submit" / "sample_submit_trace.tsv";
   }
 
+  if (!PrepareUserDataRoot(user_data_root)) {
+    write_startup_trace();
+    return 1;
+  }
+
   {
     std::error_code ec;
-    std::filesystem::current_path(game_root, ec);
+    std::filesystem::current_path(user_data_root, ec);
     if (ec) {
       std::cerr << "OpenWoW: failed to set working directory to "
-                << game_root.string() << ": " << ec.message() << '\n';
+                << user_data_root.string() << ": " << ec.message() << '\n';
+      write_startup_trace();
+      return 1;
     }
   }
-  openwow::data::SetStartupExecutableBasePath(game_root.string());
+  openwow::data::SetStartupExecutableBasePath(content_root.string());
+  openwow::data::SetStartupWritableBasePath(user_data_root.string());
 
   std::optional<ScenarioProfileIsolation> scenario_profile;
   if (scenario_opts.has_value()) {
@@ -419,15 +520,14 @@ int RunClientProcess(int argc, char** argv) {
   }
 
   openwow::platform::CrashHandler::Get().Install(
-      openwow::platform::CrashContext{.build_version = "WotLK 3.3.5a OpenWoW"});
+      openwow::platform::CrashContext{
+          .build_version = "WotLK 3.3.5a OpenWoW",
+          .logs_directory = (user_data_root / "logs").string(),
+      });
 
   {
-    std::error_code ec;
-    auto exe_dir = std::filesystem::current_path(ec);
-    if (!ec) {
-      auto assert_log = (exe_dir / "Errors" / "Assert.log").string();
-      openwow::debug::ErrorHandler::Get().SetAssertLogPath(assert_log);
-    }
+    const auto assert_log = (user_data_root / "Errors" / "Assert.log").string();
+    openwow::debug::ErrorHandler::Get().SetAssertLogPath(assert_log);
   }
 
 #if defined(__APPLE__)
@@ -481,24 +581,26 @@ int RunClientProcess(int argc, char** argv) {
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, "Client startup");
 
   openwow::net::PacketLog::Get().Initialize(
-      (game_root.parent_path() / "logs").string());
+      (user_data_root / "logs").string());
   std::cerr << "OpenWoW log: " << openwow::diagnostics::CurrentLogFile().string() << '\n';
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
-                     "Game root: " + game_root.string());
-  if (!enhanced_assets_root.empty()) {
+                     "Content root: " + content_root.string());
+  if (!override_content_root.empty()) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
-                       "Enhanced assets root: " + enhanced_assets_root.string());
+                       "Override content root: " + override_content_root.string());
   }
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+                     "User data root: " + user_data_root.string());
 
   {
     namespace fs = std::filesystem;
-    const auto data_dir = game_root / "Data";
+    const auto data_dir = content_root / "Data";
     if (!fs::is_directory(data_dir)) {
       openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-          "Game root has no 'Data' directory — MPQ archives will NOT be "
+          "Content root has no 'Data' directory — MPQ archives will NOT be "
           "loaded. Run from the WoW installation root, or use "
           "--game-data <path> / OPENWOW_GAME_DATA env var.");
-      std::cerr << "WARNING: game root has no 'Data' subdirectory. "
+      std::cerr << "WARNING: content root has no 'Data' subdirectory. "
                    "GlueXML/models/textures will not load. "
                    "Fix: run from the WoW install root or use "
                    "--game-data <wow_install_path>.\n";
@@ -515,8 +617,8 @@ int RunClientProcess(int argc, char** argv) {
     openwow::client::GlueClient client(openwow::client::GlueClient::Options{
         .window = window,
         .launch_context = openwow::client::ClientLaunchContext{
-            .game_root = game_root,
-            .enhanced_assets_root = enhanced_assets_root,
+            .content_root = content_root,
+            .override_content_root = override_content_root,
             .diagnostic_output_root = artifacts_dir,
         },
         .scenario_opts = std::move(scenario_opts),

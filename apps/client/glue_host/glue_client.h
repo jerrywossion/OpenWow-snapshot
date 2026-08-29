@@ -72,8 +72,8 @@ namespace openwow::client {
 class DebugUiControlAdapter;
 
 struct ClientLaunchContext {
-  std::filesystem::path game_root;
-  std::filesystem::path enhanced_assets_root;
+  std::filesystem::path content_root;
+  std::filesystem::path override_content_root;
   std::filesystem::path diagnostic_output_root;
 };
 
