@@ -268,6 +268,23 @@ elseif(APPLE)
       USE_SOURCE_PERMISSIONS
     )
   endif()
+
+  install(CODE [[
+    set(_openwow_bundle_path
+      "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/OpenWoW.app")
+    execute_process(
+      COMMAND /usr/bin/codesign --force --sign - "${_openwow_bundle_path}"
+      RESULT_VARIABLE _openwow_codesign_result
+      OUTPUT_VARIABLE _openwow_codesign_output
+      ERROR_VARIABLE _openwow_codesign_error
+    )
+    if(NOT _openwow_codesign_result EQUAL 0)
+      message(FATAL_ERROR
+        "Failed to ad-hoc sign ${_openwow_bundle_path}: "
+        "${_openwow_codesign_output}${_openwow_codesign_error}")
+    endif()
+    message(STATUS "Ad-hoc signed: ${_openwow_bundle_path}")
+  ]] COMPONENT client)
 elseif(WIN32)
 
   set_target_properties(openwow-client PROPERTIES WIN32_EXECUTABLE ON)

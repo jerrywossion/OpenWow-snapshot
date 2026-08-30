@@ -30,8 +30,26 @@ The first configure builds every dependency (FFmpeg, Boost, bgfx, SDL2, ...) —
 ```sh
 cmake --preset release
 cmake --build --preset release --target openwow-client -j 4
-# the client is build/release/apps/client/openwow-client
 ```
+
+On macOS the build target is a Mach-O executable; the install rules assemble
+the runnable application bundle. After the compile step, create the normal
+development/validation bundle with:
+
+```sh
+cmake --install build/release --component client --prefix build/release/bundle
+# the app is build/release/bundle/OpenWoW.app
+```
+
+This bundle does not copy the original game Data unless
+`OPENWOW_EMBED_GAME_DATA=ON` was selected at configure time. With the default
+setting it continues to resolve the configured local content root or an
+explicit `--game-data` / `OPENWOW_GAME_DATA` override. Use the bare
+`build/release/apps/client/openwow-client` only for intermediate compile and
+link checks; hand off `OpenWoW.app` for macOS runtime validation. The install
+step applies an ad-hoc signature to the completed bundle so its executable and
+resources form one valid local-development application. Distribution still
+requires the project's intended Developer ID signing and notarization policy.
 
 Available desktop configure presets (Ninja, build tree `build/<preset>`):
 
