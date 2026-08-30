@@ -147,13 +147,23 @@ The original archives are never modified, and macOS does not consume this
 iOS-only cache.
 
 After preparation, the sync target copies into the installed app's private
-`Library/Application Support/OpenWoW/GameRoot/Data` and writes a readiness
-marker only after the Data transfer succeeds. Xcode's device service skips
-files that have not changed, so rerun the sync target only when local Data
-changes. Normal source iterations only rebuild and reinstall the small `.app`;
-the container survives app updates as long as the Bundle ID stays unchanged.
-Uninstalling the app deletes its container, after which the Data sync must be
-run again.
+`Library/Application Support/OpenWoW/GameRoot/Data` and writes a
+content-identity readiness marker only after the Data transfer succeeds. The
+retail archives are copied independently and the large ASTC cache is copied in
+bounded batches, each retried up to three times. This avoids CoreDevice socket
+timeouts caused by putting more than 100,000 cache files in one transaction.
+A failed run is safe to rerun: Xcode's device service skips unchanged files,
+completed batches are not duplicated, and the previous readiness marker is not
+replaced by a partial run. When the device marker matches the local cache
+manifest, the target performs no Data transfer at all.
+
+Keep the iPhone unlocked and connected over USB during the initial transfer.
+If even the initial marker probe reports a CoreDevice network-socket timeout,
+reconnect the device and wait for Xcode to finish preparing it before rerunning
+the same target. Normal source iterations only rebuild and reinstall the small
+`.app`; the container survives app updates as long as the Bundle ID stays
+unchanged. Uninstalling the app deletes its container, after which the Data
+sync must be run again.
 
 These presets suppress Xcode's automatic CMake regeneration so its SDK
 environment cannot accidentally rebuild host-side vcpkg tools for iOS. Re-run
