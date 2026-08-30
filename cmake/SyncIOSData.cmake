@@ -115,18 +115,31 @@ file(WRITE "${OPENWOW_IOS_SYNC_MARKER}"
 # below has completed.
 set(remote_marker_copy "${OPENWOW_IOS_SYNC_MARKER}.device")
 set(retail_data_is_current false)
-file(REMOVE "${remote_marker_copy}")
-execute_process(
-  COMMAND "${OPENWOW_XCRUN_EXECUTABLE}" devicectl device copy from
-    --device "${OPENWOW_IOS_DEVICE}"
-    --source "${device_ready_marker}"
-    --destination "${remote_marker_copy}"
-    --domain-type appDataContainer
-    --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
-    --timeout 20
-  RESULT_VARIABLE marker_probe_result
-  OUTPUT_VARIABLE marker_probe_output
-  ERROR_VARIABLE marker_probe_error)
+set(marker_probe_attempt 1)
+while(marker_probe_attempt LESS_EQUAL 3)
+  file(REMOVE "${remote_marker_copy}")
+  execute_process(
+    COMMAND "${OPENWOW_XCRUN_EXECUTABLE}" devicectl device copy from
+      --device "${OPENWOW_IOS_DEVICE}"
+      --source "${device_ready_marker}"
+      --destination "${remote_marker_copy}"
+      --domain-type appDataContainer
+      --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
+      --timeout 20
+    RESULT_VARIABLE marker_probe_result
+    OUTPUT_VARIABLE marker_probe_output
+    ERROR_VARIABLE marker_probe_error)
+  if(marker_probe_result EQUAL 0)
+    break()
+  endif()
+  if(marker_probe_attempt LESS 3)
+    message(WARNING
+      "The iOS readiness-marker probe failed with exit code "
+      "${marker_probe_result}; retrying before classifying device Data.")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 2)
+  endif()
+  math(EXPR marker_probe_attempt "${marker_probe_attempt} + 1")
+endwhile()
 if(marker_probe_result EQUAL 0 AND EXISTS "${remote_marker_copy}")
   file(READ "${remote_marker_copy}" remote_marker_contents)
   file(READ "${OPENWOW_IOS_SYNC_MARKER}" expected_marker_contents)
@@ -166,8 +179,12 @@ elseif(NOT marker_probe_result EQUAL 0)
       "intact and the next run will resume incrementally.\n"
       "${marker_probe_output}${marker_probe_error}")
   endif()
+  string(FIND "${marker_probe_diagnostic}"
+    "failed to retrieve the file node for library/application support/openwow/gameroot/.openwow-ios-data-ready"
+    missing_marker_node)
   if(marker_probe_diagnostic MATCHES
-     "nsposixerrordomain error 2|nscocoaerrordomain error 260|no such file")
+       "nsposixerrordomain error 2|nscocoaerrordomain error 260|no such file"
+     OR NOT missing_marker_node EQUAL -1)
     # A genuinely absent marker is the expected fresh-install state. Only
     # this explicit missing-file result is allowed to enter the retail copy.
     message(STATUS
@@ -185,10 +202,9 @@ endif()
 file(REMOVE "${remote_marker_copy}")
 
 function(openwow_copy_to_ios_device)
-  set(options REMOVE_EXISTING)
   set(one_value_args DESTINATION DESCRIPTION)
   set(multi_value_args SOURCES)
-  cmake_parse_arguments(COPY "${options}" "${one_value_args}" "${multi_value_args}"
+  cmake_parse_arguments(COPY "" "${one_value_args}" "${multi_value_args}"
     ${ARGN})
   if(NOT COPY_SOURCES OR NOT COPY_DESTINATION)
     message(FATAL_ERROR
@@ -204,11 +220,8 @@ function(openwow_copy_to_ios_device)
   list(APPEND copy_command
     --destination "${COPY_DESTINATION}"
     --domain-type appDataContainer
-    --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}")
-  if(COPY_REMOVE_EXISTING)
-    list(APPEND copy_command --remove-existing-content true)
-  endif()
-  list(APPEND copy_command --timeout 1800)
+    --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
+    --timeout 1800)
 
   set(copy_attempt 1)
   while(copy_attempt LESS_EQUAL 3)
@@ -240,15 +253,10 @@ message(STATUS
   "Incrementally syncing ${data_source} to ${OPENWOW_IOS_DEVICE}:"
   "${device_data_root}")
 
-set(sync_empty_directory "${OPENWOW_IOS_SYNC_MARKER}.empty-directory")
-file(REMOVE_RECURSE "${sync_empty_directory}")
-file(MAKE_DIRECTORY "${sync_empty_directory}")
-
 set(sync_library_skeleton "${OPENWOW_IOS_SYNC_MARKER}.library-skeleton")
 file(REMOVE_RECURSE "${sync_library_skeleton}")
 file(MAKE_DIRECTORY
-  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOSPacks"
-  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOS")
+  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOSPacks")
 openwow_copy_to_ios_device(
   SOURCES "${sync_library_skeleton}"
   DESTINATION "Library"
@@ -295,16 +303,6 @@ openwow_copy_to_ios_device(
     "${device_data_root}/OpenWoWDerived/iOSPacks/texture-packs-v1.manifest"
   DESCRIPTION "Syncing the iOS ASTC pack manifest")
 
-# The legacy loose cache remains a valid fallback until every replacement
-# archive is safely installed. Only then remove its 106k files as one scoped,
-# replace-with-empty transaction. If this step or marker publication fails,
-# rerunning the target skips current archives and resumes here.
-openwow_copy_to_ios_device(
-  REMOVE_EXISTING
-  SOURCES "${sync_empty_directory}"
-  DESTINATION "${device_data_root}/OpenWoWDerived/iOS"
-  DESCRIPTION "Removing the legacy loose iOS ASTC cache")
-
 openwow_copy_to_ios_device(
   SOURCES "${OPENWOW_IOS_SYNC_MARKER}"
   DESTINATION "${device_ready_marker}"
@@ -312,4 +310,5 @@ openwow_copy_to_ios_device(
 
 message(STATUS
   "iOS Data is ready. Later syncs with the same source manifest perform no "
-  "Data transfer.")
+  "Data transfer. The client removes a legacy loose ASTC cache after it "
+  "validates the installed pack set.")

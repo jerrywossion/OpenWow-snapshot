@@ -157,12 +157,12 @@ identity, never has its original MPQ and locale files submitted for transfer
 merely because the derived cache changed. Fresh-install retail archives are
 copied independently, and each ASTC shard is a separate resumable transfer;
 each operation is retried up to three times. After all shards and their
-manifest arrive, the target removes the legacy loose ASTC directory in one
-scoped transaction and only then publishes the new readiness marker. A failed
-run is safe to rerun: Xcode's device service skips unchanged files, completed
-archives are not duplicated, and the previous readiness marker is not replaced
-by a partial run. When both device identities match, the target performs no
-Data transfer at all.
+manifest arrive, the target publishes the new readiness marker. On the next
+client start, iOS removes the legacy loose ASTC directory only after validating
+that all 16 archives and the pack manifest are present. A failed run is safe to
+rerun: Xcode's device service skips unchanged files, completed archives are not
+duplicated, and the previous readiness marker is not replaced by a partial run.
+When both device identities match, the target performs no Data transfer at all.
 
 Keep the iPhone unlocked and connected over USB during the initial transfer.
 If even the initial marker probe reports a CoreDevice network-socket timeout,

@@ -100,6 +100,6 @@ complete installation. The synchronized stock Data remains read-only to the
 client; writable runtime state stays beside it under the user-data root. The
 iOS-only derived texture payload is stored as 16 archives under
 `Data/OpenWoWDerived/iOSPacks`; its loose host-side working cache remains under
-`OpenWoWBuildCache/iOS` and is not transferred. A migration sync deletes the
-former device-side `Data/OpenWoWDerived/iOS` loose cache only after all new
-archives have arrived.
+`OpenWoWBuildCache/iOS` and is not transferred. After a migration sync, the iOS
+client deletes the former device-side `Data/OpenWoWDerived/iOS` loose cache on
+startup only after validating all new archives and their manifest.

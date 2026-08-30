@@ -163,6 +163,8 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
 #if defined(OPENWOW_PLATFORM_IOS)
       const fs::path derived_texture_packs =
           extracted_data_dir / "OpenWoWDerived" / "iOSPacks";
+      const fs::path derived_texture_pack_manifest =
+          derived_texture_packs / "texture-packs-v1.manifest";
       std::size_t mounted_texture_pack_count = 0u;
       for (std::size_t shard = 0u;
            shard < kDerivedTextureCachePackShardCount; ++shard) {
@@ -181,14 +183,43 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
         });
         ++mounted_texture_pack_count;
       }
-      if (mounted_texture_pack_count !=
-          kDerivedTextureCachePackShardCount) {
+      std::error_code manifest_ec;
+      const bool has_texture_pack_manifest =
+          fs::is_regular_file(derived_texture_pack_manifest, manifest_ec) &&
+          !manifest_ec;
+      const bool has_complete_texture_pack_set =
+          mounted_texture_pack_count == kDerivedTextureCachePackShardCount &&
+          has_texture_pack_manifest;
+      if (!has_complete_texture_pack_set) {
         Log(LogLevel::kWarn,
             "[iOS] Derived texture packs incomplete under " +
                 derived_texture_packs.string() + ": found " +
                 std::to_string(mounted_texture_pack_count) + "/" +
                 std::to_string(kDerivedTextureCachePackShardCount) +
+                " archives, manifest=" +
+                (has_texture_pack_manifest ? "present" : "missing") +
                 "; missing textures will use the retail decode path");
+      } else {
+        const fs::path legacy_texture_cache =
+            extracted_data_dir / "OpenWoWDerived" / "iOS";
+        std::error_code legacy_ec;
+        if (fs::is_directory(legacy_texture_cache, legacy_ec) &&
+            !legacy_ec) {
+          const std::uintmax_t removed_entries =
+              fs::remove_all(legacy_texture_cache, legacy_ec);
+          if (legacy_ec) {
+            Log(LogLevel::kError,
+                "[iOS] Failed to remove legacy loose texture cache " +
+                    legacy_texture_cache.string() + " after removing " +
+                    std::to_string(removed_entries) + " entries: " +
+                    legacy_ec.message());
+          } else {
+            Log(LogLevel::kInfo,
+                "[iOS] Removed legacy loose texture cache " +
+                    legacy_texture_cache.string() + " (" +
+                    std::to_string(removed_entries) + " entries)");
+          }
+        }
       }
 #endif
     }
