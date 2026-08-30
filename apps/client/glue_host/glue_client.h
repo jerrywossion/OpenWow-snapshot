@@ -122,7 +122,7 @@ class GlueClient {
 
   bool InitVFS();
 
-  void BuildAndPublishLoginVfs();
+  bool BuildAndPublishLoginVfs();
 
   bool InitGraphics();
 

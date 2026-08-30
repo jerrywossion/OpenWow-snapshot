@@ -1039,28 +1039,51 @@ void GlueClient::DoLoginAttempt() {
   }
 }
 
-void GlueClient::BuildAndPublishLoginVfs() {
-  const auto &cvars = openwow::ui::game::CVarSystem::Instance();
+bool GlueClient::BuildAndPublishLoginVfs() {
+  auto &cvars = openwow::ui::game::CVarSystem::Instance();
+  const std::string detected_locale = openwow::data::DetectLocaleRing(
+      cvars.GetCVar("locale"), launch_context_.content_root.string(),
+      openwow::data::GetStartupFileSystemState().retail_install_path_cache);
+  const std::string resolved_locale = openwow::data::ResolveWowIniArchiveLocale(
+      detected_locale,
+      openwow::data::ProbeCommonArchiveLayout(
+          launch_context_.content_root,
+          openwow::data::GetStartupFileSystemState().retail_install_path_cache));
+  if (!openwow::core::SynchronizeClientLocaleState(resolved_locale)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "Client locale publication failed: detected=" + detected_locale +
+            " resolved=" + resolved_locale);
+    return false;
+  }
+
   login_vfs_ = openwow::data::BuildLoginVfs(launch_context_.content_root.string(),
                                             launch_context_.override_content_root.string(),
-                                            cvars.GetCVar("locale"));
+                                            resolved_locale);
 
   RealmAddonHandshakeComposition::BindContentVfs(&login_vfs_);
 
-  openwow::data::ResolveWowIniArchiveLocale(
-      cvars.GetCVar("locale"), openwow::data::ProbeCommonArchiveLayout());
-
   const std::uint8_t expansion_level = openwow::data::DetermineStartupExpansionLevel(login_vfs_);
   openwow::core::SetExpansionLevel(expansion_level);
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "Active client locale: token=" + resolved_locale +
+          " dbc_slot=" +
+          std::to_string(openwow::data::GetCurrentLocaleInfo().locale_index) +
+          " text=" + cvars.GetCVar("textLocale") +
+          " audio=" + cvars.GetCVar("audioLocale"));
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
                             "Client archive expansion level: " + std::to_string(expansion_level));
+  return true;
 }
 
 void GlueClient::ReloadLoginResources() {
 
   glue_renderer_.Shutdown();
   m2_system_.ShutdownAsyncLoading();
-  BuildAndPublishLoginVfs();
+  if (!BuildAndPublishLoginVfs()) {
+    return;
+  }
   RefreshLoginConfiguration();
 
   SyncGlueViewportFromWindow();
@@ -1549,7 +1572,11 @@ bool GlueClient::InitVFS() {
 
   }
 
-  BuildAndPublishLoginVfs();
+  if (!BuildAndPublishLoginVfs()) {
+    if (startup_trace_)
+      startup_trace_->Add("glue.InitVFS.fail");
+    return false;
+  }
 
   RefreshLoginConfiguration();
 

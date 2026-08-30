@@ -2573,6 +2573,8 @@ void CVarSystem::RegisterDefaults() {
   }
 
   RegisterCVar("locale", "****", F::Archive, "Client locale");
+  RegisterCVar("useEnglishAudio", "0", F::Archive,
+               "Override the locale and use English audio");
   RegisterCVar("portal", "", F::None, "Name of Battle.net portal to use");
   RegisterCVar("realmListbn", "", F::None, "Address of Battle.net server");
   RegisterCVar("dbCompress", "-1", F::Archive, "Database compression");

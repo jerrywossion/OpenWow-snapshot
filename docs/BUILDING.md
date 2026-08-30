@@ -37,8 +37,8 @@ the runnable application bundle. After the compile step, create the normal
 development/validation bundle with:
 
 ```sh
-cmake --install build/release --component client --prefix build/release/bundle
-# the app is build/release/bundle/OpenWoW.app
+cmake --install build/release --component client --prefix build/macos-app
+# the app is build/macos-app/OpenWoW.app
 ```
 
 This bundle does not copy the original game Data unless

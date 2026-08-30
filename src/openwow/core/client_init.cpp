@@ -33,6 +33,7 @@
 #include "openwow/data/streaming_init.h"
 #include "openwow/debug/diagnostics/debug_console.h"
 #include "openwow/game/client_config.h"
+#include "openwow/game/localization.h"
 #include "openwow/platform/diagnostics/crash_handler.h"
 #include "openwow/platform/process/os_platform.h"
 #include "openwow/platform/process/os_platform_internal.h"
@@ -55,6 +56,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #if defined(OPENWOW_HAS_STORMLIB) && OPENWOW_HAS_STORMLIB
@@ -333,7 +335,40 @@ bool ValidateClientInitProcessAffinityMask(const std::string &, const std::strin
   return false;
 }
 
-void SyncClientInitLocaleState(const std::string &locale) {
+std::optional<openwow::game::Locale> ParseClientLocalizationLocale(
+    const std::string_view locale) {
+  constexpr std::array<std::pair<std::string_view, openwow::game::Locale>, 12>
+      kLocales = {{
+          {"enUS", openwow::game::Locale::enUS},
+          {"enGB", openwow::game::Locale::enUS},
+          {"enCN", openwow::game::Locale::enUS},
+          {"enTW", openwow::game::Locale::enUS},
+          {"koKR", openwow::game::Locale::koKR},
+          {"frFR", openwow::game::Locale::frFR},
+          {"deDE", openwow::game::Locale::deDE},
+          {"zhCN", openwow::game::Locale::zhCN},
+          {"zhTW", openwow::game::Locale::zhTW},
+          {"esES", openwow::game::Locale::esES},
+          {"esMX", openwow::game::Locale::esMX},
+          {"ruRU", openwow::game::Locale::ruRU},
+      }};
+
+  for (const auto &[token, parsed] : kLocales) {
+    if (locale == token) {
+      return parsed;
+    }
+  }
+  return std::nullopt;
+}
+
+}
+
+bool SynchronizeClientLocaleState(const std::string &locale) {
+  const auto localization_locale = ParseClientLocalizationLocale(locale);
+  if (!localization_locale.has_value()) {
+    return false;
+  }
+
   StoreClientInitLocaleTag(locale);
   SetClientInitCVar("locale", locale);
   SetClientInitCVar("textLocale", locale);
@@ -341,7 +376,11 @@ void SyncClientInitLocaleState(const std::string &locale) {
   const std::string audio_locale = GetClientInitCVar("useEnglishAudio") == "0" ? locale : "enUS";
   SetClientInitCVar("audioLocale", audio_locale);
   openwow::game::ClientConfig::Get().SetLocale(locale);
+  openwow::game::Localization::Get().SetLocale(*localization_locale);
+  return true;
 }
+
+namespace {
 
 std::vector<std::string> CollectRunOnceEntryNames() {
   std::vector<std::string> entry_names;
@@ -1268,6 +1307,7 @@ void ResetClientInitStateForTests() {
     cvars.SetCVar("audioLocale", "enUS", true);
   }
   openwow::game::ClientConfig::Get().SetLocale("enUS");
+  openwow::game::Localization::Get().SetLocale(openwow::game::Locale::enUS);
   MutableWoWMainInitRuntimeState() = {};
   SetInitTimerTimeSourceForTests({});
 }
@@ -1665,7 +1705,9 @@ bool ClientInit() {
 
   std::string locale = cvars.GetCVar("locale");
   if (locale == "****") {
-    SyncClientInitLocaleState("enUS");
+    if (!SynchronizeClientLocaleState("enUS")) {
+      return false;
+    }
     locale = "enUS";
   }
 
@@ -1687,7 +1729,9 @@ bool ClientInit() {
   });
 
   locale = detail::ResolveClientInitLocale(locale);
-  SyncClientInitLocaleState(locale);
+  if (!SynchronizeClientLocaleState(locale)) {
+    return false;
+  }
 
   const std::string locale_path = detail::BuildClientInitLocaleDataPath(locale);
   ClientInit__callee_421B50(locale_path.c_str());
@@ -1695,7 +1739,9 @@ bool ClientInit() {
   sub_423D70();
 
   if (const std::string final_locale = cvars.GetCVar("locale"); !final_locale.empty()) {
-    SyncClientInitLocaleState(final_locale);
+    if (!SynchronizeClientLocaleState(final_locale)) {
+      return false;
+    }
   }
 
   const std::string video_options_version = cvars.GetCVar("videoOptionsVersion");
