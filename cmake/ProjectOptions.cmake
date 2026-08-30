@@ -7,10 +7,20 @@ set(OPENWOW_LOCAL_CONTENT_ROOT
 )
 option(OPENWOW_EMBED_GAME_DATA
   "Copy OPENWOW_LOCAL_CONTENT_ROOT/Data into an Apple application bundle" OFF)
-set(OPENWOW_IOS_BUNDLE_IDENTIFIER "org.openwow.client" CACHE STRING
-  "Bundle identifier for the native iOS application")
-set(OPENWOW_IOS_DEVELOPMENT_TEAM "" CACHE STRING
-  "Apple development team used for automatic iOS code signing")
+
+include("${CMAKE_CURRENT_LIST_DIR}/IOSDevelopmentSigning.cmake")
+if(NOT DEFINED OPENWOW_IOS_BUNDLE_IDENTIFIER OR
+    OPENWOW_IOS_BUNDLE_IDENTIFIER STREQUAL "org.openwow.client")
+  set(OPENWOW_IOS_BUNDLE_IDENTIFIER
+    "${OPENWOW_IOS_DEFAULT_BUNDLE_IDENTIFIER}" CACHE STRING
+    "Bundle identifier for the native iOS application" FORCE)
+endif()
+if(NOT DEFINED OPENWOW_IOS_DEVELOPMENT_TEAM OR
+    OPENWOW_IOS_DEVELOPMENT_TEAM STREQUAL "")
+  set(OPENWOW_IOS_DEVELOPMENT_TEAM
+    "${OPENWOW_IOS_DEFAULT_DEVELOPMENT_TEAM}" CACHE STRING
+    "Apple development team used for automatic iOS code signing" FORCE)
+endif()
 
 option(OPENWOW_ENABLE_STREAMING_TELEMETRY
   "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)

@@ -50,6 +50,25 @@
   <string>OpenWoW uses the local network to connect to a user-selected World of Warcraft server.</string>
   <key>UIApplicationSupportsIndirectInputEvents</key>
   <true/>
+  <key>UIApplicationSceneManifest</key>
+  <dict>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+    <key>UISceneConfigurations</key>
+    <dict>
+      <key>UIWindowSceneSessionRoleApplication</key>
+      <array>
+        <dict>
+          <key>UISceneClassName</key>
+          <string>UIWindowScene</string>
+          <key>UISceneConfigurationName</key>
+          <string>SDLSceneConfiguration</string>
+          <key>UISceneDelegateClassName</key>
+          <string>SDLUIKitSceneDelegate</string>
+        </dict>
+      </array>
+    </dict>
+  </dict>
   <key>UIFileSharingEnabled</key>
   <false/>
   <key>UILaunchScreen</key>

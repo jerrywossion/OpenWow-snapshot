@@ -69,8 +69,8 @@ session because iOS has no adjacent game-install directory to discover.
 | `OPENWOW_ENABLE_MPQ_VFS` | ON | StormLib-backed MPQ VFS (required to read a game install) |
 | `OPENWOW_LOCAL_CONTENT_ROOT` | `../LocalData/335a` | local build-12340 content root containing `Data/`; compiled in only when present |
 | `OPENWOW_EMBED_GAME_DATA` | OFF globally; ON in standard iOS presets | copy the local `Data/` into an Apple `.app` for path-free startup |
-| `OPENWOW_IOS_BUNDLE_IDENTIFIER` | `org.openwow.client` | bundle identifier used by the native iOS target |
-| `OPENWOW_IOS_DEVELOPMENT_TEAM` | empty | Apple team identifier used for automatic iOS signing |
+| `OPENWOW_IOS_BUNDLE_IDENTIFIER` | `ink.mnt.elune` | bundle identifier used by the native iOS target |
+| `OPENWOW_IOS_DEVELOPMENT_TEAM` | `5TCGFUXXZP` | Apple team identifier used for automatic iOS signing |
 | `OPENWOW_WARNINGS_AS_ERRORS` | OFF | `-Werror` / `/WX` |
 | `OPENWOW_ENABLE_CLANG_TIDY` | OFF | run clang-tidy while compiling |
 | `OPENWOW_ENABLE_THINLTO` | OFF | ThinLTO (clang) / LTCG (MSVC) / `-flto=auto` (GCC) |
