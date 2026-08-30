@@ -919,7 +919,8 @@ void GlueClient::RefreshLoginConfiguration() {
   const std::string detected_locale = openwow::data::DetectLocaleRing(
       cvars.GetCVar("locale"), launch_context_.content_root.string(),
       openwow::data::GetStartupFileSystemState().retail_install_path_cache);
-  openwow::data::DefaultLoadLoginConfigs(1, detected_locale.c_str());
+  openwow::data::DefaultLoadLoginConfigs(1, detected_locale.c_str(),
+                                         &login_vfs_);
 
   const auto [host, port] = ParseRealmListEndpoint(cvars.GetCVar("realmList"));
   auth_host_ = host;
