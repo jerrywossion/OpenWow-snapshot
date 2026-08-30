@@ -32,6 +32,7 @@ BlpUploadFormat SourceBlockFormat(const data::BLPTexHeader& header) noexcept {
 constexpr std::uint8_t kBc1SupportedBit = 1u << 0u;
 constexpr std::uint8_t kBc2SupportedBit = 1u << 1u;
 constexpr std::uint8_t kBc3SupportedBit = 1u << 2u;
+constexpr std::uint8_t kAstc4x4SupportedBit = 1u << 3u;
 
 std::atomic<std::uint8_t>& BlockCompressionSupportBits() noexcept {
   static std::atomic<std::uint8_t> bits{0u};
@@ -62,6 +63,7 @@ void AppendTransparentBlackBlocks(const BlpUploadFormat format,
         break;
       case BlpUploadFormat::kBc2:
       case BlpUploadFormat::kBc3:
+      case BlpUploadFormat::kAstc4x4:
         bytes.insert(bytes.end(), kTransparentBlackBc2Bc3Block.begin(),
                      kTransparentBlackBc2Bc3Block.end());
         break;
@@ -221,6 +223,8 @@ bgfx::TextureFormat::Enum ToBgfxTextureFormat(
       return bgfx::TextureFormat::BC2;
     case BlpUploadFormat::kBc3:
       return bgfx::TextureFormat::BC3;
+    case BlpUploadFormat::kAstc4x4:
+      return bgfx::TextureFormat::ASTC4x4;
     case BlpUploadFormat::kRgba8:
       break;
   }
@@ -232,6 +236,8 @@ BlockCompressionSupport QueryBlockCompressionSupport() {
       .bc1 = CapsSupportTexture2D(ToBgfxTextureFormat(BlpUploadFormat::kBc1)),
       .bc2 = CapsSupportTexture2D(ToBgfxTextureFormat(BlpUploadFormat::kBc2)),
       .bc3 = CapsSupportTexture2D(ToBgfxTextureFormat(BlpUploadFormat::kBc3)),
+      .astc4x4 = CapsSupportTexture2D(
+          ToBgfxTextureFormat(BlpUploadFormat::kAstc4x4)),
   };
 }
 
@@ -240,7 +246,8 @@ BlockCompressionSupport RefreshBlockCompressionSupport() {
   const auto bits = static_cast<std::uint8_t>(
       (support.bc1 ? kBc1SupportedBit : 0u) |
       (support.bc2 ? kBc2SupportedBit : 0u) |
-      (support.bc3 ? kBc3SupportedBit : 0u));
+      (support.bc3 ? kBc3SupportedBit : 0u) |
+      (support.astc4x4 ? kAstc4x4SupportedBit : 0u));
   BlockCompressionSupportBits().store(bits, std::memory_order_relaxed);
   return support;
 }
@@ -252,6 +259,7 @@ BlockCompressionSupport CurrentBlockCompressionSupport() noexcept {
       .bc1 = (bits & kBc1SupportedBit) != 0u,
       .bc2 = (bits & kBc2SupportedBit) != 0u,
       .bc3 = (bits & kBc3SupportedBit) != 0u,
+      .astc4x4 = (bits & kAstc4x4SupportedBit) != 0u,
   };
 }
 

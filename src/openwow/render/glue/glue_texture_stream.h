@@ -172,7 +172,8 @@ class GlueTextureStream {
       std::string path,
       std::string cache_key,
       GlueTextureAlphaMode alpha_mode,
-      const std::vector<std::uint8_t>& source_bytes);
+      const std::vector<std::uint8_t>& source_bytes,
+      const std::vector<std::uint8_t>* derived_cache_bytes = nullptr);
   [[nodiscard]] std::optional<GlueTexture> CommitPreparedTexture(
       PreparedTexture prepared);
   void QueueAsyncLoadInternal(ResolvedTexturePath request,

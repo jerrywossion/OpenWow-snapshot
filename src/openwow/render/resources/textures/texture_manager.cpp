@@ -5,6 +5,7 @@
 #include "openwow/data/blp/blp_decoder.h"
 #include "openwow/data/blp/blp_mip.h"
 #include "openwow/data/blp/blp_texture_loader.h"
+#include "openwow/data/derived_texture_cache.h"
 #include "openwow/data/image/image_decoder.h"
 #include "openwow/data/texture_cache.h"
 #include "openwow/game/tabard_renderer.h"
@@ -544,6 +545,76 @@ PreparedTextureUpload DecodeTextureUpload(
   return prepared;
 }
 
+std::optional<PreparedTextureUpload> TryPrepareDerivedTextureUpload(
+    const std::string& request_path,
+    const openwow::data::TextureCacheRowIdentity& row,
+    const std::vector<std::uint8_t>& source_bytes,
+    const openwow::data::TextureCacheRowStore::SourceLoader& loader) {
+  const auto policy = PlatformTextureRuntimePolicy();
+  if (!policy.prefer_derived_astc_cache || !loader ||
+      !CurrentBlockCompressionSupport().astc4x4) {
+    return std::nullopt;
+  }
+
+  std::vector<std::uint8_t> cache_bytes;
+  const std::string cache_path =
+      openwow::data::MakeDerivedTextureCacheVirtualPath(row.path);
+  try {
+    cache_bytes = loader(cache_path);
+  } catch (...) {
+    return std::nullopt;
+  }
+  if (cache_bytes.empty()) {
+    return std::nullopt;
+  }
+
+  openwow::data::DerivedTextureCacheImage image;
+  std::string failure_reason;
+  if (!openwow::data::ParseDerivedTextureCache(
+          cache_bytes, row.path, source_bytes, image, &failure_reason)) {
+    static std::atomic<std::uint32_t> reported_failures{0u};
+    if (reported_failures.fetch_add(1u, std::memory_order_relaxed) < 8u) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "TextureManager: rejected iOS derived texture " + cache_path +
+              " for " + row.path + ": " + failure_reason);
+    }
+    return std::nullopt;
+  }
+
+  if (image.format != openwow::data::DerivedTextureFormat::kAstc4x4 ||
+      image.payload.empty() || image.payload.size() >
+                                   std::numeric_limits<std::uint32_t>::max()) {
+    return std::nullopt;
+  }
+  const std::uint64_t upload_size = image.complete_mip_chain
+                                        ? image.payload.size()
+                                        : BlpUploadMipSize(
+                                              image.width, image.height, 0u,
+                                              BlpUploadFormat::kAstc4x4)
+                                              .value_or(0u);
+  if (upload_size == 0u || upload_size > image.payload.size() ||
+      upload_size > std::numeric_limits<std::uint32_t>::max()) {
+    return std::nullopt;
+  }
+
+  return PreparedTextureUpload{
+      .path = request_path,
+      .row_hash = row.hash,
+      .row_path = row.path,
+      .row_generation = row.generation,
+      .rgba_bytes = std::move(image.payload),
+      .upload_format = BlpUploadFormat::kAstc4x4,
+      .width = image.width,
+      .height = image.height,
+      .upload_size = static_cast<std::uint32_t>(upload_size),
+      .mip_count = image.mip_count,
+      .complete_mip_chain = image.complete_mip_chain,
+      .is_opaque = image.is_opaque,
+      .valid = true,
+  };
+}
+
 void ReleaseSourceAfterDecode(
     openwow::data::TextureCacheRowStore& rows,
     const openwow::data::TextureCacheRowIdentity& identity) {
@@ -625,6 +696,11 @@ PreparedTextureUpload PrepareResolvedTextureUpload(
         .row_generation = row.generation,
         .error = "missing texture source",
     };
+  }
+  if (auto derived = TryPrepareDerivedTextureUpload(
+          request_path, source.identity, *source.bytes, loader)) {
+    ReleaseSourceAfterDecode(rows, source.identity);
+    return std::move(*derived);
   }
   auto prepared =
       DecodeTextureUpload(request_path, source.identity, *source.bytes);
@@ -765,7 +841,8 @@ bool TextureManager::Initialize() {
       std::string("TextureManager: GPU block-compression support BC1=") +
           (block_support.bc1 ? "1" : "0") + " BC2=" +
           (block_support.bc2 ? "1" : "0") + " BC3=" +
-          (block_support.bc3 ? "1" : "0") + " rgbaFallbackMax=" +
+          (block_support.bc3 ? "1" : "0") + " ASTC4x4=" +
+          (block_support.astc4x4 ? "1" : "0") + " rgbaFallbackMax=" +
           std::to_string(
               PlatformTextureRuntimePolicy().max_uncompressed_blp_dimension) +
           " asyncLimit=" + std::to_string(kMaxAsyncRequests) +
@@ -1391,11 +1468,16 @@ PreparedTextureUpload TextureManager::PrepareTextureUploadFromLoader(
     source =
         load(openwow::data::MakeRetailTextureCacheTgaPath(stored_path));
   }
+  const openwow::data::TextureCacheRowIdentity row{
+      .hash = openwow::data::HashTextureCachePath(path),
+      .path = stored_path,
+  };
+  if (auto derived =
+          TryPrepareDerivedTextureUpload(path, row, source, loader)) {
+    return std::move(*derived);
+  }
   return DecodeTextureUpload(
-      path,
-      {.hash = openwow::data::HashTextureCachePath(path),
-       .path = stored_path},
-      source);
+      path, row, source);
 }
 
 bgfx::TextureHandle TextureManager::CommitPreparedTexture(

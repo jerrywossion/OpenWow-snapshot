@@ -2,6 +2,9 @@ foreach(required_variable IN ITEMS
     OPENWOW_IOS_DEVICE
     OPENWOW_IOS_BUNDLE_IDENTIFIER
     OPENWOW_LOCAL_CONTENT_ROOT
+    OPENWOW_PROJECT_SOURCE_DIR
+    OPENWOW_IOS_TEXTURE_CACHE_LOCALE
+    OPENWOW_IOS_TEXTURE_CACHE_TOOL
     OPENWOW_XCRUN_EXECUTABLE
     OPENWOW_IOS_SYNC_MARKER)
   if(NOT DEFINED ${required_variable} OR "${${required_variable}}" STREQUAL "")
@@ -15,6 +18,28 @@ if(NOT IS_DIRECTORY "${data_source}")
   message(FATAL_ERROR
     "No Data directory exists under OPENWOW_LOCAL_CONTENT_ROOT="
     "${OPENWOW_LOCAL_CONTENT_ROOT}")
+endif()
+
+if(NOT EXISTS "${OPENWOW_IOS_TEXTURE_CACHE_TOOL}")
+  message(FATAL_ERROR
+    "The native iOS texture-cache tool is missing at "
+    "${OPENWOW_IOS_TEXTURE_CACHE_TOOL}. Configure the native release preset "
+    "and build target openwow-ios-texture-cache before syncing Data.")
+endif()
+
+message(STATUS "Preparing the incremental iOS ASTC texture cache")
+execute_process(
+  COMMAND "${OPENWOW_IOS_TEXTURE_CACHE_TOOL}"
+    --game-root "${OPENWOW_LOCAL_CONTENT_ROOT}"
+    --output "${data_source}/OpenWoWDerived/iOS/Textures"
+    --locale "${OPENWOW_IOS_TEXTURE_CACHE_LOCALE}"
+    --enhanced-assets-root "${OPENWOW_PROJECT_SOURCE_DIR}/assets/overrides"
+  RESULT_VARIABLE texture_cache_result
+  COMMAND_ECHO STDOUT)
+if(NOT texture_cache_result EQUAL 0)
+  message(FATAL_ERROR
+    "iOS ASTC texture cache preparation failed with exit code "
+    "${texture_cache_result}; Data was not synced.")
 endif()
 
 set(device_game_root "Library/Application Support/OpenWoW/GameRoot")

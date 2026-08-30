@@ -152,6 +152,10 @@ endif()
 
 add_subdirectory(src/openwow)
 
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  add_subdirectory(tools/ios_texture_cache)
+endif()
+
 if(OPENWOW_BUILD_CLIENT)
   add_subdirectory(apps/client)
 endif()

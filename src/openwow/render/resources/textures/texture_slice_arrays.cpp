@@ -198,6 +198,8 @@ bool UploadSliceChain(const bgfx::TextureHandle handle, const std::uint16_t slic
       return Bc2AlphaIsUniform(unit) && BlockColorIsUniform(unit + 8u);
     case BlpUploadFormat::kBc3:
       return Bc3AlphaIsUniform(unit) && BlockColorIsUniform(unit + 8u);
+    case BlpUploadFormat::kAstc4x4:
+      return false;
   }
   return false;
 }

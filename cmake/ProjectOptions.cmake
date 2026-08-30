@@ -23,6 +23,12 @@ if(NOT DEFINED OPENWOW_IOS_DEVELOPMENT_TEAM OR
 endif()
 set(OPENWOW_IOS_DEVICE "" CACHE STRING
   "Device name or identifier used by the incremental iOS Data sync target")
+set(OPENWOW_IOS_TEXTURE_CACHE_LOCALE "zhCN" CACHE STRING
+  "Retail locale used to resolve the offline iOS ASTC texture cache")
+set(OPENWOW_IOS_TEXTURE_CACHE_TOOL
+  "${PROJECT_SOURCE_DIR}/build/release/tools/ios_texture_cache/openwow-ios-texture-cache"
+  CACHE FILEPATH
+  "Native host tool used to prepare the iOS ASTC texture cache")
 
 option(OPENWOW_ENABLE_STREAMING_TELEMETRY
   "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)

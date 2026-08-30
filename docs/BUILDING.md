@@ -74,6 +74,8 @@ data container, so code builds and app updates do not package the large tree.
 | `OPENWOW_IOS_BUNDLE_IDENTIFIER` | `ink.mnt.elune` | bundle identifier used by the native iOS target |
 | `OPENWOW_IOS_DEVELOPMENT_TEAM` | `5TCGFUXXZP` | Apple team identifier used for automatic iOS signing |
 | `OPENWOW_IOS_DEVICE` | empty | device name or identifier used by `openwow-ios-sync-data` |
+| `OPENWOW_IOS_TEXTURE_CACHE_LOCALE` | `zhCN` | locale used when resolving the offline iOS ASTC texture cache |
+| `OPENWOW_IOS_TEXTURE_CACHE_TOOL` | native release-build path | host executable invoked before incremental iOS Data sync |
 | `OPENWOW_WARNINGS_AS_ERRORS` | OFF | `-Werror` / `/WX` |
 | `OPENWOW_ENABLE_CLANG_TIDY` | OFF | run clang-tidy while compiling |
 | `OPENWOW_ENABLE_THINLTO` | OFF | ThinLTO (clang) / LTCG (MSVC) / `-flto=auto` (GCC) |
@@ -128,11 +130,23 @@ Install the resulting small
 Xcode, then perform the initial Data transfer:
 
 ```sh
+cmake --preset release
+cmake --build --preset release --target openwow-ios-texture-cache -j 4
 cmake --build --preset ios-device-development \
   --target openwow-ios-sync-data
 ```
 
-The sync target copies into the installed app's private
+The sync target first generates an incremental ASTC 4x4 cache under
+`Data/OpenWoWDerived/iOS`. It caps cached world textures at 128 pixels while
+preserving their mip chains, which avoids iOS expanding the retail BC payloads
+to RGBA during world loading. The cache records both the winning virtual path
+and a source-content fingerprint; stale or missing entries fall back to the
+normal decoder. A manifest of the Data and project-override trees makes later
+syncs skip cache enumeration and encoding when those inputs have not changed.
+The original archives are never modified, and macOS does not consume this
+iOS-only cache.
+
+After preparation, the sync target copies into the installed app's private
 `Library/Application Support/OpenWoW/GameRoot/Data` and writes a readiness
 marker only after the Data transfer succeeds. Xcode's device service skips
 files that have not changed, so rerun the sync target only when local Data

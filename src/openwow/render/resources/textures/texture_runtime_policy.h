@@ -12,6 +12,7 @@ struct TextureRuntimePolicy {
   std::size_t demand_async_request_reserve{64u};
   std::uint64_t cache_memory_budget_bytes{256ull * 1024ull * 1024ull};
   bool release_source_bytes_after_decode{false};
+  bool prefer_derived_astc_cache{false};
 };
 
 [[nodiscard]] constexpr TextureRuntimePolicy PlatformTextureRuntimePolicy()
@@ -27,6 +28,7 @@ struct TextureRuntimePolicy {
       .demand_async_request_reserve = 4u,
       .cache_memory_budget_bytes = 64ull * 1024ull * 1024ull,
       .release_source_bytes_after_decode = true,
+      .prefer_derived_astc_cache = true,
   };
 #else
   return {};

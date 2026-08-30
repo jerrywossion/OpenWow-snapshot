@@ -16,12 +16,14 @@ enum class BlpUploadFormat : std::uint8_t {
   kBc1,
   kBc2,
   kBc3,
+  kAstc4x4,
 };
 
 struct BlockCompressionSupport {
   bool bc1{false};
   bool bc2{false};
   bool bc3{false};
+  bool astc4x4{false};
 
   [[nodiscard]] constexpr bool Supports(
       const BlpUploadFormat format) const noexcept {
@@ -32,6 +34,8 @@ struct BlockCompressionSupport {
         return bc2;
       case BlpUploadFormat::kBc3:
         return bc3;
+      case BlpUploadFormat::kAstc4x4:
+        return astc4x4;
       case BlpUploadFormat::kRgba8:
         break;
     }
@@ -46,6 +50,7 @@ struct BlockCompressionSupport {
       return 8u;
     case BlpUploadFormat::kBc2:
     case BlpUploadFormat::kBc3:
+    case BlpUploadFormat::kAstc4x4:
       return 16u;
     case BlpUploadFormat::kRgba8:
       break;
