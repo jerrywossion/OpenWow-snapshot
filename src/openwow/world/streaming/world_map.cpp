@@ -554,7 +554,13 @@ WorldMap::PrepareWmoCpuBundle(const WorldMap::LoadFileCallback &load_file,
 }
 
 WorldMap::WorldMap(audio::SoundRuntime* ambient_audio)
-    : ambient_audio_(ambient_audio) {}
+    : ambient_audio_(ambient_audio) {
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
+  view_distance_ = std::max(0, runtime_policy.world_tile_load_radius);
+  unload_distance_ = std::max(
+      view_distance_, runtime_policy.world_tile_unload_radius);
+}
 
 WorldMap::~WorldMap() {
   Shutdown();
@@ -574,6 +580,14 @@ bool WorldMap::Initialize() {
       hardware_threads > 1u ? hardware_threads - 1u : 1u, 1u,
       runtime_policy.resource_worker_limit);
   InitializeWorldStagingWorkers(worker_count);
+  if (runtime_policy.constrained_mobile_runtime) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kInfo,
+        "WorldMap: constrained streaming policy load_radius=" +
+            std::to_string(view_distance_) + " unload_radius=" +
+            std::to_string(unload_distance_) + " workers=" +
+            std::to_string(worker_count));
+  }
 
   initialization_succeeded_ = true;
   lifecycle_state_ = LifecycleState::kRunning;
@@ -758,6 +772,7 @@ void WorldMap::UpdatePlayerPosition(float x, float y, float z) {
 }
 
 void WorldMap::UpdateStreamingPosition(const float x, const float y) {
+  const bool had_streaming_focus = has_camera_streaming_focus_;
   streaming_x_ = x;
   streaming_y_ = y;
   has_camera_streaming_focus_ = true;
@@ -770,13 +785,48 @@ void WorldMap::UpdateStreamingPosition(const float x, const float y) {
   terrain_streamer_.Update(x, y, map_id_);
 
   if (new_tile != streaming_tile_ || loaded_tiles_.empty()) {
+    const TileCoord previous_tile = streaming_tile_;
     streaming_tile_ = new_tile;
 
-    const auto required = GetRequiredTiles();
+    auto required = GetRequiredTiles();
+    constexpr auto runtime_policy =
+        openwow::core::GetPlatformRuntimePolicy();
+    if (runtime_policy.constrained_mobile_runtime && had_streaming_focus &&
+        new_tile != previous_tile) {
+      const TileCoord direction{
+          std::clamp(new_tile.x - previous_tile.x, -1, 1),
+          std::clamp(new_tile.y - previous_tile.y, -1, 1),
+      };
+      const auto insert_if_valid = [&required](const TileCoord coord) {
+        if (coord.x >= kMinTile && coord.x <= kMaxTile &&
+            coord.y >= kMinTile && coord.y <= kMaxTile) {
+          required.insert(coord);
+        }
+      };
+      if (direction.x != 0) {
+        const std::int32_t ahead_x =
+            new_tile.x + direction.x * (view_distance_ + 1);
+        for (std::int32_t offset = -view_distance_;
+             offset <= view_distance_; ++offset) {
+          insert_if_valid({ahead_x, new_tile.y + offset});
+        }
+      }
+      if (direction.y != 0) {
+        const std::int32_t ahead_y =
+            new_tile.y + direction.y * (view_distance_ + 1);
+        for (std::int32_t offset = -view_distance_;
+             offset <= view_distance_; ++offset) {
+          insert_if_valid({new_tile.x + offset, ahead_y});
+        }
+      }
+    }
 
     std::vector<TileCoord> to_unload;
     for (const auto &[coord, tile_ptr] : loaded_tiles_) {
-      if (required.find(coord) == required.end()) {
+      const std::int32_t distance = std::max(
+          std::abs(coord.x - streaming_tile_.x),
+          std::abs(coord.y - streaming_tile_.y));
+      if (distance > unload_distance_) {
         to_unload.push_back(coord);
       }
     }
@@ -834,6 +884,18 @@ void WorldMap::UpdateStreamingPosition(const float x, const float y) {
   }
 
   RebuildPublicationOrder(x, y);
+}
+
+void WorldMap::SetViewDistance(const int32_t tiles) {
+  view_distance_ = std::clamp(tiles, 0, kMaxTile - kMinTile);
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
+  unload_distance_ = std::max(
+      runtime_policy.constrained_mobile_runtime ? view_distance_ + 1
+                                                 : view_distance_,
+      runtime_policy.constrained_mobile_runtime
+          ? runtime_policy.world_tile_unload_radius
+          : view_distance_);
 }
 
 bool WorldMap::AreExistingTerrainTilesLoaded(const float min_x,

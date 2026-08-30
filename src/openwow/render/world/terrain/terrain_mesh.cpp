@@ -2,6 +2,7 @@
 #include "openwow/render/world/terrain/terrain_material_compositor.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <limits>
 
@@ -41,7 +42,9 @@ static bool IsHole(uint32_t holes, int row, int col) {
 
 static void AppendChunkVertices(std::vector<TerrainVertex> &vertices, float bounds_min[3],
                                 float bounds_max[3], const TerrainChunk &chunk,
-                                const std::uint32_t chunk_x, const std::uint32_t chunk_y) {
+                                const std::uint32_t chunk_x, const std::uint32_t chunk_y,
+                                const std::uint32_t alpha_map_dimension,
+                                const std::uint32_t alpha_atlas_dimension) {
   const std::size_t vertex_base = vertices.size();
   vertices.resize(vertex_base + kVerticesPerChunk);
 
@@ -64,12 +67,14 @@ static void AppendChunkVertices(std::vector<TerrainVertex> &vertices, float boun
     vert.normal[2] = normal.z;
     vert.texcoord[0] = u;
     vert.texcoord[1] = v;
-    constexpr float atlas_scale =
-        static_cast<float>(kAlphaMapSize - 1) / static_cast<float>(kTerrainAlphaAtlasSize);
-    const float atlas_offset_x = (static_cast<float>(chunk_x * kAlphaMapSize) + 0.5f) /
-                                 static_cast<float>(kTerrainAlphaAtlasSize);
-    const float atlas_offset_y = (static_cast<float>(chunk_y * kAlphaMapSize) + 0.5f) /
-                                 static_cast<float>(kTerrainAlphaAtlasSize);
+    const float atlas_scale = static_cast<float>(alpha_map_dimension - 1u) /
+                              static_cast<float>(alpha_atlas_dimension);
+    const float atlas_offset_x =
+        (static_cast<float>(chunk_x * alpha_map_dimension) + 0.5f) /
+        static_cast<float>(alpha_atlas_dimension);
+    const float atlas_offset_y =
+        (static_cast<float>(chunk_y * alpha_map_dimension) + 0.5f) /
+        static_cast<float>(alpha_atlas_dimension);
     vert.alpha_texcoord[0] = u * atlas_scale + atlas_offset_x;
     vert.alpha_texcoord[1] = v * atlas_scale + atlas_offset_y;
 
@@ -219,25 +224,85 @@ static void DecodeChunkAlphaMap(const TerrainChunk &chunk, const int layer_count
   }
 }
 
+static void DownsampleChunkAlphaMap(
+    const std::array<std::uint8_t, kAlphaMapSize * kAlphaMapSize * 4u> &source,
+    const std::uint32_t output_dimension, std::uint8_t *const destination,
+    const std::size_t destination_size, const std::size_t destination_row_stride) {
+  if (destination == nullptr || output_dimension == 0u ||
+      output_dimension > static_cast<std::uint32_t>(kAlphaMapSize) ||
+      destination_row_stride < static_cast<std::size_t>(output_dimension) * 4u ||
+      destination_size < destination_row_stride * output_dimension) {
+    return;
+  }
+
+  for (std::uint32_t output_y = 0u; output_y < output_dimension; ++output_y) {
+    const std::uint32_t source_y_begin =
+        output_y * static_cast<std::uint32_t>(kAlphaMapSize) / output_dimension;
+    const std::uint32_t source_y_end = std::max(
+        source_y_begin + 1u,
+        (output_y + 1u) * static_cast<std::uint32_t>(kAlphaMapSize) /
+            output_dimension);
+    for (std::uint32_t output_x = 0u; output_x < output_dimension; ++output_x) {
+      const std::uint32_t source_x_begin =
+          output_x * static_cast<std::uint32_t>(kAlphaMapSize) / output_dimension;
+      const std::uint32_t source_x_end = std::max(
+          source_x_begin + 1u,
+          (output_x + 1u) * static_cast<std::uint32_t>(kAlphaMapSize) /
+              output_dimension);
+      const std::uint32_t sample_count =
+          (source_x_end - source_x_begin) * (source_y_end - source_y_begin);
+      auto *const output = destination + output_y * destination_row_stride +
+                           static_cast<std::size_t>(output_x) * 4u;
+      for (std::size_t channel = 0u; channel < 4u; ++channel) {
+        std::uint32_t sum = 0u;
+        for (std::uint32_t source_y = source_y_begin; source_y < source_y_end;
+             ++source_y) {
+          for (std::uint32_t source_x = source_x_begin;
+               source_x < source_x_end; ++source_x) {
+            sum += source[(static_cast<std::size_t>(source_y) * kAlphaMapSize +
+                           source_x) *
+                              4u +
+                          channel];
+          }
+        }
+        output[channel] = static_cast<std::uint8_t>(
+            (sum + sample_count / 2u) / sample_count);
+      }
+    }
+  }
+}
+
 PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t tile_x,
-                                          const uint32_t tile_y, const bool big_alpha) {
+                                          const uint32_t tile_y, const bool big_alpha,
+                                          const std::uint32_t alpha_map_dimension) {
 
   (void)tile_x;
   (void)tile_y;
 
   PreparedTerrainTile prepared;
+  const std::uint32_t resolved_alpha_dimension =
+      std::clamp(alpha_map_dimension, 1u,
+                 static_cast<std::uint32_t>(kAlphaMapSize));
+  const std::uint32_t atlas_dimension =
+      resolved_alpha_dimension *
+      static_cast<std::uint32_t>(kTerrainAlphaAtlasChunksPerAxis);
+  prepared.alpha_map_dimension =
+      static_cast<std::uint16_t>(resolved_alpha_dimension);
+  prepared.alpha_atlas_dimension =
+      static_cast<std::uint16_t>(atlas_dimension);
   prepared.vertices.reserve(static_cast<std::size_t>(kTotalChunks * kVerticesPerChunk));
   const std::size_t holed_chunk_count = static_cast<std::size_t>(
       std::count_if(adt.chunks.begin(), adt.chunks.end(),
                     [](const TerrainChunk &chunk) { return chunk.holes != 0u; }));
   prepared.hole_indices.reserve(holed_chunk_count * 768u);
   prepared.alpha_atlas_rgba.assign(
-      static_cast<std::size_t>(kTerrainAlphaAtlasSize) * kTerrainAlphaAtlasSize * 4u, 0u);
+      static_cast<std::size_t>(atlas_dimension) * atlas_dimension * 4u, 0u);
   for (std::size_t alpha = 3u; alpha < prepared.alpha_atlas_rgba.size(); alpha += 4u) {
     prepared.alpha_atlas_rgba[alpha] = 255u;
   }
 
-  constexpr std::size_t kAtlasRowStride = static_cast<std::size_t>(kTerrainAlphaAtlasSize) * 4u;
+  const std::size_t atlas_row_stride =
+      static_cast<std::size_t>(atlas_dimension) * 4u;
   for (int y = 0; y < kChunksPerSide; ++y) {
     for (int x = 0; x < kChunksPerSide; ++x) {
       const std::size_t chunk_index = static_cast<std::size_t>(y * kChunksPerSide + x);
@@ -249,12 +314,32 @@ PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t til
       prepared.has_alpha_layers = prepared.has_alpha_layers || chunk.layer_count > 0;
 
       const std::size_t alpha_offset =
-          (static_cast<std::size_t>(y * kAlphaMapSize) * kTerrainAlphaAtlasSize +
-           static_cast<std::size_t>(x * kAlphaMapSize)) *
+          (static_cast<std::size_t>(y) * resolved_alpha_dimension * atlas_dimension +
+           static_cast<std::size_t>(x) * resolved_alpha_dimension) *
           4u;
-      DecodeChunkAlphaMap(source, chunk.layer_count, big_alpha,
-                          prepared.alpha_atlas_rgba.data() + alpha_offset,
-                          prepared.alpha_atlas_rgba.size() - alpha_offset, 4u, kAtlasRowStride);
+      if (resolved_alpha_dimension ==
+          static_cast<std::uint32_t>(kAlphaMapSize)) {
+        DecodeChunkAlphaMap(source, chunk.layer_count, big_alpha,
+                            prepared.alpha_atlas_rgba.data() + alpha_offset,
+                            prepared.alpha_atlas_rgba.size() - alpha_offset, 4u,
+                            atlas_row_stride);
+      } else {
+        std::array<std::uint8_t, kAlphaMapSize * kAlphaMapSize * 4u>
+            full_resolution_alpha{};
+        for (std::size_t alpha = 3u; alpha < full_resolution_alpha.size();
+             alpha += 4u) {
+          full_resolution_alpha[alpha] = 255u;
+        }
+        DecodeChunkAlphaMap(source, chunk.layer_count, big_alpha,
+                            full_resolution_alpha.data(),
+                            full_resolution_alpha.size(), 4u,
+                            static_cast<std::size_t>(kAlphaMapSize) * 4u);
+        DownsampleChunkAlphaMap(
+            full_resolution_alpha, resolved_alpha_dimension,
+            prepared.alpha_atlas_rgba.data() + alpha_offset,
+            prepared.alpha_atlas_rgba.size() - alpha_offset,
+            atlas_row_stride);
+      }
 
       if (source.holes != 0u) {
         chunk.hole_index_start = static_cast<uint32_t>(prepared.hole_indices.size());
@@ -268,7 +353,8 @@ PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t til
       InitializeBounds(chunk.bounds_min, chunk.bounds_max);
       chunk.vertex_start = static_cast<uint32_t>(prepared.vertices.size());
       AppendChunkVertices(prepared.vertices, chunk.bounds_min, chunk.bounds_max, source,
-                          chunk.chunk_x, chunk.chunk_y);
+                          chunk.chunk_x, chunk.chunk_y,
+                          resolved_alpha_dimension, atlas_dimension);
       chunk.vertex_count = kVerticesPerChunk;
       chunk.valid = true;
     }

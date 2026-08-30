@@ -265,9 +265,7 @@ public:
 
   void UpdateStreamingPosition(float x, float y);
 
-  void SetViewDistance(int32_t tiles) {
-    view_distance_ = tiles;
-  }
+  void SetViewDistance(int32_t tiles);
 
   void SetTimeOfDay(float normalized_time);
 
@@ -613,6 +611,7 @@ private:
   bool has_camera_streaming_focus_ = false;
   TileCoord streaming_tile_{0, 0};
   int32_t view_distance_ = 2;
+  int32_t unload_distance_ = 2;
   float time_of_day_ = 0.5f;
   WeatherKind active_weather_type_{WeatherKind::kNone};
   float active_weather_density_{0.0f};

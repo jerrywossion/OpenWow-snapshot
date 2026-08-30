@@ -2,6 +2,7 @@
 #include "openwow/render/backend/bgfx/bgfx_texture_lease.h"
 
 #include "openwow/data/texture_cache.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/render/resources/shaders/shader_registry.h"
 #include "openwow/render/resources/textures/texture_manager.h"
@@ -246,8 +247,12 @@ void TerrainRenderer::UploadPreparedAdt(const PreparedTerrainTile &prepared,
   if (!initialized_) {
     return;
   }
-  for (const auto &upload : materials.uploads) {
-    static_cast<void>(texture_manager_.CommitPreparedTexture(upload));
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
+  if (!runtime_policy.constrained_mobile_runtime) {
+    for (const auto &upload : materials.uploads) {
+      static_cast<void>(texture_manager_.CommitPreparedTexture(upload));
+    }
   }
   if (!initialized_ || prepared.vertices.empty()) {
     return;
@@ -302,19 +307,48 @@ void TerrainRenderer::UploadPreparedAdt(const PreparedTerrainTile &prepared,
         ChooseChunkLayerBucket(source, chunk.layer_count, prepared_by_row, slice_arrays_);
     for (int layer = 0; layer < chunk.layer_count; ++layer) {
       if (!source.texture_paths[layer].empty()) {
-        chunk.layer_texture_leases[layer] =
-            texture_manager_.AcquireCachedTexture(source.texture_paths[layer]);
-        chunk.layer_tex[layer] = BgfxTextureLeaseAccess::Get(chunk.layer_texture_leases[layer]);
-
-        if (chunk.layer_texture_leases[layer].valid()) {
-          const std::uint32_t row =
-              openwow::data::HashTextureCachePath(source.texture_paths[layer]);
-          const auto upload = prepared_by_row.find(row);
+        const std::uint32_t row =
+            openwow::data::HashTextureCachePath(source.texture_paths[layer]);
+        const auto upload = prepared_by_row.find(row);
+        if (runtime_policy.constrained_mobile_runtime) {
           chunk.layer_slice_leases[layer] = slice_arrays_.Acquire(
               row, upload != prepared_by_row.end() ? upload->second : nullptr,
               chunk_bucket.has_value() ? &*chunk_bucket : nullptr);
+        } else {
+          chunk.layer_texture_leases[layer] =
+              texture_manager_.AcquireCachedTexture(source.texture_paths[layer]);
+          chunk.layer_tex[layer] =
+              BgfxTextureLeaseAccess::Get(chunk.layer_texture_leases[layer]);
+
+          if (chunk.layer_texture_leases[layer].valid()) {
+            chunk.layer_slice_leases[layer] = slice_arrays_.Acquire(
+                row, upload != prepared_by_row.end() ? upload->second : nullptr,
+                chunk_bucket.has_value() ? &*chunk_bucket : nullptr);
+          }
         }
       }
+    }
+    ResolveChunkLayerSlices(chunk, chunk_layer_slices[chunk_index]);
+    if (runtime_policy.constrained_mobile_runtime &&
+        !bgfx::isValid(chunk.layer_array_tex)) {
+      for (int layer = 0; layer < chunk.layer_count; ++layer) {
+        if (source.texture_paths[layer].empty()) {
+          continue;
+        }
+        const std::uint32_t row =
+            openwow::data::HashTextureCachePath(source.texture_paths[layer]);
+        const auto upload = prepared_by_row.find(row);
+        if (upload != prepared_by_row.end() && upload->second != nullptr) {
+          static_cast<void>(
+              texture_manager_.CommitPreparedTexture(*upload->second));
+        }
+        chunk.layer_texture_leases[layer] =
+            texture_manager_.AcquireCachedTexture(source.texture_paths[layer]);
+        chunk.layer_tex[layer] =
+            BgfxTextureLeaseAccess::Get(chunk.layer_texture_leases[layer]);
+      }
+    }
+    for (int layer = 0; layer < chunk.layer_count; ++layer) {
       if (!bgfx::isValid(chunk.layer_tex[layer])) {
         chunk.layer_tex[layer] = texture_manager_.GetCheckerTexture();
       }
@@ -322,7 +356,6 @@ void TerrainRenderer::UploadPreparedAdt(const PreparedTerrainTile &prepared,
     for (int layer = chunk.layer_count; layer < kMaxTerrainLayers; ++layer) {
       chunk.layer_tex[layer] = texture_manager_.GetWhiteTexture();
     }
-    ResolveChunkLayerSlices(chunk, chunk_layer_slices[chunk_index]);
     chunk.valid = true;
   }
 
@@ -437,13 +470,18 @@ void TerrainRenderer::UploadPreparedAdt(const PreparedTerrainTile &prepared,
     }
   }
 
+  const std::uint16_t alpha_atlas_dimension =
+      prepared.alpha_atlas_dimension;
   const std::size_t expected_alpha_bytes =
-      static_cast<std::size_t>(kAlphaAtlasSize) * kAlphaAtlasSize * kAlphaPixelBytes;
-  if (prepared.has_alpha_layers && prepared.alpha_atlas_rgba.size() >= expected_alpha_bytes) {
+      static_cast<std::size_t>(alpha_atlas_dimension) *
+      alpha_atlas_dimension * kAlphaPixelBytes;
+  if (prepared.has_alpha_layers && alpha_atlas_dimension != 0u &&
+      prepared.alpha_atlas_rgba.size() == expected_alpha_bytes) {
     const bgfx::Memory *alpha_memory = bgfx::copy(prepared.alpha_atlas_rgba.data(),
                                                   static_cast<std::uint32_t>(expected_alpha_bytes));
     tile.alpha_atlas = bgfx::createTexture2D(
-        kAlphaAtlasSize, kAlphaAtlasSize, false, 1, bgfx::TextureFormat::RGBA8,
+        alpha_atlas_dimension, alpha_atlas_dimension, false, 1,
+        bgfx::TextureFormat::RGBA8,
         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP, alpha_memory);
     if (!bgfx::isValid(tile.alpha_atlas)) {
       openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
@@ -455,6 +493,15 @@ void TerrainRenderer::UploadPreparedAdt(const PreparedTerrainTile &prepared,
       }
     }
   } else if (prepared.has_alpha_layers) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "TerrainRenderer: invalid prepared alpha atlas for (" +
+            std::to_string(tile_x) + "," + std::to_string(tile_y) +
+            "): dimension=" + std::to_string(alpha_atlas_dimension) +
+            " expected_bytes=" + std::to_string(expected_alpha_bytes) +
+            " actual_bytes=" +
+            std::to_string(prepared.alpha_atlas_rgba.size()) +
+            "; using fallback terrain material");
     for (auto &chunk : tile.chunks) {
       chunk.layer_count = 0;
     }

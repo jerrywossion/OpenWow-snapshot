@@ -1,5 +1,7 @@
 #include "openwow/render/world/presentation/world_presentation_scene.h"
 
+#include "openwow/core/platform_runtime_policy.h"
+
 #include "openwow/data/formats/dbc/dbc_loader.h"
 #include "openwow/render/backend/bgfx/bgfx_encoder_ledger.h"
 #include "openwow/render/backend/bgfx/renderer_context_services.h"
@@ -460,7 +462,9 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
 
           const auto prepared = PrepareAdtTerrainTile(
               *value.adt, static_cast<std::uint32_t>(value.tile_x),
-              static_cast<std::uint32_t>(value.tile_y), value.big_alpha);
+              static_cast<std::uint32_t>(value.tile_y), value.big_alpha,
+              openwow::core::GetPlatformRuntimePolicy()
+                  .terrain_alpha_map_dimension);
           const auto materials =
               PrepareTerrainMaterialTextures(prepared, load_file_);
           terrain_->UploadPreparedAdt(prepared, materials, value.tile_x,
