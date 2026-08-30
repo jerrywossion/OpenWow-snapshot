@@ -247,7 +247,8 @@ file(MAKE_DIRECTORY "${sync_empty_directory}")
 set(sync_library_skeleton "${OPENWOW_IOS_SYNC_MARKER}.library-skeleton")
 file(REMOVE_RECURSE "${sync_library_skeleton}")
 file(MAKE_DIRECTORY
-  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOSPacks")
+  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOSPacks"
+  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOS")
 openwow_copy_to_ios_device(
   SOURCES "${sync_library_skeleton}"
   DESTINATION "Library"
