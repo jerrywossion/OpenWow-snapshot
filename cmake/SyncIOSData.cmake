@@ -166,13 +166,21 @@ elseif(NOT marker_probe_result EQUAL 0)
       "intact and the next run will resume incrementally.\n"
       "${marker_probe_output}${marker_probe_error}")
   endif()
-  message(FATAL_ERROR
-    "The readiness marker could not be read from ${OPENWOW_IOS_DEVICE} "
-    "(CoreDevice exit code ${marker_probe_result}). No files were submitted "
-    "because the installed retail Data cannot be classified safely. Keep "
-    "the iPhone unlocked, reconnect it, wait for Xcode to finish preparing "
-    "the device, and rerun this target.\n"
-    "${marker_probe_output}${marker_probe_error}")
+  if(marker_probe_diagnostic MATCHES
+     "nsposixerrordomain error 2|nscocoaerrordomain error 260|no such file")
+    # A genuinely absent marker is the expected fresh-install state. Only
+    # this explicit missing-file result is allowed to enter the retail copy.
+    message(STATUS
+      "No iOS Data readiness marker exists; preparing a fresh Data sync.")
+  else()
+    message(FATAL_ERROR
+      "The readiness marker could not be read from ${OPENWOW_IOS_DEVICE} "
+      "(CoreDevice exit code ${marker_probe_result}). No files were submitted "
+      "because the installed retail Data cannot be classified safely. Keep "
+      "the iPhone unlocked, reconnect it, wait for Xcode to finish preparing "
+      "the device, and rerun this target.\n"
+      "${marker_probe_output}${marker_probe_error}")
+  endif()
 endif()
 file(REMOVE "${remote_marker_copy}")
 
