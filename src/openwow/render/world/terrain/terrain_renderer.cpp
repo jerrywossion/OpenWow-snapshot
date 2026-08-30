@@ -32,6 +32,18 @@ namespace {
 constexpr std::size_t kAlphaPixelBytes = 4u;
 
 constexpr float kDiffuseRepeatsPerChunk = 8.0f;
+constexpr std::uint8_t kShadowMapStage = 5u;
+constexpr std::uint32_t kShadowSamplerFlags =
+    BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP |
+    BGFX_SAMPLER_COMPARE_LEQUAL;
+
+constexpr std::array<float, 16> kIdentityShadowMatrix = {
+    1.0f, 0.0f, 0.0f, 0.0f,
+    0.0f, 1.0f, 0.0f, 0.0f,
+    0.0f, 0.0f, 1.0f, 0.0f,
+    0.0f, 0.0f, 0.0f, 1.0f,
+};
+constexpr RenderVec4 kDisabledShadowParameters{0.0f, 1.0f, 0.0f, 0.0f};
 
 using PreparedUploadsByRow = std::unordered_map<std::uint32_t, const PreparedTextureUpload *>;
 
@@ -147,11 +159,17 @@ bool TerrainRenderer::Initialize() {
   s_terrain_tex_[3] = bgfx::createUniform("s_terrainTex3", bgfx::UniformType::Sampler);
   s_terrain_layers_ = bgfx::createUniform("s_terrainLayers", bgfx::UniformType::Sampler);
   s_terrain_alpha_ = bgfx::createUniform("s_terrainAlpha", bgfx::UniformType::Sampler);
+  s_shadow_map_ = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Sampler);
 
   u_vs_params_ = bgfx::createUniform("u_terrainVsParams", bgfx::UniformType::Vec4,
                                      static_cast<std::uint16_t>(terrain_vs_param::kCount));
   u_fs_params_ = bgfx::createUniform("u_terrainFsParams", bgfx::UniformType::Vec4,
                                      static_cast<std::uint16_t>(terrain_fs_param::kCount));
+  u_shadow_mtx_ = bgfx::createUniform("u_shadowMtx", bgfx::UniformType::Mat4);
+  u_shadow_params_ = bgfx::createUniform("u_shadowParams", bgfx::UniformType::Vec4);
+  fallback_shadow_depth_ = bgfx::createTexture2D(
+      1u, 1u, false, 1u, bgfx::TextureFormat::D16,
+      BGFX_TEXTURE_RT | kShadowSamplerFlags);
 
   if (bgfx::isValid(splat_array_program_) && bgfx::isValid(s_terrain_layers_)) {
     static_cast<void>(slice_arrays_.Initialize());
@@ -453,8 +471,10 @@ bool TerrainRenderer::PipelineResourcesAreValid() const noexcept {
   }
 
   return bgfx::isValid(program_) && bgfx::isValid(splat_program_) && texture_samplers_valid &&
-         bgfx::isValid(s_terrain_alpha_) && bgfx::isValid(u_vs_params_) &&
-         bgfx::isValid(u_fs_params_);
+         bgfx::isValid(s_terrain_alpha_) && bgfx::isValid(s_shadow_map_) &&
+         bgfx::isValid(u_vs_params_) && bgfx::isValid(u_fs_params_) &&
+         bgfx::isValid(u_shadow_mtx_) && bgfx::isValid(u_shadow_params_) &&
+         bgfx::isValid(fallback_shadow_depth_);
 }
 
 void TerrainRenderer::DestroyPipelineResources() {
@@ -479,8 +499,15 @@ void TerrainRenderer::DestroyPipelineResources() {
   }
   destroy_uniform(s_terrain_layers_);
   destroy_uniform(s_terrain_alpha_);
+  destroy_uniform(s_shadow_map_);
   destroy_uniform(u_vs_params_);
   destroy_uniform(u_fs_params_);
+  destroy_uniform(u_shadow_mtx_);
+  destroy_uniform(u_shadow_params_);
+  if (bgfx::isValid(fallback_shadow_depth_)) {
+    bgfx::destroy(fallback_shadow_depth_);
+  }
+  fallback_shadow_depth_ = BGFX_INVALID_HANDLE;
 }
 
 const world::Frustum *TerrainRenderer::ResolveChunkCullFrustum() const {
@@ -611,6 +638,15 @@ void TerrainRenderer::Render(uint8_t view_id, const WorldEnvironmentSnapshot &en
                     static_cast<std::uint16_t>(terrain_vs_param::kCount));
     draw.setUniform(u_fs_params_, fs_params.data(),
                     static_cast<std::uint16_t>(terrain_fs_param::kCount));
+
+    // Terrain programs always declare the comparison sampler. Metal requires
+    // every declared sampler to be bound even when the disabled branch does
+    // not sample it, so establish a complete inactive state before allowing a
+    // live shadow map to override it below.
+    draw.setTexture(kShadowMapStage, s_shadow_map_, fallback_shadow_depth_,
+                    kShadowSamplerFlags);
+    draw.setUniform(u_shadow_mtx_, kIdentityShadowMatrix.data());
+    draw.setUniform(u_shadow_params_, kDisabledShadowParameters.data());
 
     constexpr std::uint32_t sampler_flags = DiffuseSamplerFlags();
     if (key.program == TerrainProgramKind::kSplat) {

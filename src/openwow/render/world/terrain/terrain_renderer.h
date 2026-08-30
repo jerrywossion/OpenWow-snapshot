@@ -225,9 +225,14 @@ private:
 
   bgfx::UniformHandle s_terrain_layers_ = BGFX_INVALID_HANDLE;
   bgfx::UniformHandle s_terrain_alpha_ = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle s_shadow_map_ = BGFX_INVALID_HANDLE;
 
   bgfx::UniformHandle u_vs_params_ = BGFX_INVALID_HANDLE;
   bgfx::UniformHandle u_fs_params_ = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle u_shadow_mtx_ = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle u_shadow_params_ = BGFX_INVALID_HANDLE;
+
+  bgfx::TextureHandle fallback_shadow_depth_ = BGFX_INVALID_HANDLE;
 
   TextureSliceArrays slice_arrays_;
 
