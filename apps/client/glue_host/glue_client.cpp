@@ -989,7 +989,9 @@ void GlueClient::DoLoginAttempt() {
   cancel_ctx.realm_session = &realm_runtime_.session;
   CancelGlueFlowNetworkOperations(cancel_ctx, glue_flow_state_);
   glue_flow_state_.phase = GlueFlowState::Phase::kIdle;
-  glue_flow_state_.auth_protocol = std::make_shared<openwow::net::wotlk::AuthProtocol>();
+  glue_flow_state_.auth_protocol =
+      std::make_shared<openwow::net::wotlk::AuthProtocol>(
+          openwow::ui::game::CVarSystem::Instance().GetCVar("locale"));
   auto result = glue_flow_state_.auth_protocol->Login(
       auth_host_, auth_port_, login_screen_.username(), login_screen_.password());
 

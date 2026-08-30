@@ -1602,8 +1602,10 @@ void PumpGlueFlow(GlueFlowContext& ctx, GlueFlowState& state) {
     state.auth_future.reset();
     state.realm_future.reset();
     DisconnectAuthProtocol(state);
+    const std::string locale =
+        openwow::ui::game::CVarSystem::Instance().GetCVar("locale");
     state.auth_protocol =
-        std::make_shared<openwow::net::wotlk::AuthProtocol>();
+        std::make_shared<openwow::net::wotlk::AuthProtocol>(locale);
     openwow::net::ClientServices::Instance().SetLoginFileTransferResponseSender(
         [protocol = std::weak_ptr<openwow::net::wotlk::AuthProtocol>(
              state.auth_protocol)](const bool transfer_needed,
