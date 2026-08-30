@@ -1798,6 +1798,9 @@ void GlueClient::FireInitialScreenEventIfNeeded() {
   const int startup_level = static_cast<int>(openwow::core::GetExpansionLevel());
   const InitialGlueScreen initial_screen =
       SelectInitialGlueScreenAndConsumeMovieCvrs(cvars, startup_level);
+  if (initial_screen == InitialGlueScreen::kMovie) {
+    (void)openwow::core::ida::CVar_FlushToFile();
+  }
   const std::string screen_name = InitialGlueScreenName(initial_screen);
 
   if (screen_name == "login" && glue_runtime_.IsMoviePlaying()) {

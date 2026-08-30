@@ -241,7 +241,7 @@ diff --git a/src/video/uikit/SDL_uikitwindow.m b/src/video/uikit/SDL_uikitwindow
 index 0e0ea05..eee17ff 100644
 --- a/src/video/uikit/SDL_uikitwindow.m
 +++ b/src/video/uikit/SDL_uikitwindow.m
-@@ -206,7 +206,16 @@ int UIKit_CreateWindow(_THIS, SDL_Window *window)
+@@ -206,7 +206,15 @@ int UIKit_CreateWindow(_THIS, SDL_Window *window)
  #endif /* !TARGET_OS_TV */
 -
 -        /* ignore the size user requested, and make a fullscreen window */
@@ -253,7 +253,6 @@ index 0e0ea05..eee17ff 100644
 +            UIWindowScene *scene = UIKit_GetActiveWindowScene();
 +            if (scene) {
 +                uiwindow = [[SDL_uikitwindow alloc] initWithWindowScene:scene];
-+                uiwindow.frame = scene.coordinateSpace.bounds;
 +            }
 +        }
 +        if (!uiwindow) {

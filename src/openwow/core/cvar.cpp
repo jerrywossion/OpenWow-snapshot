@@ -17,6 +17,7 @@
 #include "openwow/data/startup_filesystem_state.h"
 #include "openwow/core/console.h"
 #include "openwow/debug/diagnostics/debug_console.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/ui/game/cvar_system.h"
 #include "openwow/foundation/text/ascii.h"
 #include "openwow/vfs/sfile_core.h"
@@ -450,6 +451,9 @@ int CVar_FlushToFile() {
 
     if (s_config_filename.empty()) {
         s_dirty_flag.store(true, std::memory_order_release);
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kError,
+            "CVarSystem: cannot persist archived CVars without a config filename");
         return 0;
     }
 
@@ -459,6 +463,14 @@ int CVar_FlushToFile() {
     if (!parent.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
+        if (ec) {
+            s_dirty_flag.store(true, std::memory_order_release);
+            openwow::diagnostics::Log(
+                openwow::diagnostics::LogLevel::kError,
+                "CVarSystem: failed to create config directory: path=" +
+                    parent.string() + " error=" + ec.message());
+            return 0;
+        }
     }
 
     auto& cvar_sys = openwow::ui::game::CVarSystem::Instance();
@@ -468,6 +480,9 @@ int CVar_FlushToFile() {
     }
 
     s_dirty_flag.store(true, std::memory_order_release);
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "CVarSystem: failed to persist archived CVars: path=" + path.string());
     return 0;
 }
 

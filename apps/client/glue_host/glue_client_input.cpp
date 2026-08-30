@@ -3,6 +3,7 @@
 
 #include "openwow/audio/playback/sound_interface.h"
 #include "openwow/core/client_init.h"
+#include "openwow/core/cvar.h"
 #include "openwow/core/gxcvar.h"
 #include "openwow/net/client_services.h"
 #include "openwow/runtime/scheduling/evt_sched.h"
@@ -281,6 +282,7 @@ void GlueClient::ApplyApplicationActiveChange(const bool active) {
       openwow::diagnostics::LogLevel::kInfo,
       active ? "Application entered foreground" : "Application entered background");
   if (!active) {
+    (void)openwow::core::ida::CVar_FlushToFile();
     ApplyWindowFocusChange(false);
     return;
   }

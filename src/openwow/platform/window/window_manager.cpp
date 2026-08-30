@@ -293,7 +293,7 @@ void WindowManager::SetResolution(uint32_t width, uint32_t height) {
     int drawable_width = 0;
     int drawable_height = 0;
     SDL_GetWindowSize(sdl_win, &logical_width, &logical_height);
-    SDL_GL_GetDrawableSize(sdl_win, &drawable_width, &drawable_height);
+    SDL_GetWindowSizeInPixels(sdl_win, &drawable_width, &drawable_height);
     const double scale_x = logical_width > 0 && drawable_width > 0
                                ? static_cast<double>(drawable_width) / logical_width
                                : 1.0;
@@ -490,7 +490,7 @@ WindowManager::ResolveLogicalCursorPositionInDrawablePixels() {
     int drawable_width = 0;
     int drawable_height = 0;
     SDL_GetWindowSize(sdl_win, &logical_width, &logical_height);
-    SDL_GL_GetDrawableSize(sdl_win, &drawable_width, &drawable_height);
+    SDL_GetWindowSizeInPixels(sdl_win, &drawable_width, &drawable_height);
     if (logical_width <= 0 || logical_height <= 0) {
         return cursor;
     }
