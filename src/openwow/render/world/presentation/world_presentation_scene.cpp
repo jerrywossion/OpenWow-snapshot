@@ -40,11 +40,15 @@ inline constexpr bool kUnhandledWorldPresentationCommand = false;
 }
 
 struct WorldPresentationScene::ModelResource {
+  struct DoodadGroup {
+    std::vector<std::uint16_t> refs;
+    std::uint32_t flags{};
+  };
+
   std::unique_ptr<WmoRenderer> renderer;
   std::shared_ptr<const data::wmo::WmoRoot> root;
   std::size_t group_count{};
-  std::unordered_map<std::uint32_t,
-                     std::shared_ptr<const data::wmo::WmoGroup>> groups;
+  std::unordered_map<std::uint32_t, DoodadGroup> groups;
 };
 
 struct WorldPresentationScene::PendingWmoGroup {
@@ -157,7 +161,12 @@ void WorldPresentationScene::QueueWmoGroupPreparation(
 }
 
 void WorldPresentationScene::StartQueuedWmoGroupPreparations() {
-  constexpr std::size_t kMaxConcurrentWmoGroupPreparations = 4u;
+  constexpr std::size_t kMaxConcurrentWmoGroupPreparations =
+#if defined(OPENWOW_PLATFORM_IOS)
+      1u;
+#else
+      4u;
+#endif
   std::size_t active = 0u;
   std::unordered_set<std::string> renderer_attempted;
   for (const auto& [_, pending] : pending_wmo_groups_) {
@@ -274,14 +283,19 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
       it = pending_wmo_groups_.erase(it);
       continue;
     }
-    model->second->groups[prepared.command.group_index] =
-        prepared.command.group;
+    ModelResource::DoodadGroup doodad_group{
+        .refs = prepared.command.group->doodadRefs,
+        .flags = prepared.command.group->header.flags,
+    };
+    model->second->groups.insert_or_assign(
+        prepared.command.group_index, std::move(doodad_group));
     for (auto& [id, instance] : instances_) {
       (void)id;
       if (instance.resource_key == prepared.command.resource_key) {
         doodads_->PublishStreamingWmoGroup(
             instance.doodad_owner, *model->second->root,
-            *prepared.command.group,
+            prepared.command.group->doodadRefs,
+            prepared.command.group->header.flags,
             static_cast<std::uint16_t>(prepared.command.group_index),
             instance.transform);
       }
@@ -514,10 +528,10 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
           doodads_->SetWmoInstanceTransferDestinationGroups(
               published->second.doodad_owner, *model->second->root);
           for (const auto& [group_index, group] : model->second->groups) {
-            if (group && group_index <=
-                             std::numeric_limits<std::uint16_t>::max()) {
+            if (group_index <= std::numeric_limits<std::uint16_t>::max()) {
               doodads_->PublishStreamingWmoGroup(
-                  published->second.doodad_owner, *model->second->root, *group,
+                  published->second.doodad_owner, *model->second->root,
+                  group.refs, group.flags,
                   static_cast<std::uint16_t>(group_index),
                   published->second.transform);
             }

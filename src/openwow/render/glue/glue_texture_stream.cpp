@@ -283,6 +283,9 @@ std::optional<GlueTexture> GlueTextureStream::Load(
 
   auto prepared = PrepareTexture(request->row_path, request->cache_key,
                                  alpha_mode, *source.bytes);
+  if (PlatformTextureRuntimePolicy().release_source_bytes_after_decode) {
+    source_rows_->ReleaseSource(source.identity);
+  }
   prepared.row_hash = request->row_hash;
   prepared.row_generation = request->row_generation;
   if (!prepared.valid) {
@@ -466,6 +469,10 @@ void GlueTextureStream::QueueAsyncLoadInternal(
             if (source) {
               prepared = PrepareTexture(row_identity.path, cache_key, alpha_mode,
                                         *source.bytes);
+              if (PlatformTextureRuntimePolicy()
+                      .release_source_bytes_after_decode) {
+                rows->ReleaseSource(source.identity);
+              }
               prepared.row_hash = row_identity.hash;
               prepared.row_generation = row_identity.generation;
               if (!prepared.valid) {
@@ -625,7 +632,10 @@ GlueTextureStream::PreparedTexture GlueTextureStream::PrepareTexture(
     if (blp.isValid && blp.header.width > 0 && blp.header.height > 0) {
 
       auto mip_upload = openwow::render::BuildBlpRgbaMipUpload(
-          blp, openwow::render::CurrentBlockCompressionSupport());
+          blp, openwow::render::CurrentBlockCompressionSupport(),
+          {.max_uncompressed_dimension =
+               openwow::render::PlatformTextureRuntimePolicy()
+                   .max_ui_uncompressed_blp_dimension});
       if (mip_upload.decoded_mip_count > 0 && !mip_upload.bytes.empty() &&
           !mip_upload.mip_sizes.empty() && mip_upload.width > 0 && mip_upload.height > 0 &&
           mip_upload.width <= std::numeric_limits<std::uint16_t>::max() &&

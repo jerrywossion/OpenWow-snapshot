@@ -3041,6 +3041,11 @@ void WorldMap::AcknowledgePresentation(
         if (result.group_index < cached->second.group_gpu_retry.size()) {
           cached->second.group_gpu_retry[result.group_index].Reset();
         }
+        if (result.group_index <
+            cached->second.group_presentation_payloads.size()) {
+          cached->second.group_presentation_payloads[result.group_index]
+              .reset();
+        }
       }
     }
   }

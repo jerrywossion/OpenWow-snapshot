@@ -1071,14 +1071,16 @@ void DoodadRenderer::BeginStreamingWmoInstance(
 }
 
 void DoodadRenderer::PublishStreamingWmoGroup(
-    const WmoOwnerId owner_id, const data::wmo::WmoRoot &root, const data::wmo::WmoGroup &group,
-    const std::uint16_t group_index, const RenderMatrix4x4 &wmo_model_matrix) {
+    const WmoOwnerId owner_id, const data::wmo::WmoRoot &root,
+    const std::span<const std::uint16_t> doodad_refs,
+    const std::uint32_t group_flags, const std::uint16_t group_index,
+    const RenderMatrix4x4 &wmo_model_matrix) {
   const auto owner_it = wmo_doodads_.find(owner_id);
   if (owner_it == wmo_doodads_.end() || group_index >= owner_it->second.group_count) {
     return;
   }
   auto &owner = owner_it->second;
-  for (const std::uint16_t doodad_ref : group.doodadRefs) {
+  for (const std::uint16_t doodad_ref : doodad_refs) {
     const auto doodad_set_index = ResolveWmoDoodadSetIndex(root, doodad_ref);
     if (doodad_set_index == kInvalidWmoDoodadSetIndex ||
         static_cast<std::size_t>(doodad_ref) >= root.doodadDefs.size()) {
@@ -1109,7 +1111,7 @@ void DoodadRenderer::PublishStreamingWmoGroup(
     instance.render_placement_index = doodad_ref;
     instance.wmo_doodad_set_index = static_cast<std::uint16_t>(doodad_set_index);
     instance.authored_wmo_doodad_set_index = instance.wmo_doodad_set_index;
-    const auto tint_usage = ResolveWmoDoodadTintUsage(group.header.flags);
+    const auto tint_usage = ResolveWmoDoodadTintUsage(group_flags);
     if (tint_usage.is_ambient_substitute) {
       instance.tint_color = DecodeBgraColor(doodad_def.color);
       instance.wmo_color_is_ambient_substitute = true;

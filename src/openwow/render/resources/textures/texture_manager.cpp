@@ -544,6 +544,14 @@ PreparedTextureUpload DecodeTextureUpload(
   return prepared;
 }
 
+void ReleaseSourceAfterDecode(
+    openwow::data::TextureCacheRowStore& rows,
+    const openwow::data::TextureCacheRowIdentity& identity) {
+  if (PlatformTextureRuntimePolicy().release_source_bytes_after_decode) {
+    rows.ReleaseSource(identity);
+  }
+}
+
 PreparedTextureUpload PrepareResolvedTextureUpload(
     const std::string& request_path,
     const openwow::data::TextureCacheRowIdentity& row,
@@ -576,6 +584,9 @@ PreparedTextureUpload PrepareResolvedTextureUpload(
         *source.bytes, tga_mask ? tga_mask.bytes.get() : nullptr,
         blp_mask ? blp_mask.bytes.get() : nullptr,
         &composition_error);
+    ReleaseSourceAfterDecode(rows, source.identity);
+    ReleaseSourceAfterDecode(rows, tga_mask_identity);
+    ReleaseSourceAfterDecode(rows, blp_mask_identity);
     if (!portrait.has_value() || portrait->rgba.empty() ||
         portrait->rgba.size() >
             static_cast<std::size_t>(
@@ -615,7 +626,10 @@ PreparedTextureUpload PrepareResolvedTextureUpload(
         .error = "missing texture source",
     };
   }
-  return DecodeTextureUpload(request_path, source.identity, *source.bytes);
+  auto prepared =
+      DecodeTextureUpload(request_path, source.identity, *source.bytes);
+  ReleaseSourceAfterDecode(rows, source.identity);
+  return prepared;
 }
 
 PreparedTextureUpload PrepareResolvedTabardRenderTargetUpload(
@@ -661,6 +675,7 @@ PreparedTextureUpload PrepareResolvedTabardRenderTargetUpload(
         prepared.rgba_bytes = std::move(image->pixelsRgba);
         composed_source = true;
       }
+      ReleaseSourceAfterDecode(rows, source.identity);
     }
   }
 
@@ -754,7 +769,11 @@ bool TextureManager::Initialize() {
           std::to_string(
               PlatformTextureRuntimePolicy().max_uncompressed_blp_dimension) +
           " asyncLimit=" + std::to_string(kMaxAsyncRequests) +
-          " cacheBudget=" + std::to_string(GetMemoryBudget()));
+          " cacheBudget=" + std::to_string(GetMemoryBudget()) +
+          " releaseSources=" +
+          (PlatformTextureRuntimePolicy().release_source_bytes_after_decode
+               ? "1"
+               : "0"));
 
   const bgfx::TextureHandle white = MakeSolid1x1(255, 255, 255, 255);
   const bgfx::TextureHandle black = MakeSolid1x1(0, 0, 0, 255);

@@ -713,7 +713,12 @@ private:
   std::size_t stream_progress_completed_{0};
   BlockingLoadProgressCallback active_stream_progress_callback_;
 
-  static constexpr std::size_t kTilePublicationBudgetPerFrame = 2u;
+  static constexpr std::size_t kTilePublicationBudgetPerFrame =
+#if defined(OPENWOW_PLATFORM_IOS)
+      1u;
+#else
+      2u;
+#endif
   static constexpr std::size_t kWmoPublicationBudgetPerFrame = 8u;
   static constexpr std::uint64_t kWmoPublicationByteBudgetPerFrame =
       8u * 1024u * 1024u;
