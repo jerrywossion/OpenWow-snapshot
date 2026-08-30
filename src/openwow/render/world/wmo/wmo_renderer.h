@@ -104,6 +104,15 @@ enum class WmoMergedGeometryState : std::uint8_t {
   kUnavailable,
 };
 
+inline constexpr WmoMergedGeometryState kWmoMergedGeometryInitialState =
+#if defined(OPENWOW_PLATFORM_IOS)
+    // Keep the already-resident per-group buffers on iOS. Building a merged
+    // copy would retain CPU staging and both GPU representations at once.
+    WmoMergedGeometryState::kUnavailable;
+#else
+    WmoMergedGeometryState::kAccumulating;
+#endif
+
 inline constexpr std::size_t kMaxWmoOccluderPolygonsPerGroup = 32u;
 inline constexpr float kMinWmoOccluderPolygonArea = 4.0f;
 
@@ -397,7 +406,7 @@ public:
   std::vector<WmoGroupGpu> groups_;
   std::array<WmoMergedGeometry, kWmoMergedVertexFormCount> merged_geometry_{};
   WmoMergedGeometryState merged_state_{
-      WmoMergedGeometryState::kAccumulating};
+      kWmoMergedGeometryInitialState};
   std::uint32_t submit_generation_{0u};
   std::vector<WmoMaterialGpu> materials_;
   std::vector<std::uint8_t> material_resident_;

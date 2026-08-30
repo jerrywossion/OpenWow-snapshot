@@ -143,7 +143,7 @@ GlueTextureStream::GlueTextureStream(GlueTextureStreamConfig config)
       async_worker_count_(std::max(1u, config.async_worker_count)),
       async_state_(std::make_shared<AsyncState>()),
       source_rows_(std::make_shared<openwow::data::TextureCacheRowStore>()),
-      memory_budget_(256ull * 1024ull * 1024ull) {
+      memory_budget_(PlatformTextureRuntimePolicy().cache_memory_budget_bytes) {
   if (!source_loader_ && vfs_ != nullptr) {
     const auto* source_vfs = vfs_;
     source_loader_ = [source_vfs](const std::string& path) {

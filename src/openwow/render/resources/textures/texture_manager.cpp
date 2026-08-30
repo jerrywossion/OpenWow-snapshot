@@ -476,8 +476,8 @@ PreparedTextureUpload DecodeTextureUpload(
         return prepared;
       }
 
-      prepared.width = blp.header.width;
-      prepared.height = blp.header.height;
+      prepared.width = mip_upload.width;
+      prepared.height = mip_upload.height;
       prepared.complete_mip_chain = mip_upload.complete_mip_chain;
       const std::uint64_t upload_size = prepared.complete_mip_chain
                                             ? mip_upload.bytes.size()
@@ -750,7 +750,11 @@ bool TextureManager::Initialize() {
       std::string("TextureManager: GPU block-compression support BC1=") +
           (block_support.bc1 ? "1" : "0") + " BC2=" +
           (block_support.bc2 ? "1" : "0") + " BC3=" +
-          (block_support.bc3 ? "1" : "0"));
+          (block_support.bc3 ? "1" : "0") + " rgbaFallbackMax=" +
+          std::to_string(
+              PlatformTextureRuntimePolicy().max_uncompressed_blp_dimension) +
+          " asyncLimit=" + std::to_string(kMaxAsyncRequests) +
+          " cacheBudget=" + std::to_string(GetMemoryBudget()));
 
   const bgfx::TextureHandle white = MakeSolid1x1(255, 255, 255, 255);
   const bgfx::TextureHandle black = MakeSolid1x1(0, 0, 0, 255);

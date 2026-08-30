@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openwow/vfs/virtual_file_system.h"
+#include "openwow/render/resources/textures/texture_runtime_policy.h"
 
 #include <bgfx/bgfx.h>
 
@@ -58,9 +59,12 @@ struct GlueTextureStreamingStats {
 
 class GlueTextureStream {
  public:
-  static constexpr std::size_t kMaxAsyncRequests = 256u;
+  static constexpr std::size_t kMaxAsyncRequests =
+      PlatformTextureRuntimePolicy().max_async_requests;
 
-  static constexpr std::size_t kDemandAsyncRequestReserve = 64u;
+  static constexpr std::size_t kDemandAsyncRequestReserve =
+      PlatformTextureRuntimePolicy().demand_async_request_reserve;
+  static_assert(kDemandAsyncRequestReserve <= kMaxAsyncRequests);
   static constexpr std::size_t kMaxPrefetchAsyncRequests =
       kMaxAsyncRequests - kDemandAsyncRequestReserve;
 

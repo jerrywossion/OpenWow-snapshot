@@ -841,7 +841,7 @@ void WmoRenderer::ReleaseMergedGeometry() {
     }
     merged = {};
   }
-  merged_state_ = WmoMergedGeometryState::kAccumulating;
+  merged_state_ = kWmoMergedGeometryInitialState;
 }
 
 const WmoMergedGeometry& WmoRenderer::MergedGeometryFor(

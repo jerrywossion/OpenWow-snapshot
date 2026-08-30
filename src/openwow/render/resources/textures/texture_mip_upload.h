@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openwow/data/blp/blp_texture_loader.h"
+#include "openwow/render/resources/textures/texture_runtime_policy.h"
 
 #include <bgfx/bgfx.h>
 
@@ -81,7 +82,21 @@ struct BlpRgbaMipUpload {
   std::vector<std::uint8_t> bytes;
 };
 
+struct BlpMipUploadPolicy {
+  std::uint32_t max_uncompressed_dimension{0u};
+};
+
+[[nodiscard]] constexpr BlpMipUploadPolicy PlatformBlpMipUploadPolicy()
+    noexcept {
+  return {
+      .max_uncompressed_dimension =
+          PlatformTextureRuntimePolicy().max_uncompressed_blp_dimension,
+  };
+}
+
 BlpRgbaMipUpload BuildBlpRgbaMipUpload(const data::BLPTextureData& blp,
-                                       BlockCompressionSupport gpu_support = {});
+                                       BlockCompressionSupport gpu_support = {},
+                                       BlpMipUploadPolicy policy =
+                                           PlatformBlpMipUploadPolicy());
 
 }
