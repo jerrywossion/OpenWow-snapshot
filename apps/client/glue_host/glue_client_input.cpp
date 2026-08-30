@@ -283,6 +283,10 @@ void GlueClient::ApplyApplicationActiveChange(const bool active) {
       active ? "Application entered foreground" : "Application entered background");
   if (!active) {
     (void)openwow::core::ida::CVar_FlushToFile();
+#if defined(OPENWOW_PLATFORM_IOS)
+    texture_manager_.ClearCache();
+    sound_runtime_.ClearSoundKitProviderCaches();
+#endif
     ApplyWindowFocusChange(false);
     return;
   }

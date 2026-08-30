@@ -24,6 +24,7 @@
 #include "openwow/ui/font_string_layout.h"
 #include "openwow/ui/game/loading_screen_progress_bar.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/foundation/text/ascii.h"
 
 #include <bx/math.h>
@@ -419,7 +420,8 @@ struct GlueBgfxRenderer::Impl {
        GlueBgfxRenderer::SoundKitSink sound_kit_sink)
       : textures(openwow::render::GlueTextureStreamConfig{
             .vfs = vfs,
-            .async_worker_count = 4,
+            .async_worker_count = openwow::core::GetPlatformRuntimePolicy()
+                                      .glue_texture_worker_limit,
         }),
         natural_size_source(textures),
         text(vfs),

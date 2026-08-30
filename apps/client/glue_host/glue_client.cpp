@@ -17,6 +17,7 @@
 #include "openwow/core/gxcvar.h"
 #include "openwow/core/init_subsystems.h"
 #include "openwow/core/login_state_handler.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/core/screenshot_system.h"
 #include "openwow/data/archive_system.h"
 #include "openwow/data/async_file_read.h"
@@ -285,6 +286,55 @@ void RegisterTextureCacheBudget(openwow::ui::game::CVarSystem &cvars) {
     openwow::core::ida::ConsoleAddLine(result.console_message, openwow::core::ida::COLOR_DEFAULT);
     return result.accepted;
   });
+}
+
+void RegisterIosPerformanceProfile(openwow::ui::game::CVarSystem &cvars) {
+#if defined(OPENWOW_PLATFORM_IOS)
+  if (!cvars.Exists("iosPerformanceProfile")) {
+    cvars.RegisterCVar("iosPerformanceProfile", "1",
+                       openwow::ui::game::CVarFlags::Archive,
+                       "Apply the balanced iOS performance policy");
+  }
+#else
+  (void)cvars;
+#endif
+}
+
+void ApplyIosPerformanceProfile(openwow::ui::game::CVarSystem &cvars) {
+#if defined(OPENWOW_PLATFORM_IOS)
+  if (!cvars.GetCVarBool("iosPerformanceProfile")) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+                              "iOS performance profile disabled by CVar");
+    return;
+  }
+
+  constexpr auto policy = openwow::core::GetPlatformRuntimePolicy();
+  const auto set = [&cvars](const char *const name, const std::string &value) {
+    if (cvars.Exists(name)) {
+      (void)cvars.SetRegisteredCVarValueDirect(name, value);
+    }
+  };
+  set("maxFPS", std::to_string(policy.foreground_fps_limit));
+  set("maxFPSBk", std::to_string(policy.background_fps_limit));
+  set("particleDensity", std::to_string(policy.particle_density));
+  set("weatherDensity", std::to_string(policy.weather_density));
+  set("environmentDetail", std::to_string(policy.environment_detail));
+  set("farclip", std::to_string(policy.far_clip));
+  set("ffxGlow", policy.glow_enabled ? "1" : "0");
+  set("projectedTextures", "0");
+  set("extShadowQuality", "0");
+  set("gxMultisample", "1");
+  set("gxTripleBuffer", "0");
+
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "Applied balanced iOS performance profile: maxFPS=" +
+          std::to_string(policy.foreground_fps_limit) +
+          " farclip=" + std::to_string(policy.far_clip) +
+          " particleDensity=" + std::to_string(policy.particle_density));
+#else
+  (void)cvars;
+#endif
 }
 
 struct LogoutCountdownSnapshot {
@@ -1393,6 +1443,7 @@ bool GlueClient::Initialize() {
 
   openwow::core::ida::InitializeStartupHardwareDetectionState(&login_vfs_);
   openwow::core::ida::GxCVarInitializeRuntime("World of Warcraft");
+  ApplyIosPerformanceProfile(openwow::ui::game::CVarSystem::Instance());
 
   if (!InitGraphics()) {
     glue_host_.FinishAudioDevicePrepare();
@@ -1414,6 +1465,7 @@ bool GlueClient::Initialize() {
       startup_trace_->Add("glue.Initialize.fail");
     return false;
   }
+  ApplyIosPerformanceProfile(openwow::ui::game::CVarSystem::Instance());
   if (!InitGameLoop()) {
     if (startup_trace_)
       startup_trace_->Add("glue.Initialize.fail");
@@ -1438,6 +1490,7 @@ bool GlueClient::InitCVars() {
   openwow::core::ida::CVar_LoadConfig("Config.wtf");
   openwow::core::ida::GxCVarRegister();
   cvar_sys.RegisterDefaults();
+  RegisterIosPerformanceProfile(cvar_sys);
   openwow::core::MemoryStorm_RegisterConsoleCommands();
   gamma_controller_.Register(cvar_sys, window_);
   openwow::render::RegisterTextureFilteringModeCVarCallback(cvar_sys);

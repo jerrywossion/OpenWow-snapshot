@@ -12,6 +12,7 @@
 #include "openwow/render/resources/readback/pixel_readback.h"
 #include "openwow/render/ui/ui_shaders.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/runtime/scheduling/frame_job_system.h"
 
 #include <SDL2/SDL.h>
@@ -439,8 +440,12 @@ class BgfxRendererContext final : public api::RendererContext {
     init.resolution.reset = ResetFlags(create_info.presentation, resolved);
     init.resolution.maxFrameLatency = create_info.presentation.maximum_frame_latency;
 
-    init.limits.transientVbSize = 32u * 1024u * 1024u;
-    init.limits.transientIbSize = 8u * 1024u * 1024u;
+    constexpr auto runtime_policy =
+        openwow::core::GetPlatformRuntimePolicy();
+    init.limits.transientVbSize =
+        runtime_policy.transient_vertex_buffer_bytes;
+    init.limits.transientIbSize =
+        runtime_policy.transient_index_buffer_bytes;
 
     constexpr std::uint32_t kDedicatedWorldEncodePassEncoders = 2u;
     constexpr std::uint32_t kM2RenderBatchWaveSitesPerFrame = 11u;

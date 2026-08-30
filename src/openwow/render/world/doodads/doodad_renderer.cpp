@@ -1,6 +1,7 @@
 #include "openwow/render/world/doodads/doodad_renderer.h"
 
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/foundation/math/row_major_mat4x4.h"
 #include "openwow/render/api/math/render_matrix_math.h"
 #include "openwow/render/m2/m2_system.h"
@@ -775,8 +776,11 @@ bool DoodadRenderer::Initialize() {
     return true;
 
   const std::uint32_t hardware_threads = std::thread::hardware_concurrency();
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
   m2_system_.StartAsyncLoading(
-      std::clamp(hardware_threads == 0u ? 2u : hardware_threads / 2u, 2u, 4u));
+      std::clamp(hardware_threads == 0u ? 2u : hardware_threads / 2u, 1u,
+                 runtime_policy.resource_worker_limit));
   initialized_ = true;
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, "DoodadRenderer: initialized");
   return true;

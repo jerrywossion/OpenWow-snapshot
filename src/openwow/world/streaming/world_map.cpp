@@ -12,6 +12,7 @@
 #include "openwow/world/environment/lighting.h"
 #include "openwow/world/coordinates/map_placement.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/world/collision/collision.h"
 #include "openwow/world/environment/chunk_ambient_audio.h"
 #include "openwow/world/liquid/liquid_vertex_lookup.h"
@@ -567,8 +568,11 @@ bool WorldMap::Initialize() {
   lifecycle_state_ = LifecycleState::kStarting;
 
   const std::uint32_t hardware_threads = std::thread::hardware_concurrency();
-  const std::uint32_t worker_count =
-      std::clamp(hardware_threads > 1u ? hardware_threads - 1u : 1u, 1u, 4u);
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
+  const std::uint32_t worker_count = std::clamp(
+      hardware_threads > 1u ? hardware_threads - 1u : 1u, 1u,
+      runtime_policy.resource_worker_limit);
   InitializeWorldStagingWorkers(worker_count);
 
   initialization_succeeded_ = true;
