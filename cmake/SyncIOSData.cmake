@@ -166,6 +166,13 @@ elseif(NOT marker_probe_result EQUAL 0)
       "intact and the next run will resume incrementally.\n"
       "${marker_probe_output}${marker_probe_error}")
   endif()
+  message(FATAL_ERROR
+    "The readiness marker could not be read from ${OPENWOW_IOS_DEVICE} "
+    "(CoreDevice exit code ${marker_probe_result}). No files were submitted "
+    "because the installed retail Data cannot be classified safely. Keep "
+    "the iPhone unlocked, reconnect it, wait for Xcode to finish preparing "
+    "the device, and rerun this target.\n"
+    "${marker_probe_output}${marker_probe_error}")
 endif()
 file(REMOVE "${remote_marker_copy}")
 
