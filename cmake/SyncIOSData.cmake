@@ -243,14 +243,15 @@ message(STATUS
 set(sync_empty_directory "${OPENWOW_IOS_SYNC_MARKER}.empty-directory")
 file(REMOVE_RECURSE "${sync_empty_directory}")
 file(MAKE_DIRECTORY "${sync_empty_directory}")
+
+set(sync_library_skeleton "${OPENWOW_IOS_SYNC_MARKER}.library-skeleton")
+file(REMOVE_RECURSE "${sync_library_skeleton}")
+file(MAKE_DIRECTORY
+  "${sync_library_skeleton}/Application Support/OpenWoW/GameRoot/Data/OpenWoWDerived/iOSPacks")
 openwow_copy_to_ios_device(
-  SOURCES "${sync_empty_directory}"
-  DESTINATION "${device_data_root}"
-  DESCRIPTION "Ensuring the iOS Data directory exists")
-openwow_copy_to_ios_device(
-  SOURCES "${sync_empty_directory}"
-  DESTINATION "${device_data_root}/OpenWoWDerived/iOSPacks"
-  DESCRIPTION "Ensuring the iOS ASTC pack directory exists")
+  SOURCES "${sync_library_skeleton}"
+  DESTINATION "Library"
+  DESCRIPTION "Ensuring the iOS Data and ASTC pack directories exist")
 
 if(retail_data_is_current)
   message(STATUS
