@@ -11,6 +11,7 @@
 #include "openwow/audio/playback/sound_settings.h"
 #include "openwow/core/client_misc.h"
 #include "openwow/core/init_subsystems.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/data/async_file_read.h"
 #include "openwow/data/formats/dbc/dbc_enums.h"
 #include "openwow/data/formats/dbc/dbc_loader.h"
@@ -313,6 +314,8 @@ render::PostProcessSettings ReadPostProcessSettings() {
   const auto enabled = [&cvars](const char *name) {
     return !cvars.Exists(name) || cvars.GetCVarBool(name);
   };
+  constexpr auto runtime_policy =
+      openwow::core::GetPlatformRuntimePolicy();
   return {
       .enabled = enabled("ffx"),
       .glow_enabled = enabled("ffxGlow"),
@@ -320,6 +323,8 @@ render::PostProcessSettings ReadPostProcessSettings() {
       .rectangle_textures = enabled("ffxRectangle"),
       .multisample =
           static_cast<std::uint8_t>(std::clamp(cvars.GetCVarInt("gxMultisample"), 1, 16)),
+      .render_scale = runtime_policy.world_render_scale,
+      .lazy_effect_framebuffers = runtime_policy.constrained_mobile_runtime,
   };
 }
 

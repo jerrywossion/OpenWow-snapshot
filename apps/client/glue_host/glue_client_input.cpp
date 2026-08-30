@@ -17,6 +17,7 @@
 #include "openwow/platform/adapters/clipboard/os_clipboard.h"
 #include "openwow/platform/window/system_mouse_speed.h"
 #include "openwow/platform/window/window_manager.h"
+#include "openwow/render/effects/postprocess/post_process.h"
 #include "openwow/ui/glue/editbox_input_dispatch.h"
 #include "openwow/ui/game/api/game_lua_api_movement.h"
 #include "openwow/ui/lua_call_helpers.h"
@@ -286,6 +287,7 @@ void GlueClient::ApplyApplicationActiveChange(const bool active) {
 #if defined(OPENWOW_PLATFORM_IOS)
     texture_manager_.ClearCache();
     sound_runtime_.ClearSoundKitProviderCaches();
+    game_loop_.post_process().ReleaseTransientEffectFramebuffers();
 #endif
     ApplyWindowFocusChange(false);
     return;
