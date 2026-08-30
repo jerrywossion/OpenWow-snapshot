@@ -60,14 +60,48 @@ endif()
 
 file(READ "${texture_cache_manifest}" texture_cache_identity)
 string(STRIP "${texture_cache_identity}" texture_cache_identity)
+
+# Track retail Data separately from the derived cache. A cache generator or
+# project-override change must not enqueue the already installed 20+ GiB retail
+# archives again.
+file(GLOB data_entries LIST_DIRECTORIES true "${data_source}/*")
+list(SORT data_entries)
+set(retail_data_signature_input "")
+foreach(data_entry IN LISTS data_entries)
+  get_filename_component(data_entry_name "${data_entry}" NAME)
+  if(data_entry_name STREQUAL "OpenWoWDerived" OR
+     data_entry_name STREQUAL ".DS_Store")
+    continue()
+  endif()
+  if(IS_DIRECTORY "${data_entry}")
+    file(GLOB_RECURSE retail_entry_files LIST_DIRECTORIES false
+      "${data_entry}/*")
+    list(SORT retail_entry_files)
+  else()
+    set(retail_entry_files "${data_entry}")
+  endif()
+  foreach(retail_entry_file IN LISTS retail_entry_files)
+    file(RELATIVE_PATH retail_entry_relative
+      "${data_source}" "${retail_entry_file}")
+    file(SIZE "${retail_entry_file}" retail_entry_size)
+    file(TIMESTAMP "${retail_entry_file}" retail_entry_timestamp UTC)
+    string(APPEND retail_data_signature_input
+      "${retail_entry_relative}\n${retail_entry_size}\n"
+      "${retail_entry_timestamp}\n")
+  endforeach()
+endforeach()
+string(SHA256 retail_data_identity "${retail_data_signature_input}")
+
 file(WRITE "${OPENWOW_IOS_SYNC_MARKER}"
   "OpenWoW build-12340 Data sync completed.\n"
+  "retail-data=${retail_data_identity}\n"
   "texture-cache=${texture_cache_identity}\n")
 
 # A successful marker is a cheap whole-tree incremental check. It also keeps a
 # failed transfer resumable: the old marker remains in place until every batch
 # below has completed.
 set(remote_marker_copy "${OPENWOW_IOS_SYNC_MARKER}.device")
+set(retail_data_is_current false)
 file(REMOVE "${remote_marker_copy}")
 execute_process(
   COMMAND "${OPENWOW_XCRUN_EXECUTABLE}" devicectl device copy from
@@ -88,6 +122,25 @@ if(marker_probe_result EQUAL 0 AND EXISTS "${remote_marker_copy}")
     message(STATUS
       "iOS Data is already current on ${OPENWOW_IOS_DEVICE}; nothing to copy.")
     return()
+  endif()
+
+  string(FIND "${remote_marker_contents}"
+    "retail-data=${retail_data_identity}\n" matching_retail_identity)
+  if(NOT matching_retail_identity EQUAL -1)
+    set(retail_data_is_current true)
+  else()
+    string(FIND "${remote_marker_contents}"
+      "retail-data=" remote_retail_identity_field)
+    string(FIND "${remote_marker_contents}"
+      "OpenWoW build-12340 Data sync completed.\n" legacy_marker_prefix)
+    if(remote_retail_identity_field EQUAL -1 AND legacy_marker_prefix EQUAL 0)
+      # Markers written by the original whole-Data sync predate the separate
+      # retail identity. They were published only after that copy completed.
+      set(retail_data_is_current true)
+      message(STATUS
+        "The device has a completed legacy Data sync; only the derived iOS "
+        "cache will be transferred.")
+    endif()
   endif()
 elseif(NOT marker_probe_result EQUAL 0)
   string(TOLOWER
@@ -167,21 +220,25 @@ openwow_copy_to_ios_device(
   DESTINATION "${device_data_root}/OpenWoWDerived/iOS/Textures"
   DESCRIPTION "Ensuring the iOS ASTC cache directory exists")
 
-# Keep the retail archives in small, independently retryable transactions.
-# This avoids restarting a 20+ GiB directory copy after one transport stall.
-file(GLOB data_entries LIST_DIRECTORIES true "${data_source}/*")
-list(SORT data_entries)
-foreach(data_entry IN LISTS data_entries)
-  get_filename_component(data_entry_name "${data_entry}" NAME)
-  if(data_entry_name STREQUAL "OpenWoWDerived" OR
-     data_entry_name STREQUAL ".DS_Store")
-    continue()
-  endif()
-  openwow_copy_to_ios_device(
-    SOURCES "${data_entry}"
-    DESTINATION "${device_data_root}/${data_entry_name}"
-    DESCRIPTION "Syncing Data/${data_entry_name}")
-endforeach()
+if(retail_data_is_current)
+  message(STATUS
+    "Retail Data is already present on ${OPENWOW_IOS_DEVICE}; skipping all "
+    "original MPQ and locale files.")
+else()
+  # A fresh install has no readiness marker. Keep its initial retail transfer
+  # in independently retryable transactions rather than one 20+ GiB request.
+  foreach(data_entry IN LISTS data_entries)
+    get_filename_component(data_entry_name "${data_entry}" NAME)
+    if(data_entry_name STREQUAL "OpenWoWDerived" OR
+       data_entry_name STREQUAL ".DS_Store")
+      continue()
+    endif()
+    openwow_copy_to_ios_device(
+      SOURCES "${data_entry}"
+      DESTINATION "${device_data_root}/${data_entry_name}"
+      DESCRIPTION "Syncing Data/${data_entry_name}")
+  endforeach()
+endif()
 
 # CoreDevice is prone to socket timeouts when one request contains the entire
 # 106k-file cache. Use bounded batches; reruns skip files already transferred.

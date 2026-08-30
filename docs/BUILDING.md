@@ -149,13 +149,17 @@ iOS-only cache.
 After preparation, the sync target copies into the installed app's private
 `Library/Application Support/OpenWoW/GameRoot/Data` and writes a
 content-identity readiness marker only after the Data transfer succeeds. The
-retail archives are copied independently and the large ASTC cache is copied in
-bounded batches, each retried up to three times. This avoids CoreDevice socket
-timeouts caused by putting more than 100,000 cache files in one transaction.
-A failed run is safe to rerun: Xcode's device service skips unchanged files,
+retail archives and derived texture cache have separate identities. A device
+with the legacy successful whole-Data marker, or with the current retail
+identity, never has its original MPQ and locale files submitted for transfer
+merely because the derived cache changed. Fresh-install retail archives are
+copied independently, while the large ASTC cache is copied in bounded batches;
+each operation is retried up to three times. This avoids CoreDevice socket
+timeouts caused by putting more than 100,000 cache files in one transaction. A
+failed run is safe to rerun: Xcode's device service skips unchanged files,
 completed batches are not duplicated, and the previous readiness marker is not
-replaced by a partial run. When the device marker matches the local cache
-manifest, the target performs no Data transfer at all.
+replaced by a partial run. When both device identities match, the target
+performs no Data transfer at all.
 
 Keep the iPhone unlocked and connected over USB during the initial transfer.
 If even the initial marker probe reports a CoreDevice network-socket timeout,
