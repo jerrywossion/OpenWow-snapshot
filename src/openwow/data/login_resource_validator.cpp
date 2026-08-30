@@ -1,5 +1,7 @@
 #include "openwow/data/login_resource_validator.h"
 
+#include "openwow/data/derived_texture_cache.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -157,6 +159,38 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
             });
         }
       }
+
+#if defined(OPENWOW_PLATFORM_IOS)
+      const fs::path derived_texture_packs =
+          extracted_data_dir / "OpenWoWDerived" / "iOSPacks";
+      std::size_t mounted_texture_pack_count = 0u;
+      for (std::size_t shard = 0u;
+           shard < kDerivedTextureCachePackShardCount; ++shard) {
+        const fs::path archive =
+            derived_texture_packs / MakeDerivedTextureCachePackFilename(shard);
+        std::error_code archive_ec;
+        if (!fs::is_regular_file(archive, archive_ec) || archive_ec) {
+          continue;
+        }
+        vfs.Mount({
+            .id = "ios-derived-textures-" + std::to_string(shard),
+            .kind = openwow::vfs::MountKind::kMpqArchive,
+            .source_root = archive,
+            .priority = kLooseDataDirectoryPriority + 5,
+            .enabled = true,
+        });
+        ++mounted_texture_pack_count;
+      }
+      if (mounted_texture_pack_count !=
+          kDerivedTextureCachePackShardCount) {
+        Log(LogLevel::kWarn,
+            "[iOS] Derived texture packs incomplete under " +
+                derived_texture_packs.string() + ": found " +
+                std::to_string(mounted_texture_pack_count) + "/" +
+                std::to_string(kDerivedTextureCachePackShardCount) +
+                "; missing textures will use the retail decode path");
+      }
+#endif
     }
 
     const bool has_common_archive =

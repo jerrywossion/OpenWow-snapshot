@@ -97,4 +97,9 @@ The signed `ios-device-development` preset omits bundled Data. Its
 The client selects this root only after the target has also transferred
 `.openwow-ios-data-ready`, so an interrupted first copy is not mistaken for a
 complete installation. The synchronized stock Data remains read-only to the
-client; writable runtime state stays beside it under the user-data root.
+client; writable runtime state stays beside it under the user-data root. The
+iOS-only derived texture payload is stored as 16 archives under
+`Data/OpenWoWDerived/iOSPacks`; its loose host-side working cache remains under
+`OpenWoWBuildCache/iOS` and is not transferred. A migration sync deletes the
+former device-side `Data/OpenWoWDerived/iOS` loose cache only after all new
+archives have arrived.

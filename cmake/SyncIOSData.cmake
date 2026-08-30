@@ -31,7 +31,9 @@ message(STATUS "Preparing the incremental iOS ASTC texture cache")
 execute_process(
   COMMAND "${OPENWOW_IOS_TEXTURE_CACHE_TOOL}"
     --game-root "${OPENWOW_LOCAL_CONTENT_ROOT}"
-    --output "${data_source}/OpenWoWDerived/iOS/Textures"
+    --output "${OPENWOW_LOCAL_CONTENT_ROOT}/OpenWoWBuildCache/iOS/Textures"
+    --legacy-output "${data_source}/OpenWoWDerived/iOS/Textures"
+    --pack-output "${data_source}/OpenWoWDerived/iOSPacks"
     --locale "${OPENWOW_IOS_TEXTURE_CACHE_LOCALE}"
     --enhanced-assets-root "${OPENWOW_PROJECT_SOURCE_DIR}/assets/overrides"
   RESULT_VARIABLE texture_cache_result
@@ -47,19 +49,29 @@ set(device_data_root "${device_game_root}/Data")
 set(device_ready_marker
   "${device_game_root}/.openwow-ios-data-ready")
 
-set(texture_cache_root
-  "${data_source}/OpenWoWDerived/iOS/Textures")
-set(texture_cache_manifest
-  "${data_source}/OpenWoWDerived/iOS/texture-cache-v1.manifest")
-if(NOT IS_DIRECTORY "${texture_cache_root}" OR
-   NOT EXISTS "${texture_cache_manifest}")
+set(texture_pack_root
+  "${data_source}/OpenWoWDerived/iOSPacks")
+set(texture_pack_manifest
+  "${texture_pack_root}/texture-packs-v1.manifest")
+if(NOT IS_DIRECTORY "${texture_pack_root}" OR
+   NOT EXISTS "${texture_pack_manifest}")
   message(FATAL_ERROR
-    "The iOS ASTC texture cache completed without its texture directory or "
+    "The iOS ASTC texture packager completed without its pack directory or "
     "manifest; Data was not synced.")
 endif()
 
-file(READ "${texture_cache_manifest}" texture_cache_identity)
-string(STRIP "${texture_cache_identity}" texture_cache_identity)
+file(GLOB texture_pack_files LIST_DIRECTORIES false
+  "${texture_pack_root}/texture-cache-*.MPQ")
+list(SORT texture_pack_files)
+list(LENGTH texture_pack_files texture_pack_file_count)
+if(NOT texture_pack_file_count EQUAL 16)
+  message(FATAL_ERROR
+    "The iOS ASTC texture packager produced ${texture_pack_file_count} "
+    "archives instead of 16; Data was not synced.")
+endif()
+
+file(READ "${texture_pack_manifest}" texture_pack_identity)
+string(STRIP "${texture_pack_identity}" texture_pack_identity)
 
 # Track retail Data separately from the derived cache. A cache generator or
 # project-override change must not enqueue the already installed 20+ GiB retail
@@ -94,8 +106,9 @@ string(SHA256 retail_data_identity "${retail_data_signature_input}")
 
 file(WRITE "${OPENWOW_IOS_SYNC_MARKER}"
   "OpenWoW build-12340 Data sync completed.\n"
+  "format=ios-texture-packs-v1\n"
   "retail-data=${retail_data_identity}\n"
-  "texture-cache=${texture_cache_identity}\n")
+  "texture-packs=${texture_pack_identity}\n")
 
 # A successful marker is a cheap whole-tree incremental check. It also keeps a
 # failed transfer resumable: the old marker remains in place until every batch
@@ -157,9 +170,10 @@ endif()
 file(REMOVE "${remote_marker_copy}")
 
 function(openwow_copy_to_ios_device)
+  set(options REMOVE_EXISTING)
   set(one_value_args DESTINATION DESCRIPTION)
   set(multi_value_args SOURCES)
-  cmake_parse_arguments(COPY "" "${one_value_args}" "${multi_value_args}"
+  cmake_parse_arguments(COPY "${options}" "${one_value_args}" "${multi_value_args}"
     ${ARGN})
   if(NOT COPY_SOURCES OR NOT COPY_DESTINATION)
     message(FATAL_ERROR
@@ -175,8 +189,11 @@ function(openwow_copy_to_ios_device)
   list(APPEND copy_command
     --destination "${COPY_DESTINATION}"
     --domain-type appDataContainer
-    --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
-    --timeout 1800)
+    --domain-identifier "${OPENWOW_IOS_BUNDLE_IDENTIFIER}")
+  if(COPY_REMOVE_EXISTING)
+    list(APPEND copy_command --remove-existing-content true)
+  endif()
+  list(APPEND copy_command --timeout 1800)
 
   set(copy_attempt 1)
   while(copy_attempt LESS_EQUAL 3)
@@ -217,8 +234,8 @@ openwow_copy_to_ios_device(
   DESCRIPTION "Ensuring the iOS Data directory exists")
 openwow_copy_to_ios_device(
   SOURCES "${sync_empty_directory}"
-  DESTINATION "${device_data_root}/OpenWoWDerived/iOS/Textures"
-  DESCRIPTION "Ensuring the iOS ASTC cache directory exists")
+  DESTINATION "${device_data_root}/OpenWoWDerived/iOSPacks"
+  DESCRIPTION "Ensuring the iOS ASTC pack directory exists")
 
 if(retail_data_is_current)
   message(STATUS
@@ -240,46 +257,36 @@ else()
   endforeach()
 endif()
 
-# CoreDevice is prone to socket timeouts when one request contains the entire
-# 106k-file cache. Use bounded batches; reruns skip files already transferred.
-file(GLOB texture_cache_files LIST_DIRECTORIES false
-  "${texture_cache_root}/*.owtx")
-list(SORT texture_cache_files)
-list(LENGTH texture_cache_files texture_cache_file_count)
-if(texture_cache_file_count EQUAL 0)
-  message(FATAL_ERROR "The iOS ASTC texture cache contains no .owtx files")
-endif()
-
-set(texture_batch_size 512)
-set(texture_batch_offset 0)
-set(texture_batch_number 0)
-math(EXPR texture_batch_count
-  "(${texture_cache_file_count} + ${texture_batch_size} - 1) / ${texture_batch_size}")
-while(texture_batch_offset LESS texture_cache_file_count)
-  math(EXPR texture_batch_remaining
-    "${texture_cache_file_count} - ${texture_batch_offset}")
-  if(texture_batch_remaining GREATER texture_batch_size)
-    set(texture_batch_length "${texture_batch_size}")
-  else()
-    set(texture_batch_length "${texture_batch_remaining}")
-  endif()
-  list(SUBLIST texture_cache_files "${texture_batch_offset}"
-    "${texture_batch_length}" texture_batch)
-  math(EXPR texture_batch_number "${texture_batch_number} + 1")
+# Each archive is an independently resumable CoreDevice transfer. Keeping the
+# cache to a small, fixed set of files avoids the per-file protocol overhead
+# and socket stalls caused by the former 106k-file copy.
+set(texture_pack_number 0)
+foreach(texture_pack_file IN LISTS texture_pack_files)
+  get_filename_component(texture_pack_name "${texture_pack_file}" NAME)
+  math(EXPR texture_pack_number "${texture_pack_number} + 1")
   openwow_copy_to_ios_device(
-    SOURCES ${texture_batch}
-    DESTINATION "${device_data_root}/OpenWoWDerived/iOS/Textures"
+    SOURCES "${texture_pack_file}"
+    DESTINATION
+      "${device_data_root}/OpenWoWDerived/iOSPacks/${texture_pack_name}"
     DESCRIPTION
-      "Syncing iOS ASTC batch ${texture_batch_number}/${texture_batch_count}")
-  math(EXPR texture_batch_offset
-    "${texture_batch_offset} + ${texture_batch_length}")
-endwhile()
+      "Syncing iOS ASTC archive ${texture_pack_number}/${texture_pack_file_count}")
+endforeach()
 
 openwow_copy_to_ios_device(
-  SOURCES "${texture_cache_manifest}"
+  SOURCES "${texture_pack_manifest}"
   DESTINATION
-    "${device_data_root}/OpenWoWDerived/iOS/texture-cache-v1.manifest"
-  DESCRIPTION "Syncing the iOS ASTC cache manifest")
+    "${device_data_root}/OpenWoWDerived/iOSPacks/texture-packs-v1.manifest"
+  DESCRIPTION "Syncing the iOS ASTC pack manifest")
+
+# The legacy loose cache remains a valid fallback until every replacement
+# archive is safely installed. Only then remove its 106k files as one scoped,
+# replace-with-empty transaction. If this step or marker publication fails,
+# rerunning the target skips current archives and resumes here.
+openwow_copy_to_ios_device(
+  REMOVE_EXISTING
+  SOURCES "${sync_empty_directory}"
+  DESTINATION "${device_data_root}/OpenWoWDerived/iOS"
+  DESCRIPTION "Removing the legacy loose iOS ASTC cache")
 
 openwow_copy_to_ios_device(
   SOURCES "${OPENWOW_IOS_SYNC_MARKER}"

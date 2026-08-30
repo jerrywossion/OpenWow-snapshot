@@ -144,6 +144,17 @@ std::string MakeDerivedTextureCacheVirtualPath(
   return name.str();
 }
 
+std::string MakeDerivedTextureCachePackFilename(
+    const std::size_t shard_index) {
+  if (shard_index >= kDerivedTextureCachePackShardCount) {
+    return {};
+  }
+  std::ostringstream name;
+  name << "texture-cache-" << std::setfill('0') << std::setw(2)
+       << shard_index << ".MPQ";
+  return name.str();
+}
+
 std::vector<std::uint8_t> SerializeDerivedTextureCache(
     const std::string_view source_path,
     const std::vector<std::uint8_t>& source_bytes,

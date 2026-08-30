@@ -136,15 +136,17 @@ cmake --build --preset ios-device-development \
   --target openwow-ios-sync-data
 ```
 
-The sync target first generates an incremental ASTC 4x4 cache under
-`Data/OpenWoWDerived/iOS`. It caps cached world textures at 128 pixels while
-preserving their mip chains, which avoids iOS expanding the retail BC payloads
-to RGBA during world loading. The cache records both the winning virtual path
-and a source-content fingerprint; stale or missing entries fall back to the
-normal decoder. A manifest of the Data and project-override trees makes later
-syncs skip cache enumeration and encoding when those inputs have not changed.
-The original archives are never modified, and macOS does not consume this
-iOS-only cache.
+The sync target first maintains an incremental ASTC 4x4 working cache under
+`OpenWoWBuildCache/iOS`, outside the synchronized `Data` tree. It caps cached
+world textures at 128 pixels while preserving their mip chains, which avoids
+iOS expanding the retail BC payloads to RGBA during world loading. The cache
+records both the winning virtual path and a source-content fingerprint; stale
+or missing entries fall back to the normal decoder. A manifest of the Data and
+project-override trees makes later runs skip cache enumeration and encoding
+when those inputs have not changed. The tool packages the cache into 16 MPQ
+shards under `Data/OpenWoWDerived/iOSPacks`, so device sync transfers about 16
+large files instead of more than 100,000 small files. The original archives are
+never modified, and macOS neither mounts nor consumes this iOS-only cache.
 
 After preparation, the sync target copies into the installed app's private
 `Library/Application Support/OpenWoW/GameRoot/Data` and writes a
@@ -153,13 +155,14 @@ retail archives and derived texture cache have separate identities. A device
 with the legacy successful whole-Data marker, or with the current retail
 identity, never has its original MPQ and locale files submitted for transfer
 merely because the derived cache changed. Fresh-install retail archives are
-copied independently, while the large ASTC cache is copied in bounded batches;
-each operation is retried up to three times. This avoids CoreDevice socket
-timeouts caused by putting more than 100,000 cache files in one transaction. A
-failed run is safe to rerun: Xcode's device service skips unchanged files,
-completed batches are not duplicated, and the previous readiness marker is not
-replaced by a partial run. When both device identities match, the target
-performs no Data transfer at all.
+copied independently, and each ASTC shard is a separate resumable transfer;
+each operation is retried up to three times. After all shards and their
+manifest arrive, the target removes the legacy loose ASTC directory in one
+scoped transaction and only then publishes the new readiness marker. A failed
+run is safe to rerun: Xcode's device service skips unchanged files, completed
+archives are not duplicated, and the previous readiness marker is not replaced
+by a partial run. When both device identities match, the target performs no
+Data transfer at all.
 
 Keep the iPhone unlocked and connected over USB during the initial transfer.
 If even the initial marker probe reports a CoreDevice network-socket timeout,

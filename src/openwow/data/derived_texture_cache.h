@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace openwow::data {
+
+inline constexpr std::size_t kDerivedTextureCachePackShardCount = 16u;
 
 enum class DerivedTextureFormat : std::uint8_t {
   kAstc4x4 = 1u,
@@ -26,6 +29,9 @@ struct DerivedTextureCacheImage {
 
 [[nodiscard]] std::string MakeDerivedTextureCacheVirtualPath(
     std::string_view source_path);
+
+[[nodiscard]] std::string MakeDerivedTextureCachePackFilename(
+    std::size_t shard_index);
 
 [[nodiscard]] std::vector<std::uint8_t> SerializeDerivedTextureCache(
     std::string_view source_path,
