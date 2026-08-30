@@ -21,6 +21,8 @@ if(NOT DEFINED OPENWOW_IOS_DEVELOPMENT_TEAM OR
     "${OPENWOW_IOS_DEFAULT_DEVELOPMENT_TEAM}" CACHE STRING
     "Apple development team used for automatic iOS code signing" FORCE)
 endif()
+set(OPENWOW_IOS_DEVICE "" CACHE STRING
+  "Device name or identifier used by the incremental iOS Data sync target")
 
 option(OPENWOW_ENABLE_STREAMING_TELEMETRY
   "Send stock's streaming-install tracker announce over plaintext HTTP" OFF)

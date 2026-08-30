@@ -96,7 +96,9 @@ std::filesystem::path BundleSiblingDirectory(
   return resources_dir.parent_path().parent_path().parent_path();
 }
 
-std::filesystem::path ResolveContentRoot(const std::string& cli_game_data_path) {
+std::filesystem::path ResolveContentRoot(
+    const std::string& cli_game_data_path,
+    const std::filesystem::path& user_data_root) {
   if (!cli_game_data_path.empty()) {
     return AbsolutePathFromCurrentRoot(std::filesystem::path(cli_game_data_path));
   }
@@ -105,6 +107,27 @@ std::filesystem::path ResolveContentRoot(const std::string& cli_game_data_path) 
   if (env_game_data != nullptr && env_game_data[0] != '\0') {
     return AbsolutePathFromCurrentRoot(std::filesystem::path(env_game_data));
   }
+
+#if defined(OPENWOW_PLATFORM_IOS)
+  const auto synchronized_content_root = user_data_root / "GameRoot";
+  const auto synchronized_ready_marker =
+      synchronized_content_root / ".openwow-ios-data-ready";
+  std::error_code synchronized_marker_ec;
+  const bool has_synchronized_marker = std::filesystem::is_regular_file(
+      synchronized_ready_marker, synchronized_marker_ec);
+  if (HasDataSubdirectory(synchronized_content_root) &&
+      has_synchronized_marker && !synchronized_marker_ec) {
+    return synchronized_content_root;
+  }
+  if (HasDataSubdirectory(synchronized_content_root) ||
+      (has_synchronized_marker && !synchronized_marker_ec)) {
+    std::cerr << "OpenWoW: ignoring incomplete synchronized iOS Data at "
+              << synchronized_content_root.string()
+              << "; run the openwow-ios-sync-data target to complete it\n";
+  }
+#else
+  (void)user_data_root;
+#endif
 
   const auto exe_dir = ExecutableDirectory();
   const auto bundle_resources = BundleResourcesDirectory(exe_dir);
@@ -461,9 +484,9 @@ int RunClientProcess(int argc, char** argv) {
     render_submit_trace_ref = *render_submit_trace;
   }
 
-  const auto content_root = ResolveContentRoot(cli_game_data_path);
-  const auto override_content_root = ResolveOverrideContentRoot();
   const auto user_data_root = ResolveUserDataRoot();
+  const auto content_root = ResolveContentRoot(cli_game_data_path, user_data_root);
+  const auto override_content_root = ResolveOverrideContentRoot();
 
   if (artifacts_dir.empty()) {
     artifacts_dir = user_data_root / "artifacts";

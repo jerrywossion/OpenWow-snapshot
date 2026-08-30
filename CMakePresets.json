@@ -137,6 +137,17 @@
       }
     },
     {
+      "name": "ios-device-development",
+      "displayName": "iOS device arm64 (signed development)",
+      "description": "Build a signed, installable iOS application without embedding Data; pair it with openwow-ios-sync-data for fast iteration.",
+      "inherits": [
+        "ios-device"
+      ],
+      "cacheVariables": {
+        "OPENWOW_EMBED_GAME_DATA": "OFF"
+      }
+    },
+    {
       "name": "ci-base",
       "hidden": true,
       "inherits": [
@@ -296,6 +307,11 @@
     {
       "name": "ios-device-code-only",
       "configurePreset": "ios-device-code-only",
+      "configuration": "Release"
+    },
+    {
+      "name": "ios-device-development",
+      "configurePreset": "ios-device-development",
       "configuration": "Release"
     },
     {

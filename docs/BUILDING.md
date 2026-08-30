@@ -56,10 +56,12 @@ Native iOS presets use Xcode, target arm64 and require an Apple Silicon host:
 | `ios-device` | self-contained device `.app`, including local `Data/` |
 | `ios-simulator-code-only` | compile/link validation without copying `Data/` |
 | `ios-device-code-only` | unsigned-device compile/link validation without copying `Data/` |
+| `ios-device-development` | signed device `.app` without bundled `Data/`; uses incrementally synchronized container Data |
 
 The standard iOS presets intentionally embed `../LocalData/335a/Data`. The
-code-only variants keep iteration fast, but their result cannot start a game
-session because iOS has no adjacent game-install directory to discover.
+unsigned code-only variants are intended for compile/link validation. The
+signed development preset instead reads Data from the application's persistent
+data container, so code builds and app updates do not package the large tree.
 
 ### Options
 
@@ -71,6 +73,7 @@ session because iOS has no adjacent game-install directory to discover.
 | `OPENWOW_EMBED_GAME_DATA` | OFF globally; ON in standard iOS presets | copy the local `Data/` into an Apple `.app` for path-free startup |
 | `OPENWOW_IOS_BUNDLE_IDENTIFIER` | `ink.mnt.elune` | bundle identifier used by the native iOS target |
 | `OPENWOW_IOS_DEVELOPMENT_TEAM` | `5TCGFUXXZP` | Apple team identifier used for automatic iOS signing |
+| `OPENWOW_IOS_DEVICE` | empty | device name or identifier used by `openwow-ios-sync-data` |
 | `OPENWOW_WARNINGS_AS_ERRORS` | OFF | `-Werror` / `/WX` |
 | `OPENWOW_ENABLE_CLANG_TIDY` | OFF | run clang-tidy while compiling |
 | `OPENWOW_ENABLE_THINLTO` | OFF | ThinLTO (clang) / LTCG (MSVC) / `-flto=auto` (GCC) |
@@ -93,15 +96,17 @@ cmake --preset ios-simulator
 cmake --build --preset ios-simulator --target openwow-client -j 4
 ```
 
-For a device build, use a unique bundle identifier and the ten-character team
-identifier shown by the Apple Developer account in Xcode:
+For a self-contained device build, the repository's development Team ID and
+Bundle ID are applied automatically:
 
 ```sh
-cmake --preset ios-device \
-  -DOPENWOW_IOS_BUNDLE_IDENTIFIER=com.example.openwow \
-  -DOPENWOW_IOS_DEVELOPMENT_TEAM=ABCDE12345
+cmake --preset ios-device
 cmake --build --preset ios-device --target openwow-client -j 4
 ```
+
+Both identifiers can still be overridden with `-DOPENWOW_IOS_BUNDLE_IDENTIFIER`
+and `-DOPENWOW_IOS_DEVELOPMENT_TEAM`. Certificates, private keys, Apple account
+credentials and provisioning profiles remain local to Xcode.
 
 The output is
 `build/ios-device/apps/client/Release-iphoneos/OpenWoW.app`. Install it through
@@ -109,17 +114,44 @@ Xcode's Devices and Simulators window or the organization's normal signed-app
 deployment flow. Automatic signing still requires a valid certificate and
 provisioning profile; those credentials are never stored in this repository.
 
+For fast device iteration, configure the signed development build with a
+connected device name or identifier:
+
+```sh
+cmake --preset ios-device-development \
+  -DOPENWOW_IOS_DEVICE="My iPhone"
+cmake --build --preset ios-device-development --target openwow-client -j 4
+```
+
+Install the resulting small
+`build/ios-device-development/apps/client/Release-iphoneos/OpenWoW.app` through
+Xcode, then perform the initial Data transfer:
+
+```sh
+cmake --build --preset ios-device-development \
+  --target openwow-ios-sync-data
+```
+
+The sync target copies into the installed app's private
+`Library/Application Support/OpenWoW/GameRoot/Data` and writes a readiness
+marker only after the Data transfer succeeds. Xcode's device service skips
+files that have not changed, so rerun the sync target only when local Data
+changes. Normal source iterations only rebuild and reinstall the small `.app`;
+the container survives app updates as long as the Bundle ID stays unchanged.
+Uninstalling the app deletes its container, after which the Data sync must be
+run again.
+
 These presets suppress Xcode's automatic CMake regeneration so its SDK
 environment cannot accidentally rebuild host-side vcpkg tools for iOS. Re-run
 the `cmake --preset ...` configure command after changing CMake files, adding
 resources, or changing the contents of a resource tree.
 
 The initial iOS configure cross-builds the dependency graph and can take as
-long as the first desktop configure. The standard build then copies roughly
-the full size of the original `Data/` directory into the `.app`; ensure there
-is enough free disk space for both the source data and the application bundle.
-Because the result contains user-supplied original game assets and is very
-large, this workflow targets personal/development deployment, not App Store
+long as the first desktop configure. The self-contained standard build copies
+roughly the full size of the original `Data/` directory into the `.app`; use it
+for standalone packaging and the signed development preset for daily work.
+Because the content uses user-supplied original game assets and is very large,
+this workflow targets personal/development deployment, not App Store
 distribution.
 
 Keyboard, mouse/trackpad and existing controller input paths are available on

@@ -179,6 +179,21 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
       "${OPENWOW_LOCAL_CONTENT_ROOT}/Data" "GameRoot/Data")
   endif()
 
+  find_program(OPENWOW_XCRUN_EXECUTABLE NAMES xcrun REQUIRED)
+  set(OPENWOW_IOS_SYNC_MARKER
+    "${CMAKE_CURRENT_BINARY_DIR}/.openwow-ios-data-ready")
+  add_custom_target(openwow-ios-sync-data
+    COMMAND "${CMAKE_COMMAND}"
+      "-DOPENWOW_IOS_DEVICE=${OPENWOW_IOS_DEVICE}"
+      "-DOPENWOW_IOS_BUNDLE_IDENTIFIER=${OPENWOW_IOS_BUNDLE_IDENTIFIER}"
+      "-DOPENWOW_LOCAL_CONTENT_ROOT=${OPENWOW_LOCAL_CONTENT_ROOT}"
+      "-DOPENWOW_XCRUN_EXECUTABLE=${OPENWOW_XCRUN_EXECUTABLE}"
+      "-DOPENWOW_IOS_SYNC_MARKER=${OPENWOW_IOS_SYNC_MARKER}"
+      -P "${PROJECT_SOURCE_DIR}/cmake/SyncIOSData.cmake"
+    COMMENT "Incrementally sync build-12340 Data to an installed iOS app"
+    USES_TERMINAL
+    VERBATIM)
+
   install(TARGETS openwow-client
     BUNDLE DESTINATION .
     COMPONENT client

@@ -27,10 +27,12 @@ Content roots are selected in this order:
 
 1. `--game-data <path>`
 2. `OPENWOW_GAME_DATA`
-3. bundled `GameRoot/Data`
-4. a `Data/` beside the working directory or executable, including the legacy
+3. on iOS, a completed incremental sync under the app data container's
+   `Library/Application Support/OpenWoW/GameRoot/Data`
+4. bundled `GameRoot/Data`
+5. a `Data/` beside the working directory or executable, including the legacy
    directory beside a macOS `.app`
-5. `OPENWOW_LOCAL_CONTENT_ROOT` when its `Data/` existed at configure time
+6. `OPENWOW_LOCAL_CONTENT_ROOT` when its `Data/` existed at configure time
 
 Within the VFS, project-owned `assets/overrides` has priority 1000, runtime
 `ContentOverrides` has priority 900, loose stock files use the 280–300 band,
@@ -84,3 +86,15 @@ The standard `ios-simulator` and `ios-device` presets embed the local `Data/`
 tree and therefore need no path picker, environment variable, or launch
 argument. The signed bundle remains read-only; all runtime mutations go to the
 private user-data root described above.
+
+The signed `ios-device-development` preset omits bundled Data. Its
+`openwow-ios-sync-data` target incrementally transfers the same local tree to:
+
+```text
+<app data container>/Library/Application Support/OpenWoW/GameRoot/Data/
+```
+
+The client selects this root only after the target has also transferred
+`.openwow-ios-data-ready`, so an interrupted first copy is not mistaken for a
+complete installation. The synchronized stock Data remains read-only to the
+client; writable runtime state stays beside it under the user-data root.
