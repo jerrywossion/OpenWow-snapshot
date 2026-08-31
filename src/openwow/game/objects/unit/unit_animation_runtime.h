@@ -151,7 +151,8 @@ public:
                               std::uint8_t victim_state);
   void HandlePlaybackCompletion(const WorldSession &session,
                                 std::uint64_t request_serial,
-                                std::uint16_t animation_id);
+                                std::uint16_t animation_id,
+                                bool has_remaining);
   [[nodiscard]] bool IsPlayingUsingAnimation() const;
   [[nodiscard]] std::uint32_t ResolveAnimationId(
       std::uint32_t anim_id, std::uint32_t override_instance_id = 0) const;

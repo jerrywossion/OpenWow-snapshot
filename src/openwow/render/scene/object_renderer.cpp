@@ -709,6 +709,7 @@ void ObjectRenderer::Update(float dt) {
             .owner = inst.handle,
             .animation_id = inst.unit_animation.animation_id,
             .request_serial = inst.unit_animation.serial,
+            .has_remaining = inst.unit_animation.looping,
         });
       }
     }
@@ -1915,7 +1916,11 @@ void ObjectRenderer::ApplyProjection(RenderInstance &inst, ObjectProjection &&pr
         m2_system_, inst, projection.unit_animation.resolved_base_animation_id,
         projection.movement_flags);
 
+    const bool replays_same_logical_animation =
+        projection.unit_animation.animation_id ==
+        inst.unit_animation.animation_id;
     if (!projection.unit_animation.base_looping &&
+        replays_same_logical_animation &&
         projection.unit_animation.resolved_base_animation_id ==
             inst.animation.current_anim()) {
       inst.animation.Restart(

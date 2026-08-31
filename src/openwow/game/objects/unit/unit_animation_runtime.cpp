@@ -198,7 +198,6 @@ constexpr std::uint16_t kSubmergeAnimationId = 201u;
 constexpr std::uint16_t kSubmergedAnimationId = 202u;
 constexpr std::uint16_t kSettleAnimationId = 464u;
 constexpr std::uint16_t kDeathLoopAnimationId = 467u;
-constexpr std::uint16_t kDeathEndAnimationId = 468u;
 constexpr std::uint16_t kDeathEndHoldAnimationId = 472u;
 
 constexpr std::uint16_t kStandTransitionEntryAnimationId = kSubmergeAnimationId;
@@ -2141,7 +2140,7 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
 
 void UnitAnimationRuntime::HandlePlaybackCompletion(
     const WorldSession &session, const std::uint64_t request_serial,
-    const std::uint16_t animation_id) {
+    const std::uint16_t animation_id, const bool has_remaining) {
 
   if (playback_request_.serial != request_serial ||
       playback_request_.animation_id != animation_id) {
@@ -2154,7 +2153,7 @@ void UnitAnimationRuntime::HandlePlaybackCompletion(
     pending_protected_playback_.reset();
   }
   HandleAnimSequenceEnd(session, static_cast<std::uint32_t>(current_anim_group_),
-                        animation_id, animation_id, false);
+                        animation_id, animation_id, has_remaining);
 }
 
 bool UnitAnimationRuntime::IsPlayingUsingAnimation() const {
@@ -3888,10 +3887,12 @@ UnitAnimationRuntime::ResolveSequenceEndFollowUp(
   case 0x1D3u:
     if (!death_state_blocked) return kSelector;
 
-    return play((emote_internal_flags_ &
-                 kEmoteInternalFlagAirborneDeathSubmit) != 0u
-                    ? kDeathLoopAnimationId
-                    : kDeathEndAnimationId);
+    if ((emote_internal_flags_ &
+         kEmoteInternalFlagAirborneDeathSubmit) != 0u) {
+      return play(kDeathLoopAnimationId);
+    }
+    return raw(static_cast<std::uint16_t>(
+        ResolveAnimationId(kDeathEndHoldAnimationId)));
   case 0x1D4u:
     return death_state_blocked
                ? raw(static_cast<std::uint16_t>(
