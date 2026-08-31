@@ -34,6 +34,7 @@
 #include "openwow/game/profession_system.h"
 #include "openwow/game/quest_poi.h"
 #include "openwow/game/readable_text.h"
+#include "openwow/game/reputation_info.h"
 #include "openwow/game/spellbook_frame.h"
 #include "openwow/game/spellbook_system.h"
 #include "openwow/game/talent_info.h"
@@ -832,6 +833,10 @@ void WorldSession::OnLocalPlayerCreated(const ObjectGuid &guid) {
 
   if (const auto *player = objects().GetActivePlayer()) {
     chat_sender_.SyncLocalAfkDisplayState(player->GetPlayerFlags());
+    auto &reputation = ReputationInfo::Get();
+    PrimeReputationInfo(reputation, dbc_, objects());
+    reputation.SyncWatchedFactionSlot(player->GetWatchedFactionIndex());
+    reputation.InitFromPlayerData(objects());
   }
   ResumeIncomingChatDelivery();
   if (const auto *const player = objects().GetLocalPlayerTyped(); player != nullptr) {

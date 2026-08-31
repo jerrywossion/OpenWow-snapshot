@@ -96,6 +96,8 @@ class GameLoadingScreen {
     file_loader_ = std::move(loader);
   }
 
+  void SetFontPath(std::string path) { font_path_ = std::move(path); }
+
   void SetArchivePathProbe(
       std::function<bool(const std::string&)> probe) {
     archive_path_probe_ = std::move(probe);
@@ -164,6 +166,7 @@ class GameLoadingScreen {
   float content_aspect_ratio_{detail::kStandardLoadingScreenAspectRatio};
   std::function<std::vector<std::uint8_t>(const std::string&)> file_loader_;
   std::function<bool(const std::string&)> archive_path_probe_;
+  std::string font_path_{"Fonts\\FRIZQT__.TTF"};
   const void* dbc_loader_{nullptr};
 
 };

@@ -368,8 +368,10 @@ void RefreshVisibleFactionLinkedToUnit(const CGUnit_C &context_unit) {
 std::optional<ReactionType> ResolveReactionTowardActivePlayerControlledUnit(
     const data::dbc::FactionTemplateEntry &source_entry,
     const CGUnit_C &target) {
+  const auto *const controller =
+      target.Interaction().ResolveControllingPlayer();
   if (!target.Interaction().IsPlayerControlled() ||
-      !IsActivePlayerController(target.Interaction().ResolveControllingPlayer())) {
+      !IsActivePlayerController(controller)) {
     return std::nullopt;
   }
   const auto *const dbc = target.dbc_loader();
@@ -379,12 +381,16 @@ std::optional<ReactionType> ResolveReactionTowardActivePlayerControlledUnit(
   auto &reputation = ReputationInfo::Get();
   reputation.BindDbc(dbc);
   const auto faction_id = static_cast<std::int32_t>(source_entry.faction);
+  if ((source_entry.flags & 0x1000u) != 0u &&
+      (controller->GetUInt32(PLAYER_FLAGS) & 0x100u) != 0u) {
+    return ReactionType::kHostile;
+  }
   if (const auto forced =
           reputation.FindForcedReactionStanding(source_entry.faction);
       forced.has_value()) {
     return ClampReactionLevel(*forced);
   }
-  if ((target.State().GetUnitFlags2() & 0x4u) != 0u ||
+  if ((controller->State().GetDynamicFlags() & 0x4u) != 0u ||
       !reputation.HasReputationList(faction_id)) {
     return std::nullopt;
   }
@@ -394,10 +400,11 @@ std::optional<ReactionType> ResolveReactionTowardActivePlayerControlledUnit(
 
 std::optional<ReactionType> ResolveReactionFromActivePlayerControlledUnit(
     const CGUnit_C &viewer,
-    const data::dbc::FactionTemplateEntry &target_entry,
-    const CGUnit_C &target) {
+    const data::dbc::FactionTemplateEntry &target_entry) {
+  const auto *const controller =
+      viewer.Interaction().ResolveControllingPlayer();
   if (!viewer.Interaction().IsPlayerControlled() ||
-      !IsActivePlayerController(viewer.Interaction().ResolveControllingPlayer())) {
+      !IsActivePlayerController(controller)) {
     return std::nullopt;
   }
   const auto *const dbc = viewer.dbc_loader();
@@ -412,9 +419,13 @@ std::optional<ReactionType> ResolveReactionFromActivePlayerControlledUnit(
       forced.has_value()) {
     return ClampReactionLevel(*forced);
   }
-  if ((target.State().GetUnitFlags2() & 0x4u) != 0u ||
+  if ((controller->State().GetDynamicFlags() & 0x4u) != 0u ||
       !reputation.HasReputationList(faction_id)) {
     return std::nullopt;
+  }
+  if ((target_entry.flags & 0x1000u) != 0u &&
+      (controller->GetUInt32(PLAYER_FLAGS) & 0x100u) != 0u) {
+    return ReactionType::kHostile;
   }
   return reputation.IsAtWar(faction_id) ? ReactionType::kHostile
                                          : ReactionType::kFriendly;
@@ -851,7 +862,7 @@ ReactionType UnitInteractionRuntime::GetReaction(const CGUnit_C &other) const {
     return *override;
   }
   if (const auto override = ResolveReactionFromActivePlayerControlledUnit(
-           owner_, *their_entry, other);
+           owner_, *their_entry);
       override.has_value()) {
     return *override;
   }

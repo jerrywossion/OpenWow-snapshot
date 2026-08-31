@@ -11,6 +11,7 @@
 #include "openwow/audio/playback/sound_settings.h"
 #include "openwow/core/client_misc.h"
 #include "openwow/core/init_subsystems.h"
+#include "openwow/core/locale_system.h"
 #include "openwow/core/platform_runtime_policy.h"
 #include "openwow/data/async_file_read.h"
 #include "openwow/data/formats/dbc/dbc_enums.h"
@@ -44,6 +45,7 @@
 #include "openwow/game/c_input_control.h"
 #include "openwow/game/chat_cache.h"
 #include "openwow/game/chat_display.h"
+#include "openwow/game/client_config.h"
 #include "openwow/game/collision_polygon.h"
 #include "openwow/game/combat/death/adapters/ui/area_spirit_healer_controller.h"
 #include "openwow/game/combat_log_messages.h"
@@ -108,6 +110,7 @@
 #include "openwow/net/client_services_packet_sender.h"
 #include "openwow/net/wotlk/addon_handshake.h"
 #include "openwow/net/wotlk/protocol/packet_sender.h"
+#include "openwow/platform/process/os_platform.h"
 #include "openwow/render/api/renderer_context.h"
 #include "openwow/render/backend/bgfx/renderer_context_services.h"
 #include "openwow/render/diagnostics/debug_draw_renderer.h"
@@ -3855,6 +3858,10 @@ void GameLoop::SetBlockingLoadingEventPump(std::function<void()> pump) {
 }
 
 void GameLoop::ApplyFileLoaderBindings() {
+  openwow::core::LocaleSystem locale;
+  locale.SetLocaleFromString(ClientConfig::Get().GetLocale());
+  loading_screen_.SetFontPath(openwow::platform::BuildFontPath(
+      openwow::core::LocaleSystem::GetFontForLocale(locale.GetLocale())));
   world_scene_.world_map().SetFileLoader(file_loader_);
   world_scene_.SetObjectRendererFileLoader(file_loader_);
   world_scene_.SetPrefixFileLoader(prefix_file_loader_);

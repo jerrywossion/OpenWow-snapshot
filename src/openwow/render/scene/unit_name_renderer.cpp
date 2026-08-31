@@ -3,10 +3,12 @@
 
 #include "openwow/render/api/math/render_matrix_math.h"
 #include "openwow/render/resources/fonts/text_layout.h"
+#include "openwow/foundation/diagnostics/logging.h"
 
 #include <algorithm>
 #include <cmath>
 #include <string_view>
+#include <utility>
 
 namespace openwow::render {
 
@@ -59,7 +61,18 @@ void UnitNameRenderer::Shutdown() {
   text_renderer_.Shutdown();
   entries_.clear();
   line_layout_cache_.clear();
+  font_failure_reported_ = false;
   initialized_ = false;
+}
+
+void UnitNameRenderer::SetFontPath(std::string path) {
+  if (font_path_ == path) {
+    return;
+  }
+  text_renderer_.Shutdown();
+  line_layout_cache_.clear();
+  font_failure_reported_ = false;
+  font_path_ = std::move(path);
 }
 
 bool UnitNameRenderer::EnsureFont() {
@@ -67,11 +80,28 @@ bool UnitNameRenderer::EnsureFont() {
     return true;
   }
 
-  if (text_renderer_.InitFromVirtualPath(kUnitNameFontPath,
-                                         kBaseFontPixelHeight)) {
+  if (!font_path_.empty() &&
+      text_renderer_.InitFromVirtualPath(font_path_, kBaseFontPixelHeight)) {
     return true;
   }
-  return text_renderer_.Init(kBaseFontPixelHeight);
+  if (!font_failure_reported_) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "UnitNameRenderer: locale font initialization failed path=" +
+            font_path_ + "; falling back to a system font");
+  }
+  if (text_renderer_.Init(kBaseFontPixelHeight)) {
+    font_failure_reported_ = true;
+    return true;
+  }
+  if (!font_failure_reported_) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "UnitNameRenderer: system font fallback also failed path=" +
+            font_path_);
+    font_failure_reported_ = true;
+  }
+  return false;
 }
 
 void UnitNameRenderer::ConsumePresentation(
