@@ -26,6 +26,8 @@ class SessionEventBridge {
 
   [[nodiscard]] bool SynchronizePlayerUnitToken();
 
+  [[nodiscard]] bool PublishInitialPlayerUnitState();
+
   void Shutdown();
 
  private:

@@ -87,6 +87,26 @@ bool SessionEventBridge::SynchronizePlayerUnitToken() {
   return true;
 }
 
+bool SessionEventBridge::PublishInitialPlayerUnitState() {
+  if (!SynchronizePlayerUnitToken()) {
+    return false;
+  }
+
+  const auto* const player = session_->objects().GetLocalPlayerTyped();
+  if (player == nullptr || player->GetGuid().IsEmpty()) {
+    return false;
+  }
+
+  const std::uint64_t guid = player->GetGuid().GetRawValue();
+  const std::uint8_t power_type = player->State().GetPowerType();
+  auto& dispatch = ScriptEventDispatch::Get();
+  dispatch.FireUnitHealth(guid);
+  dispatch.FireUnitMaxHealth(guid);
+  dispatch.FireUnitPowerSpecific(guid, power_type);
+  dispatch.FireUnitMaxPowerSpecific(guid, power_type);
+  return true;
+}
+
 void SessionEventBridge::Poll(float elapsed_seconds) {
   if (!initialized_ || !session_ || !ui_) return;
 
