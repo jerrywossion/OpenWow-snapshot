@@ -415,7 +415,7 @@ void WorldSession::HandleQueryTimeResponse(const net::wotlk::WorldPacket &pkt) {
       local_now + static_cast<std::int64_t>(query_time.daily_reset_secs);
   query_time.local_refresh_deadline_secs = std::min(
       query_time.local_daily_reset_deadline_secs, local_now + 3600);
-  QuestLog::Get().SignalWatchUpdate();
+  ui::game::ScriptEventDispatch::Get().FireQuestLogUpdate();
 }
 
 }

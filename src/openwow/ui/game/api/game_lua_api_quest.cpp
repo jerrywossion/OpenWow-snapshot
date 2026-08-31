@@ -4,6 +4,7 @@
 #include "openwow/data/formats/dbc/dbc_loader.h"
 #include "openwow/data/formats/dbc/dbc_structures.h"
 #include "openwow/debug/diagnostics/debug_console.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/gossip_manager.h"
 #include "openwow/game/actions/held_cursor/adapters/platform/cursor_surface.h"
 #include "openwow/game/group_system.h"
@@ -2029,7 +2030,7 @@ int LuaGetQuestTimers(lua_State *L) {
     return 0;
   }
 
-  bool fire_quest_watch_update = false;
+  bool fire_quest_log_update = false;
   int return_count = 0;
   std::vector<int> processed_player_slots;
 
@@ -2056,7 +2057,7 @@ int LuaGetQuestTimers(lua_State *L) {
         if (quest_template != nullptr) {
           DisplayTimedQuestFailureMessage(*quest_template);
         }
-        fire_quest_watch_update = true;
+        fire_quest_log_update = true;
       }
       return;
     }
@@ -2083,8 +2084,8 @@ int LuaGetQuestTimers(lua_State *L) {
     process_timed_quest(BuildTimedQuestViewFromPlayerSlot(*session, slot, 0));
   }
 
-  if (fire_quest_watch_update) {
-    ::openwow::game::QuestLog::Get().SignalWatchUpdate();
+  if (fire_quest_log_update) {
+    ScriptEventDispatch::Get().FireQuestLogUpdate();
   }
 
   return return_count;
@@ -2156,6 +2157,11 @@ int LuaAcceptQuest(lua_State *L) {
   }
   const auto &d = session->quests().active_details();
   const auto dialog = ::openwow::game::GetActiveQuestDialogCloseState(session->quests());
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "quest accept command source=lua quest=" + std::to_string(d.quest_id) +
+          " giver=" + std::to_string(ResolveQuestAcceptGuid(d)) +
+          " startCheat=" + std::to_string(d.accept_packet_value));
   session->interaction().SendQuestGiverAcceptQuest(ResolveQuestAcceptGuid(d), d.quest_id,
                                                    d.accept_packet_value);
   session->quests().MarkQuestDetailsAcceptSubmitted();
@@ -3711,6 +3717,11 @@ int LuaQuestPOIGetQuestIDByVisibleIndex(lua_State *L) {
     return luaL_error(L, "Usage: Script_QuestPOIGetQuestIDByVisibleIndex(index)");
   }
 
+  auto *session = GetWorldSession(L);
+  if (session == nullptr) {
+    return 0;
+  }
+
   const auto index = TruncateLuaNumberToSseI32(lua_tonumber(L, 1));
   if (index < 1 ||
       index > static_cast<std::int32_t>(::openwow::game::QuestPOIData::kMaxQuerySlots)) {
@@ -3723,13 +3734,13 @@ int LuaQuestPOIGetQuestIDByVisibleIndex(lua_State *L) {
     return 0;
   }
 
-  const auto visible_index = ::openwow::game::QuestLog::Get().GetVisibleIndexByQuestId(quest_id);
-  if (visible_index < 0) {
+  const auto visible_index = FindVisibleQuestIndexById(*session, quest_id);
+  if (visible_index == 0) {
     return 0;
   }
 
   lua_pushnumber(L, static_cast<lua_Number>(quest_id));
-  lua_pushnumber(L, static_cast<lua_Number>(visible_index + 1));
+  lua_pushnumber(L, static_cast<lua_Number>(visible_index));
   return 2;
 }
 

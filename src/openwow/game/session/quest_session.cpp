@@ -146,6 +146,17 @@ void LogQuestDialogTransition(const std::string &what,
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, line.str());
 }
 
+void PublishPendingQuestWatchUpdate(WorldSession &session) {
+  const auto quest_id = session.quests().TakeQuestWatchUpdateQuestId();
+  if (!quest_id.has_value()) {
+    return;
+  }
+
+  const int visible_index =
+      ui::game::detail::FindVisibleQuestIndexById(session, *quest_id);
+  ui::game::ScriptEventDispatch::Get().FireQuestWatchUpdate(visible_index);
+}
+
 }
 
 QuestDialogCloseState GetActiveQuestDialogCloseState(const QuestManager &quests) {
@@ -168,7 +179,7 @@ QuestDialogCloseState GetActiveQuestDialogCloseState(const QuestManager &quests)
   } else if (quests.has_active_request()) {
     state.close_on_decline = quests.active_request().close_on_decline;
   } else if (quests.has_active_details()) {
-    state.close_on_decline = quests.active_details().auto_accept;
+    state.close_on_decline = quests.active_details().activate_accept;
   }
   return state;
 }
@@ -456,8 +467,18 @@ bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &p
     }
   }
 
+  std::string transition = "quest dialog details";
+  if (quests_.has_active_details()) {
+    const auto &details = quests_.active_details();
+    std::ostringstream context;
+    context << transition << " flags=0x" << std::hex << std::uppercase
+            << static_cast<std::uint32_t>(details.quest_flags) << std::dec
+            << " activateAccept=" << (details.activate_accept ? 1 : 0)
+            << " startCheat=" << details.accept_packet_value;
+    transition = context.str();
+  }
   LogQuestDialogTransition(
-      "quest dialog details",
+      transition,
       quests_.has_active_details() ? quests_.active_details().quest_id : 0u,
       quests_.has_active_details()
           ? quests_.active_details().npc_guid.GetRawValue()
@@ -593,7 +614,7 @@ bool WorldSession::HandleQuestGiverStatusMultiple(const net::wotlk::WorldPacket 
 
 bool WorldSession::HandleQuestUpdateComplete(const net::wotlk::WorldPacket &pkt) {
   if (quests_.HandleQuestUpdateComplete(pkt.payload.data(), pkt.payload.size())) {
-    ui::game::ScriptEventDispatch::Get().FireQuestLogUpdate();
+    PublishPendingQuestWatchUpdate(*this);
     return true;
   }
   return false;
@@ -601,7 +622,7 @@ bool WorldSession::HandleQuestUpdateComplete(const net::wotlk::WorldPacket &pkt)
 
 bool WorldSession::HandleQuestUpdateAddKill(const net::wotlk::WorldPacket &pkt) {
   if (quests_.HandleQuestUpdateAddKill(pkt.payload.data(), pkt.payload.size())) {
-    ui::game::ScriptEventDispatch::Get().FireQuestLogUpdate();
+    PublishPendingQuestWatchUpdate(*this);
     return true;
   }
   return false;
@@ -742,7 +763,9 @@ void WorldSession::HandleQuestUpdateFailed(const net::wotlk::WorldPacket &pkt) {
 }
 
 void WorldSession::HandleQuestUpdateAddPvpKill(const net::wotlk::WorldPacket &pkt) {
-  quests_.HandleQuestUpdateAddPvpKill(pkt.payload.data(), pkt.payload.size());
+  if (quests_.HandleQuestUpdateAddPvpKill(pkt.payload.data(), pkt.payload.size())) {
+    PublishPendingQuestWatchUpdate(*this);
+  }
 }
 
 void WorldSession::HandleQuestForceRemove(const net::wotlk::WorldPacket &pkt) {

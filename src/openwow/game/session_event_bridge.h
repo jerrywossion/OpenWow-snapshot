@@ -50,7 +50,6 @@ class SessionEventBridge {
 
   struct QuestSnapshot {
     std::size_t quest_count{0};
-    std::uint64_t watch_update_serial{0};
     bool has_active_details{false};
     bool has_active_reward{false};
     bool has_active_request{false};

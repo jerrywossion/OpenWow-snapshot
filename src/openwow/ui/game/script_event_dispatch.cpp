@@ -1560,10 +1560,16 @@ void ScriptEventDispatch::FireQuestGreeting() {
   FireGlobalEvent(QUEST_GREETING);
 }
 
-void ScriptEventDispatch::FireQuestAccepted(int quest_log_index, int quest_id) {
+void ScriptEventDispatch::FireQuestAccepted(int quest_log_index) {
   if (!dispatcher_)
     return;
-  dispatcher_->FireEvent(QUEST_ACCEPTED, quest_log_index, quest_id);
+  dispatcher_->FireEvent(QUEST_ACCEPTED, quest_log_index);
+}
+
+void ScriptEventDispatch::FireQuestWatchUpdate(int quest_log_index) {
+  if (!dispatcher_)
+    return;
+  dispatcher_->FireEvent(QUEST_WATCH_UPDATE, quest_log_index);
 }
 
 void ScriptEventDispatch::FireQuestLogUpdate() {

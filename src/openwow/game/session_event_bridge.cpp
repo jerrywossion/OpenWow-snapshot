@@ -229,12 +229,8 @@ void SessionEventBridge::PollQuestState() {
   prev_quests_.quest_count = cur_quest_count;
 
   auto& runtime_quest_log = QuestLog::Get();
-  runtime_quest_log.ExpireTimedWatches();
-
-  const auto watch_update_serial = runtime_quest_log.GetWatchUpdateSerial();
-  if (watch_update_serial != prev_quests_.watch_update_serial) {
-    ui_->frame_events().dispatcher().FireEvent(events::QUEST_WATCH_UPDATE);
-    prev_quests_.watch_update_serial = watch_update_serial;
+  if (runtime_quest_log.ExpireTimedWatches()) {
+    ui_->frame_events().dispatcher().FireEvent(events::QUEST_LOG_UPDATE);
   }
 
   prev_quests_.has_active_details = quests.has_active_details();

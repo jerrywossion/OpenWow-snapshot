@@ -50,6 +50,7 @@
 #include "openwow/ui/game/game_ui_core.h"
 #include "openwow/ui/surfaces/game/runtime/system_message_dispatch.h"
 #include "openwow/ui/game/game_ui_manager.h"
+#include "openwow/ui/game/quest_log_interleaved.h"
 #include "openwow/ui/game/script_event_dispatch.h"
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/game/world_map_system.h"
@@ -713,6 +714,7 @@ bool WorldSession::ApplyLoginVerifyWorld(const LoginVerifyWorld &verify) {
 
   if (needs_world_entry_dispatch) {
     pending_quest_poi_queries_.clear();
+    pending_quest_accepted_slots_.fill(0u);
     std::string map_internal_name;
     if (!ResolveWorldTransferMap(verify.map_id, &map_internal_name)) {
       openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn, "Bad SMSG_NEW_WORLD zoneID");
@@ -2098,26 +2100,64 @@ void WorldSession::RefreshActivePlayerFactionDependentState() {
   active_player->Interaction().RefreshFactionDependentState(*this, false);
 }
 
+void WorldSession::ObserveQuestAcceptedTransitions(
+    const CGPlayer_C &player, const FieldUpdateBatch &updates) {
+  constexpr std::uint16_t kQuestRecordFieldCount = 5;
+
+  for (std::uint8_t slot = 0; slot < kMaxQuestLogEntries; ++slot) {
+    const auto base = static_cast<std::uint16_t>(
+        PLAYER_QUEST_LOG_1_1 + slot * kQuestRecordFieldCount);
+    const auto *quest_id_change = FindValueChange(updates, base);
+    const auto *state_change =
+        FindValueChange(updates, static_cast<std::uint16_t>(base + 1u));
+    if (quest_id_change == nullptr && state_change == nullptr) {
+      continue;
+    }
+
+    const auto current = player.GetQuestLog(slot);
+    const auto old_quest_id =
+        quest_id_change != nullptr ? quest_id_change->old_value : current.quest_id;
+    const auto old_state =
+        state_change != nullptr ? state_change->old_value : current.state;
+    const bool quest_identity_changed = old_quest_id != current.quest_id;
+    const bool accepted_state_bit_gained =
+        (old_state & kQuestLogStateBitComplete) == 0u &&
+        (current.state & kQuestLogStateBitComplete) != 0u;
+
+    if (current.quest_id != 0u &&
+        (quest_identity_changed || accepted_state_bit_gained)) {
+      pending_quest_accepted_slots_[slot] = current.quest_id;
+    } else if (pending_quest_accepted_slots_[slot] != current.quest_id) {
+      pending_quest_accepted_slots_[slot] = 0u;
+    }
+  }
+}
+
 void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
   const auto *player = objects().GetLocalPlayerTyped();
   if (player == nullptr) {
     return;
   }
 
-  std::unordered_set<std::uint32_t> previous_quest_ids;
-  previous_quest_ids.reserve(quests_.quest_log_count());
-  for (const auto &entry : quests_.quest_log()) {
-    previous_quest_ids.insert(entry.quest_id);
-  }
   quests_.SyncQuestLogFromPlayer(objects(), *player);
-  if (!request_query_time) {
-    for (const auto &entry : quests_.quest_log()) {
-      const auto quest_id = entry.quest_id;
-      if (quest_id != 0 && !previous_quest_ids.contains(quest_id)) {
-        ui::game::ScriptEventDispatch::Get().FireQuestAccepted(
-            static_cast<int>(entry.slot + 1), static_cast<int>(quest_id));
-      }
+
+  for (std::uint8_t slot = 0; slot < kMaxQuestLogEntries; ++slot) {
+    const auto quest_id = pending_quest_accepted_slots_[slot];
+    if (quest_id == 0u) {
+      continue;
     }
+    if (player->GetQuestLog(slot).quest_id != quest_id) {
+      pending_quest_accepted_slots_[slot] = 0u;
+      continue;
+    }
+    if (quests_.GetTemplate(quest_id) == nullptr) {
+      continue;
+    }
+
+    const int visible_index =
+        ui::game::detail::FindVisibleQuestIndexById(*this, quest_id);
+    ui::game::ScriptEventDispatch::Get().FireQuestAccepted(visible_index);
+    pending_quest_accepted_slots_[slot] = 0u;
   }
 
   if (request_query_time) {
@@ -2137,15 +2177,26 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
         entry.quest_id, {.callback_key = AsyncQueryChannel::CallbackKey(
                              reinterpret_cast<std::uintptr_t>(this), entry.quest_id),
                          .dedupe_callbacks = true,
-                         .callback = [this](bool success) {
+                         .callback = [this, quest_id = entry.quest_id](bool success) {
                            if (!success) {
-
+                             for (auto &pending_quest_id :
+                                  pending_quest_accepted_slots_) {
+                               if (pending_quest_id == quest_id) {
+                                 pending_quest_id = 0u;
+                               }
+                             }
+                             openwow::diagnostics::Log(
+                                 openwow::diagnostics::LogLevel::kWarn,
+                                 "quest template resolution failed quest=" +
+                                     std::to_string(quest_id) +
+                                     " stage=quest-log-publication");
                              openwow::debug::DebugConsole::Get().Write(
                                  "Invalid quest log entry");
                              return;
                            }
                            ui::game::ScriptEventDispatch::Get().FireQuestQueryComplete();
                            RefreshQuestRuntimeFromPlayer(false);
+                           ui::game::ScriptEventDispatch::Get().FireQuestLogUpdate();
                          }});
     if (tmpl == nullptr) {
       waiting_for_template = true;
@@ -2205,6 +2256,7 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
       dance_studio().SetActivePlayerClass(
           ToDancePlayerClass(local_player->State().GetClass()));
       if (!is_create && obj.GetTypeId() == TypeID::kPlayer) {
+        ObserveQuestAcceptedTransitions(*local_player, updates);
         container_frame_func3_summary =
             SummarizeContainerFrameFunc3SlotChanges(*this, *local_player, updates);
         container_frame_func3_summary_pending = container_frame_func3_summary.has_slot_guid_change;

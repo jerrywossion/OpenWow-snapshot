@@ -785,14 +785,14 @@ bool QuestManager::HandleQuestGiverQuestDetails(const std::uint8_t *data, std::s
       !r.ReadCString(d.objectives, kQuestTemplateObjectivesSize))
     return false;
 
-  std::uint8_t auto_accept;
+  std::uint8_t activate_accept;
   std::uint32_t flags_raw, suggested;
   std::uint8_t accept_packet_value = 0;
-  if (!r.ReadU8(auto_accept) || !r.ReadU32(flags_raw) || !r.ReadU32(suggested) ||
+  if (!r.ReadU8(activate_accept) || !r.ReadU32(flags_raw) || !r.ReadU32(suggested) ||
       !r.ReadU8(accept_packet_value))
     return false;
 
-  d.auto_accept = auto_accept != 0;
+  d.activate_accept = activate_accept != 0;
   d.quest_flags = static_cast<QuestFlags>(flags_raw);
   d.suggested_players = suggested;
   d.accept_packet_value = accept_packet_value;
@@ -1133,16 +1133,25 @@ void QuestManager::EraseQuestGiverStatus(const ObjectGuid &guid) {
 }
 
 bool QuestManager::HandleQuestUpdateComplete(const std::uint8_t *data, std::size_t len) {
+  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   std::uint32_t quest_id;
   if (!r.ReadU32(quest_id) || r.Remaining() != 0)
     return false;
-  if (auto *entry = FindQuestLogEntry(quest_id))
+  if (auto *entry = FindQuestLogEntry(quest_id)) {
+    if (entry->status != QuestStatus::kFailed) {
+      if (const auto *tmpl = GetTemplate(quest_id);
+          tmpl != nullptr && !tmpl->completed_text.empty()) {
+        pending_quest_watch_update_ = quest_id;
+      }
+    }
     entry->status = QuestStatus::kComplete;
+  }
   return true;
 }
 
 bool QuestManager::HandleQuestUpdateAddKill(const std::uint8_t *data, std::size_t len) {
+  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   std::uint32_t quest_id, current, required;
   std::int32_t entry_id = 0;
@@ -1157,6 +1166,9 @@ bool QuestManager::HandleQuestUpdateAddKill(const std::uint8_t *data, std::size_
       for (int i = 0; i < kQuestObjectivesCount; ++i) {
         if (tmpl->npc_or_go_objectives[i].creature_or_go == entry_id) {
           log->kill_counts[i] = current;
+          if (log->status != QuestStatus::kFailed) {
+            pending_quest_watch_update_ = quest_id;
+          }
           break;
         }
       }
@@ -1262,12 +1274,24 @@ bool QuestManager::HandleQuestUpdateFailed(const std::uint8_t *data, std::size_t
 }
 
 bool QuestManager::HandleQuestUpdateAddPvpKill(const std::uint8_t *data, std::size_t len) {
+  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   QuestPvpKillInfo pk;
   if (!r.ReadU32(pk.quest_id) || !r.ReadU32(pk.current_count) || !r.ReadU32(pk.required_count))
     return false;
   last_pvp_kill_ = pk;
+  const auto *entry = FindQuestLogEntry(pk.quest_id);
+  if (entry != nullptr && entry->status != QuestStatus::kFailed &&
+      GetTemplate(pk.quest_id) != nullptr) {
+    pending_quest_watch_update_ = pk.quest_id;
+  }
   return true;
+}
+
+std::optional<std::uint32_t> QuestManager::TakeQuestWatchUpdateQuestId() {
+  auto quest_id = pending_quest_watch_update_;
+  pending_quest_watch_update_.reset();
+  return quest_id;
 }
 
 bool QuestManager::HandleQuestForceRemove(const std::uint8_t *data, std::size_t len) {
@@ -1587,6 +1611,7 @@ void QuestManager::Clear() {
   last_quest_failed_.reset();
   last_update_failed_quest_ = 0;
   last_pvp_kill_.reset();
+  pending_quest_watch_update_.reset();
 
   force_remove_quest_ = 0;
   quest_invalid_reason_ = 0;

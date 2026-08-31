@@ -1466,6 +1466,7 @@ private:
       consume_legacy_token_seed_verification_;
   BuildBotDetectedDigestFn build_bot_detected_digest_;
   std::unordered_set<std::uint32_t> pending_quest_poi_queries_;
+  std::array<std::uint32_t, kMaxQuestLogEntries> pending_quest_accepted_slots_{};
   bool bot_detected_world_active_{false};
   bool bot_detected_enabled_{false};
   std::uint32_t bot_detected_last_tick_ms_{0};
@@ -1529,6 +1530,8 @@ private:
   void RefreshCreatedGameObjectQuestgiverStatus(const WorldObject &obj);
   void ClearDestroyedQuestgiverStatus(const ObjectGuid &guid);
   void RefreshActivePlayerFactionDependentState();
+  void ObserveQuestAcceptedTransitions(const CGPlayer_C &player,
+                                       const FieldUpdateBatch &updates);
   void RefreshQuestRuntimeFromPlayer(bool request_query_time);
   void TryBindGameObjectTemplateInfo(WorldObject &obj);
   void BindGameObjectTemplateInfoForEntry(std::uint32_t entry);

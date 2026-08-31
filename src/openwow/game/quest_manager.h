@@ -124,7 +124,7 @@ struct QuestDetailsDialog {
   std::string title;
   std::string details;
   std::string objectives;
-  bool auto_accept = false;
+  bool activate_accept = false;
   QuestFlags quest_flags = QuestFlags::kNone;
   std::uint32_t suggested_players = 0;
   std::vector<QuestRewardItem> reward_choice_items;
@@ -449,6 +449,7 @@ public:
   [[nodiscard]] const std::optional<QuestPvpKillInfo> &last_pvp_kill() const {
     return last_pvp_kill_;
   }
+  [[nodiscard]] std::optional<std::uint32_t> TakeQuestWatchUpdateQuestId();
 
   [[nodiscard]] std::uint32_t force_remove_quest() const {
     return force_remove_quest_;
@@ -515,6 +516,7 @@ private:
   std::optional<QuestFailedInfo> last_quest_failed_;
   std::uint32_t last_update_failed_quest_ = 0;
   std::optional<QuestPvpKillInfo> last_pvp_kill_;
+  std::optional<std::uint32_t> pending_quest_watch_update_;
   DialogTextExpansionFn expand_dialog_text_;
 
   std::uint32_t force_remove_quest_ = 0;
