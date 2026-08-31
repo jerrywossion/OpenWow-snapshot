@@ -23,6 +23,7 @@
 #include "openwow/render/backend/bgfx/bgfx_text_cache.h"
 #include "openwow/render/backend/bgfx/bgfx_texture_lease.h"
 #include "openwow/render/models/characters/model_portrait.h"
+#include "openwow/render/models/characters/portrait_icon_texture.h"
 #include "openwow/render/models/characters/portrait_renderer.h"
 #include "openwow/render/resources/fonts/font_string_flags.h"
 #include "openwow/render/resources/textures/texture_manager.h"
@@ -1907,6 +1908,15 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
                                          texture_state.dynamic_texture_width,
                                          texture_state.dynamic_texture_height);
       used_dynamic_texture = has_texture;
+      if (has_texture &&
+          texture_state.replace_dynamic_texture_alpha_with_portrait_mask) {
+        const UiTextureInfo* const portrait_mask = ResolvePassTexture(
+            std::string(openwow::render::kPortraitIconMaskTexturePath));
+        if (portrait_mask != nullptr) {
+          quad.mask_texture = TextureHandleFromInfo(*portrait_mask);
+          quad.replace_alpha_with_mask = true;
+        }
+      }
       if (has_texture && !is_texture && (frame.tile_x || frame.tile_y)) {
         continue;
       }

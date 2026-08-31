@@ -1050,6 +1050,7 @@ static void BindTexturePortraitFromTokens(
         state.dynamic_texture_width = binding.texture->width;
         state.dynamic_texture_height = binding.texture->height;
         state.dynamic_texture_is_render_target = true;
+        state.replace_dynamic_texture_alpha_with_portrait_mask = true;
         state.texture_path.clear();
       };
 

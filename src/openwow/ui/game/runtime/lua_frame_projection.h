@@ -68,6 +68,7 @@ struct TextureRenderState {
       openwow::render::ui::BlendMode::kAlpha};
   bool desaturated{false};
   bool dynamic_texture_is_render_target{false};
+  bool replace_dynamic_texture_alpha_with_portrait_mask{false};
 };
 
 [[nodiscard]] openwow::ui::framexml::UiFrame::RuntimeKind ClassifyFrameRuntimeKind(
