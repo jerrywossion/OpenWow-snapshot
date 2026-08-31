@@ -285,7 +285,8 @@ namespace {
 [[nodiscard]] bool IsQuestObjectiveDiagnosticTarget(
     const std::string_view key) {
   return key.starts_with("WatchFrame") ||
-         key.starts_with("QuestInfoObjective");
+         key.starts_with("QuestInfoObjective") ||
+         key.starts_with("WorldMapQuestFrame");
 }
 
 [[nodiscard]] std::string EscapeQuestObjectiveDiagnosticText(
