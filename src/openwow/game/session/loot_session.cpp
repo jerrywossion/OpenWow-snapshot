@@ -329,9 +329,13 @@ void WorldSession::HandleLootRemoved(const net::wotlk::WorldPacket &pkt) {
   if (ui_slot.has_value()) {
     ui::game::ScriptEventDispatch::Get().FireLootSlotCleared(*ui_slot);
   }
-  if (was_looting && !loot_.is_looting()) {
-    loot_.state().ClearPendingConfirmSlot();
-    ui::game::ScriptEventDispatch::Get().FireLootClosed();
+  if (was_looting && !loot_.HasLootItems()) {
+    CloseActiveLootWindow(*this, CloseLootWindowOptions{
+                                     .send_release = true,
+                                     .skip_item_check = false,
+                                     .show_interrupted = false,
+                                     .clear_dead_target = true,
+                                 });
   }
 }
 
