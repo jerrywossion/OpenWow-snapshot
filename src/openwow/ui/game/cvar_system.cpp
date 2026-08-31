@@ -803,7 +803,7 @@ std::string GetCurrentGameUiLocaleCode() {
 }
 
 const char *GetAutoInteractDefaultValue() {
-  return GetCurrentGameUiLocaleCode() == "koKR" ? "0" : "1";
+  return GetCurrentGameUiLocaleCode() == "koKR" ? "1" : "0";
 }
 
 const char *GetTimeMgrUseMilitaryTimeDefaultValue() {

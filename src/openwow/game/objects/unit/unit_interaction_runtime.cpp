@@ -210,6 +210,15 @@ void StartUnitApproach(WorldSession &session, const CGUnit_C &unit,
           unit.State().GetCombatReach()));
 }
 
+[[nodiscard]] bool CanStartRightClickAutoApproach(
+    const WorldSession &session, const CGPlayer_C &active_player) {
+  return static_cast<std::int32_t>(active_player.State().GetHealth()) > 0 &&
+         active_player.IsActiveMover() &&
+         ::openwow::ui::game::CVarSystem::Instance().GetCVarBool(
+             "autoInteract") &&
+         session.click_to_move().IsEnabled();
+}
+
 [[nodiscard]] bool IsFriendlyUnitInteractionInRangeOrStartAutoApproach(
     WorldSession &session, const CGUnit_C &unit, const CGPlayer_C &active_player) {
   if (unit.State().GetNpcFlags() == 0u) {
@@ -223,8 +232,7 @@ void StartUnitApproach(WorldSession &session, const CGUnit_C &unit,
   if (distance * distance <= interaction_range_squared) {
     return true;
   }
-  if (static_cast<std::int32_t>(active_player.State().GetHealth()) <= 0 ||
-      !active_player.IsActiveMover() || !session.click_to_move().IsEnabled()) {
+  if (!CanStartRightClickAutoApproach(session, active_player)) {
     return false;
   }
 
@@ -509,9 +517,7 @@ void UnitInteractionRuntime::RightClickInteract(
     const float loot_distance = player_obj->GetDistance(owner_);
     if (static_cast<double>(loot_distance) * loot_distance >
         loot_range_squared) {
-      if (static_cast<std::int32_t>(player_obj->State().GetHealth()) > 0 &&
-          player_obj->IsActiveMover() &&
-          session->click_to_move().IsEnabled()) {
+      if (CanStartRightClickAutoApproach(*session, *player_obj)) {
         StartUnitApproach(*session, owner_, *player_obj);
         return;
       }
