@@ -163,9 +163,7 @@ void ResolveImplicitAnchors(lua_State* state, int frame_index, int parent_index,
   }
   const int anchors = lua_absindex(state, -1);
   for (std::size_t i = 0; i < frame.anchors.size(); ++i) {
-    if (frame.anchors[i].relative_to_explicit ||
-        !frame.anchors[i].relative_to.empty())
-      continue;
+    if (frame.anchors[i].relative_to_explicit) continue;
     lua_rawgeti(state, anchors, static_cast<lua_Integer>(i + 1));
     if (lua_istable(state, -1) != 0) {
       lua_pushvalue(state, parent_index);
