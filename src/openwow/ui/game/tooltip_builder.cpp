@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -201,6 +202,9 @@ std::string ItemSubclassName(const openwow::game::ItemTemplate& item,
     if (const auto* const subclass =
             dbc->item_sub_class().LookupEntry(composite_id);
         subclass != nullptr) {
+      if ((subclass->display_flags & 1u) != 0u) {
+        return {};
+      }
       const auto name = subclass->display_name.empty()
                             ? subclass->verbose_name
                             : subclass->display_name;
@@ -235,6 +239,120 @@ std::string ItemSubclassName(const openwow::game::ItemTemplate& item,
                : std::string{};
   }
   return {};
+}
+
+std::string ItemSubclassName(
+    const openwow::data::dbc::ItemSubClassEntry* const subclass) {
+  if (subclass == nullptr || (subclass->display_flags & 1u) != 0u) {
+    return {};
+  }
+  const auto name = subclass->display_name.empty()
+                        ? subclass->verbose_name
+                        : subclass->display_name;
+  return std::string(name);
+}
+
+bool ProficiencyMaskContains(const std::uint32_t mask,
+                             const std::uint32_t subclass) {
+  return (mask & (std::uint32_t{1} << (subclass & 31u))) != 0u;
+}
+
+const openwow::data::dbc::ItemSubClassEntry* FindItemSubclass(
+    const openwow::data::dbc::DbcLoader* const dbc,
+    const openwow::game::ItemClass item_class,
+    const std::uint32_t subclass) {
+  if (dbc == nullptr) {
+    return nullptr;
+  }
+  return dbc->item_sub_class().LookupEntry(
+      openwow::data::dbc::ItemSubClassEntry::ComposeKey(
+          static_cast<std::uint32_t>(item_class), subclass));
+}
+
+struct ItemTypePresentation {
+  std::string subclass;
+  bool slot_usable = true;
+  bool subclass_usable = true;
+};
+
+ItemTypePresentation ResolveItemTypePresentation(
+    const openwow::game::ItemTemplate& item,
+    const openwow::data::dbc::DbcLoader* const dbc,
+    const openwow::game::WorldSession* const session,
+    const bool has_scaling_values) {
+  ItemTypePresentation result{.subclass = ItemSubclassName(item, dbc)};
+  if (session == nullptr) {
+    return result;
+  }
+
+  const auto* const player = session->objects().GetActivePlayer();
+  if (player == nullptr) {
+    return result;
+  }
+
+  const auto item_class = static_cast<std::uint8_t>(item.item_class);
+  const auto proficiency_mask =
+      session->session().GetProficiencyMask(item_class);
+  if (proficiency_mask != 0u &&
+      !ProficiencyMaskContains(proficiency_mask, item.subclass)) {
+    bool resolved_proficiency_mismatch = false;
+    bool slot_is_the_unusable_part = false;
+    if (item.item_class == openwow::game::ItemClass::Weapon) {
+      if (const auto* const subclass = FindItemSubclass(
+              dbc, openwow::game::ItemClass::Weapon, item.subclass);
+          subclass != nullptr) {
+        constexpr auto kNoAlternative =
+            std::numeric_limits<std::uint32_t>::max();
+        resolved_proficiency_mismatch =
+            (subclass->prereq_proficiency != kNoAlternative &&
+             ProficiencyMaskContains(
+                 proficiency_mask, subclass->prereq_proficiency)) ||
+            (subclass->postreq_proficiency != kNoAlternative &&
+             ProficiencyMaskContains(
+                 proficiency_mask, subclass->postreq_proficiency));
+        slot_is_the_unusable_part = resolved_proficiency_mismatch;
+      }
+    } else if (item.item_class == openwow::game::ItemClass::Armor &&
+               has_scaling_values && dbc != nullptr) {
+      if (const auto* const player_class =
+              dbc->chr_classes().LookupEntry(player->State().GetClass());
+          player_class != nullptr) {
+        std::optional<std::uint32_t> displayed_subclass;
+        if (item.subclass == 4u &&
+            (player_class->class_flags & 0x20u) != 0u) {
+          displayed_subclass =
+              ((proficiency_mask & (std::uint32_t{1} << 3u)) |
+               (std::uint32_t{1} << 4u)) >>
+              3u;
+        } else if (item.subclass == 3u &&
+                   (player_class->class_flags & 0x10u) != 0u &&
+                   ProficiencyMaskContains(proficiency_mask, 2u)) {
+          displayed_subclass = 2u;
+        }
+        if (displayed_subclass.has_value()) {
+          const auto alternative = ItemSubclassName(FindItemSubclass(
+              dbc, openwow::game::ItemClass::Armor,
+              *displayed_subclass));
+          if (!alternative.empty()) {
+            result.subclass = alternative;
+            resolved_proficiency_mismatch = true;
+          }
+        }
+      }
+    }
+
+    if (slot_is_the_unusable_part) {
+      result.slot_usable = false;
+    } else if (!resolved_proficiency_mismatch) {
+      result.subclass_usable = false;
+    }
+  }
+
+  if (item.inventory_type == openwow::game::InventoryType::OffHand &&
+      !player->Casts().CanEquipWeaponInOffHand()) {
+    result.slot_usable = false;
+  }
+  return result;
 }
 
 std::string StatFallbackName(const std::uint32_t stat_type) {
@@ -591,7 +709,9 @@ void AddLimitCategory(std::vector<TooltipLine>& lines,
 
 void AddSlotAndContainer(std::vector<TooltipLine>& lines,
                          const openwow::game::ItemTemplate& item,
-                         const openwow::data::dbc::DbcLoader* const dbc) {
+                         const openwow::data::dbc::DbcLoader* const dbc,
+                         const openwow::game::WorldSession* const session,
+                         const bool has_scaling_values) {
   if (item.item_class == openwow::game::ItemClass::Container &&
       item.container_slots != 0u) {
     lines.push_back(MakeLine(FormatLocalized(
@@ -603,9 +723,13 @@ void AddSlotAndContainer(std::vector<TooltipLine>& lines,
     return;
   }
   const auto slot = InventoryTypeName(item.inventory_type);
-  const auto subclass = ItemSubclassName(item, dbc);
-  if (!slot.empty() || !subclass.empty()) {
-    lines.push_back(MakeDoubleLine(slot, subclass));
+  const auto presentation = ResolveItemTypePresentation(
+      item, dbc, session, has_scaling_values);
+  if (!slot.empty() || !presentation.subclass.empty()) {
+    lines.push_back(MakeDoubleLine(
+        slot, presentation.subclass,
+        presentation.slot_usable ? kWhite : kRed,
+        presentation.subclass_usable ? kWhite : kRed));
   }
 }
 
@@ -1164,11 +1288,12 @@ std::vector<TooltipLine> TooltipBuilder::BuildItemTooltip(
     lines.push_back(MakeLine(FormatLocalized(
         "ITEM_LEVEL", "Item Level %s", {std::to_string(item.item_level)})));
   }
-  AddSlotAndContainer(lines, item, dbc);
-
   const auto scaled = item.scaling_stat_distribution != 0u
                           ? BuildScaledTooltipData(item, dbc, scaling_level)
                           : std::nullopt;
+  AddSlotAndContainer(lines, item, dbc, session,
+                      item.scaling_stat_value != 0u && scaled.has_value());
+
   if (scaled.has_value() && scaled->has_scaled_damage) {
     AddScaledDamage(lines, item, scaled->weapon_dps);
   } else {
