@@ -280,6 +280,41 @@ using runtime::render::ResolveTextGradientAlpha;
 using runtime::render::ScalePremultipliedTextColor;
 using runtime::render::TextAlphaGradient;
 
+namespace {
+
+[[nodiscard]] bool IsQuestObjectiveDiagnosticTarget(
+    const std::string_view key) {
+  return key.starts_with("WatchFrame") ||
+         key.starts_with("QuestInfoObjective");
+}
+
+[[nodiscard]] std::string EscapeQuestObjectiveDiagnosticText(
+    const std::string_view text) {
+  std::string escaped;
+  escaped.reserve(std::min<std::size_t>(text.size(), 256u));
+  for (const char character : text) {
+    if (escaped.size() >= 256u) {
+      escaped.append("...");
+      break;
+    }
+    if (character == '\n') {
+      escaped.append("\\n");
+    } else if (character == '\r') {
+      escaped.append("\\r");
+    } else {
+      escaped.push_back(character);
+    }
+  }
+  return escaped;
+}
+
+[[nodiscard]] std::string QuestObjectiveOptionalDimension(
+    const std::optional<float> dimension) {
+  return dimension.has_value() ? std::to_string(*dimension) : "unset";
+}
+
+}
+
 const runtime::render::UiTextureInfo*
 runtime::render::UiCompositor::ResolvePassTexture(const std::string& path) {
   const auto& underlying_texture_loader = texture_regions_.texture_loader();
@@ -1657,6 +1692,38 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
         if (foreground == nullptr || foreground->width <= 0 ||
             foreground->height <= 0) {
           continue;
+        }
+
+        if (IsQuestObjectiveDiagnosticTarget(entry.key)) {
+          const std::string state =
+              "rect=" + std::to_string(render_rect.x) + "," +
+              std::to_string(render_rect.y) + "," +
+              std::to_string(render_rect.width) + "x" +
+              std::to_string(render_rect.height) + " authored=" +
+              QuestObjectiveOptionalDimension(frame.width) + "x" +
+              QuestObjectiveOptionalDimension(frame.height) +
+              " intrinsic=" + (frame.font_intrinsic_width ? "1" : "0") +
+              "," + (frame.font_intrinsic_height ? "1" : "0") +
+              " anchors=" + std::to_string(frame.anchors.size()) +
+              " effective_scale=" + std::to_string(entry.effective_scale) +
+              " render_scale=" + std::to_string(text_render_scale) +
+              " font=" + font_path + "@" +
+              std::to_string(scaled_height_px) + " wrap=" +
+              std::to_string(wrap_px) + " flags=" +
+              (word_wrap ? "W" : "-") + (non_space_wrap ? "N" : "-") +
+              (indented_word_wrap ? "I" : "-") + " justify=" + justify_h +
+              "," + justify_v + " layout=" +
+              std::to_string(foreground->width) + "x" +
+              std::to_string(foreground->height) + " text=" +
+              EscapeQuestObjectiveDiagnosticText(text);
+          auto& previous = quest_objective_layout_diagnostic_state_[entry.key];
+          if (previous != state) {
+            previous = state;
+            openwow::diagnostics::Log(
+                openwow::diagnostics::LogLevel::kInfo,
+                "TEMP quest objective layout: key=" + entry.key + " " +
+                    state);
+          }
         }
 
         float draw_x = render_rect.x;

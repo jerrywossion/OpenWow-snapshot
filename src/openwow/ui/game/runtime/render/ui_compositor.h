@@ -131,6 +131,8 @@ class UiCompositor final {
   TextRegionRenderer text_regions_;
   ModelRegionRenderer model_regions_;
   std::unordered_set<std::string> submitted_keys_;
+  std::unordered_map<std::string, std::string>
+      quest_objective_layout_diagnostic_state_;
   std::uint64_t last_generation_{0U};
   bool debug_submission_receipts_enabled_{false};
 
