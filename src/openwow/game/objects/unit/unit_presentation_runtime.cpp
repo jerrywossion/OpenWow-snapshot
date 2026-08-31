@@ -2062,6 +2062,15 @@ void UnitPresentationRuntime::OnModelLoaded(WorldSession &session,
 
   UpdateEffectAttachments();
 
+  auto &highlight = owner_.Nameplate();
+  for (std::uint8_t type = UnitNameplateComponent::kHighlightTypeTarget;
+       type <= UnitNameplateComponent::kHighlightTypeAlphaPreserving; ++type) {
+    if (highlight.Has(type)) {
+      highlight.Set(owner_, type);
+      break;
+    }
+  }
+
   if (instance_id != 0 && instance_id == owner_.GetPrimaryM2InstanceId()) {
     owner_.Animation().SetAnimationBoneAvailability(false, false);
 
