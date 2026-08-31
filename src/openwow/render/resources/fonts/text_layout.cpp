@@ -397,15 +397,6 @@ TextLayout LayoutText(const FontFace& face, const std::string_view source,
     result.truncated = true;
     return complete();
   }
-  if (!result.tokens.empty() &&
-      result.tokens.back().kind == FormattedTokenKind::Newline &&
-      result.lines.size() < allowed_lines) {
-    if (!finish_line(source.size(), source.size(), 0.0f,
-                     base_line_height)) {
-      result.truncated = true;
-      return complete();
-    }
-  }
   result.fitting_bytes = source.size();
   return complete();
 }
