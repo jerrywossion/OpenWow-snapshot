@@ -1151,15 +1151,10 @@ bool ObjectManager::HandleUpdateObject(const std::uint8_t *data, std::size_t len
     SweepStalePendingObjects();
   };
 
-  UpdateObjectHandler validation_handler;
-  validation_handler.resolve_values_field_count =
-      [this](const ObjectGuid guid) -> std::optional<std::uint16_t> {
-    return ResolveFieldCountForTrackedObject(guid);
-  };
-  if (!ParseUpdateObject(data, len, validation_handler)) {
+  if (!ValidateUpdateObjectPacketBeforeMutation(data, len)) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
-        "UpdateObject: validation pass rejected packet before state mutation payload=" +
+        "UpdateObject: validation rejected packet before state mutation payload=" +
             std::to_string(len) + " bytes");
     finish_batch(false);
     return false;
@@ -1854,6 +1849,57 @@ ObjectManager::ResolveFieldCountForTrackedObject(ObjectGuid guid) const {
 
   return std::optional<std::uint16_t>(
       FieldCountForPlayer(guid == CGObject_C::GetActivePlayerGuid()));
+}
+
+bool ObjectManager::ValidateUpdateObjectPacketBeforeMutation(
+    const std::uint8_t *data, const std::size_t len) const {
+  std::unordered_map<ObjectGuid, std::uint16_t, ObjectGuid::Hash>
+      packet_create_field_counts;
+  bool conflicting_create_field_counts = false;
+
+  UpdateObjectHandler validation_handler;
+  validation_handler.resolve_values_field_count =
+      [this, &packet_create_field_counts](
+          const ObjectGuid guid) -> std::optional<std::uint16_t> {
+    if (const auto tracked = ResolveFieldCountForTrackedObject(guid);
+        tracked.has_value()) {
+      return tracked;
+    }
+    const auto discovered = packet_create_field_counts.find(guid);
+    return discovered != packet_create_field_counts.end()
+               ? std::optional<std::uint16_t>(discovered->second)
+               : std::nullopt;
+  };
+  validation_handler.on_create =
+      [&packet_create_field_counts, &conflicting_create_field_counts](
+          const CreateObjectUpdate &update) {
+    const auto field_count =
+        update.type_id == TypeID::kPlayer
+            ? FieldCountForPlayer(update.movement.IsSelf() ||
+                                  update.guid == CGObject_C::GetActivePlayerGuid())
+            : FieldCountFor(update.type_id);
+    const auto [found, inserted] =
+        packet_create_field_counts.emplace(update.guid, field_count);
+    if (!inserted && found->second != field_count) {
+      conflicting_create_field_counts = true;
+    }
+  };
+
+  if (!ParseUpdateObject(data, len, validation_handler) ||
+      conflicting_create_field_counts) {
+    if (conflicting_create_field_counts) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "UpdateObject: conflicting create field widths in one packet payload=" +
+              std::to_string(len) + " bytes");
+    }
+    return false;
+  }
+
+  // The discovery pass can encounter a values block before the matching
+  // create block. Replaying with the complete packet-local type map verifies
+  // the exact field width that the later mutation passes will consume.
+  return ParseUpdateObject(data, len, validation_handler);
 }
 
 bool ObjectManager::PreallocateCreateObjects(const std::uint8_t *data, std::size_t len,

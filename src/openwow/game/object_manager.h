@@ -485,6 +485,8 @@ private:
   void DestroyActiveObject(ObjectGuid guid, bool destroy_packet_death_cleanup);
   [[nodiscard]] std::optional<std::uint16_t>
   ResolveFieldCountForTrackedObject(ObjectGuid guid) const;
+  [[nodiscard]] bool ValidateUpdateObjectPacketBeforeMutation(
+      const std::uint8_t *data, std::size_t len) const;
   [[nodiscard]] bool PreallocateCreateObjects(const std::uint8_t *data, std::size_t len,
                                               std::vector<ObjectGuid> &created_shells);
   void ClearPreallocatedCreateMarkers(const std::vector<ObjectGuid> &created_shells);
