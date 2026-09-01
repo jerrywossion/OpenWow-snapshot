@@ -391,6 +391,7 @@ FrameInputRouter::FrameInputRouter(FrameStore &frames, FrameTraversalIndex &trav
 
 void FrameInputRouter::BindLuaState(lua_State *state) noexcept {
   lua_ = state;
+  MarkMouseFocusDirty();
 }
 
 void FrameInputRouter::Reset() noexcept {
@@ -403,6 +404,7 @@ void FrameInputRouter::Reset() noexcept {
   last_mouse_x_ = 0.0F;
   last_mouse_y_ = 0.0F;
   have_last_mouse_position_ = false;
+  mouse_focus_dirty_ = true;
   pressed_button_mask_ = 0;
   hyperlink_hit_regions_.clear();
   hovered_hyperlink_.reset();
@@ -415,6 +417,23 @@ void FrameInputRouter::Reset() noexcept {
 
 void FrameInputRouter::BeginHyperlinkHitTestFrame() {
   hyperlink_hit_regions_.clear();
+}
+
+void FrameInputRouter::MarkMouseFocusDirty() noexcept {
+  mouse_focus_dirty_ = true;
+}
+
+void FrameInputRouter::ReplayMouseFocusIfDirty() {
+  if (lua_ == nullptr || !mouse_focus_dirty_) return;
+  if (!have_last_mouse_position_) {
+    const auto [mouse_x, mouse_y] =
+        openwow::input::InputManager::Get().GetMousePosition();
+    last_mouse_x_ = static_cast<float>(mouse_x);
+    last_mouse_y_ = static_cast<float>(mouse_y);
+    have_last_mouse_position_ = true;
+  }
+  RebuildTraversalIfDirty();
+  RefreshMouseFocusAt(last_mouse_x_, last_mouse_y_, false);
 }
 
 void FrameInputRouter::AddHyperlinkHitRegion(std::string frame_name, const float left,
@@ -572,6 +591,28 @@ void FrameInputRouter::RebuildTraversalIfDirty() {
   if (traversal_.order_dirty()) {
     traversal_.Rebuild(root_scale(), viewport_height());
   }
+  traversal_.RefreshRectCache();
+}
+
+void FrameInputRouter::RefreshMouseFocusAt(const float x, const float y,
+                                           const bool motion) {
+  mouse_focus_dirty_ = false;
+  const std::string next = traversal_.HitTarget(x, y, viewport_height());
+  if (next != mouseover_frame_) {
+    const auto old_ref = frames_.FindLuaRef(mouseover_frame_);
+    const auto new_ref = frames_.FindLuaRef(next);
+
+    mouseover_frame_ = next;
+    if (old_ref.has_value()) {
+      SetFrameHighlightForMouseFocus(lua_, *old_ref, false);
+      FireBoolean(lua_, *old_ref, "OnLeave", motion);
+    }
+    if (new_ref.has_value()) {
+      SetFrameHighlightForMouseFocus(lua_, *new_ref, true);
+      FireBoolean(lua_, *new_ref, "OnEnter", motion);
+    }
+  }
+  UpdateHoveredHyperlink(x, y);
 }
 
 bool FrameInputRouter::HandleMouseDown(float x, float y, int button) {
@@ -594,6 +635,7 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   have_last_mouse_position_ = true;
   layout_.SolveIfDirty();
   RebuildTraversalIfDirty();
+  RefreshMouseFocusAt(x, y, false);
   std::string hit = traversal_.HitTarget(x, y, viewport_height());
   const auto *pressed_hyperlink = ResolveHyperlinkAt(hit, x, y);
   if (pressed_hyperlink != nullptr) {
@@ -609,32 +651,6 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   }
 
   if (hit.empty()) {
-    if (!mouseover_frame_.empty()) {
-      const auto ref = frames_.FindLuaRef(mouseover_frame_);
-
-      mouseover_frame_.clear();
-      if (ref.has_value()) {
-        SetFrameHighlightForMouseFocus(lua_, *ref, false);
-        FireBoolean(lua_, *ref, "OnLeave", false);
-      }
-    }
-    for (auto &capture : mouse_button_captures_) {
-      if (!capture.active) {
-        continue;
-      }
-      if (const auto ref = frames_.FindLuaRef(capture.frame_name); ref.has_value()) {
-        const char *button_name = openwow::ui::widgets::MouseButtonName(capture.button_flag);
-        FireButton(lua_, *ref, "OnMouseUp", button_name);
-        if (const auto *frame = frames_.FindFrame(capture.frame_name);
-            frame != nullptr && IsButtonFrame(*frame)) {
-          const auto visual = ReadButtonVisualState(lua_, *ref);
-          if (!visual.disabled && !visual.locked) {
-            SetButtonVisualState(lua_, *ref, "NORMAL");
-          }
-        }
-      }
-      capture = {};
-    }
     return false;
   }
 
@@ -741,6 +757,11 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
       lua_, static_cast<std::uint16_t>(SDL_GetModState()));
   pressed_button_mask_ &= ~button_flag;
   layout_.SolveIfDirty();
+  last_mouse_x_ = x;
+  last_mouse_y_ = y;
+  have_last_mouse_position_ = true;
+  RebuildTraversalIfDirty();
+  RefreshMouseFocusAt(x, y, false);
 
   edit_box_drag_select_frame_.clear();
   const char *button_name = openwow::ui::widgets::MouseButtonName(button_flag);
@@ -868,6 +889,7 @@ bool FrameInputRouter::HandleMouseMove(float x, float y) {
   if (active_move_sizing_.active && layout_.UpdateMoveSizing(&active_move_sizing_, x, y)) {
 
     traversal_.InvalidateHitTest();
+    MarkMouseFocusDirty();
     RebuildTraversalIfDirty();
     return true;
   }
@@ -920,22 +942,7 @@ bool FrameInputRouter::HandleMouseMove(float x, float y) {
   }
 
   RebuildTraversalIfDirty();
-  const std::string next = traversal_.HitTarget(x, y, viewport_height());
-  if (next != mouseover_frame_) {
-    const auto old_ref = frames_.FindLuaRef(mouseover_frame_);
-    const auto new_ref = frames_.FindLuaRef(next);
-
-    mouseover_frame_ = next;
-    if (old_ref.has_value()) {
-      SetFrameHighlightForMouseFocus(lua_, *old_ref, false);
-      FireBoolean(lua_, *old_ref, "OnLeave", true);
-    }
-    if (new_ref.has_value()) {
-      SetFrameHighlightForMouseFocus(lua_, *new_ref, true);
-      FireBoolean(lua_, *new_ref, "OnEnter", true);
-    }
-  }
-  UpdateHoveredHyperlink(x, y);
+  RefreshMouseFocusAt(x, y, true);
   return !mouseover_frame_.empty();
 }
 
@@ -1317,6 +1324,7 @@ bool FrameInputRouter::FocusedFrameIsEffectivelyVisible() const {
 
 void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
                                                    bool focused_was_effectively_visible) {
+  MarkMouseFocusDirty();
   for (auto &capture : mouse_button_captures_) {
     if (capture.active && capture.frame_name == frame_name &&
         !FrameUsesMouse(lua_, frames_, frame_name)) {
@@ -1350,8 +1358,13 @@ void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
 }
 
 void FrameInputRouter::AfterFrameIdentityRelease(std::string_view frame_name) {
+  MarkMouseFocusDirty();
   if (mouseover_frame_ == frame_name) {
     mouseover_frame_.clear();
+  }
+  if (hovered_hyperlink_.has_value() &&
+      hovered_hyperlink_->frame_name == frame_name) {
+    hovered_hyperlink_.reset();
   }
   if (focused_frame_ == frame_name) {
     focused_frame_.clear();

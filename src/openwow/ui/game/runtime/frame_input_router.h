@@ -44,6 +44,8 @@ public:
   bool HandleTextInput(const char *text);
 
   void BeginHyperlinkHitTestFrame();
+  void MarkMouseFocusDirty() noexcept;
+  void ReplayMouseFocusIfDirty();
   void AddHyperlinkHitRegion(std::string frame_name, float left, float top, float right,
                              float bottom, std::string link, std::string text);
 
@@ -119,6 +121,7 @@ private:
                                    float y);
   bool PushTrackedFrame(lua_State *state, std::string_view frame_name) const;
   void RebuildTraversalIfDirty();
+  void RefreshMouseFocusAt(float x, float y, bool motion);
   [[nodiscard]] const HyperlinkHitRegion *FindHyperlinkAt(float x, float y) const;
   [[nodiscard]] bool FramesShareInputHierarchy(std::string_view first,
                                                std::string_view second) const;
@@ -142,6 +145,7 @@ private:
   float last_mouse_x_{0.0F};
   float last_mouse_y_{0.0F};
   bool have_last_mouse_position_{false};
+  bool mouse_focus_dirty_{true};
   std::uint32_t pressed_button_mask_{0};
   std::vector<HyperlinkHitRegion> hyperlink_hit_regions_;
   std::optional<HyperlinkHitRegion> hovered_hyperlink_;

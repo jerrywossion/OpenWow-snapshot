@@ -73,36 +73,42 @@ GameUIManager::GameUIManager(
                 frame_traversal_index_.InvalidateFrameOrder(
                     key, runtime::FrameTraversalIndex::OrderInvalidationKind::
                              kOrderKey);
+                frame_input_router_.MarkMouseFocusDirty();
               },
           .inherited_order_invalidated =
               [this](const std::string_view key) {
                 frame_traversal_index_.InvalidateFrameOrder(
                     key, runtime::FrameTraversalIndex::OrderInvalidationKind::
                              kInherited);
+                frame_input_router_.MarkMouseFocusDirty();
               },
           .hit_test_invalidated = [this] { InvalidateFrameHitTest(); },
       }),
       retained_layout_(frame_store_, {
           .order_invalidated = [this] {
             frame_traversal_index_.InvalidatePaintOrder();
+            frame_input_router_.MarkMouseFocusDirty();
           },
           .order_key_invalidated =
               [this](const std::string_view key) {
                 frame_traversal_index_.InvalidateFrameOrder(
                     key, runtime::FrameTraversalIndex::OrderInvalidationKind::
                              kOrderKey);
+                frame_input_router_.MarkMouseFocusDirty();
               },
           .inherited_order_invalidated =
               [this](const std::string_view key) {
                 frame_traversal_index_.InvalidateFrameOrder(
                     key, runtime::FrameTraversalIndex::OrderInvalidationKind::
                              kInherited);
+                frame_input_router_.MarkMouseFocusDirty();
               },
           .on_update_order_invalidated = [this] {
             frame_event_runtime_.MarkOnUpdateOrderDirty();
           },
           .hit_test_invalidated = [this] {
             frame_traversal_index_.InvalidateHitTest();
+            frame_input_router_.MarkMouseFocusDirty();
           },
           .size_committed =
               [this](const std::string_view name, const float width,
@@ -479,19 +485,23 @@ void GameUIManager::AfterFrameIdentityRelease(const std::string_view name) {
 void GameUIManager::InvalidateFrameHierarchy() {
   retained_layout_.Invalidate();
   frame_traversal_index_.InvalidateHierarchy();
+  frame_input_router_.MarkMouseFocusDirty();
 }
 
 void GameUIManager::InvalidateFrameLayoutGraph() {
   retained_layout_.InvalidateGraph();
   frame_traversal_index_.InvalidateHierarchy();
+  frame_input_router_.MarkMouseFocusDirty();
 }
 
 void GameUIManager::InvalidateFramePaintOrder() {
   frame_traversal_index_.InvalidatePaintOrder();
+  frame_input_router_.MarkMouseFocusDirty();
 }
 
 void GameUIManager::InvalidateFrameHitTest() {
   frame_traversal_index_.InvalidateHitTest();
+  frame_input_router_.MarkMouseFocusDirty();
 }
 
 }

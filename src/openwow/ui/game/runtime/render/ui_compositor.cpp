@@ -366,6 +366,7 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
     frame_traversal_index_.Rebuild(root_scale(), screen_height());
 
   frame_traversal_index_.RefreshRectCache();
+  frame_input_router_.ReplayMouseFocusIfDirty();
 
   frame_input_router_.BeginHyperlinkHitTestFrame();
 
