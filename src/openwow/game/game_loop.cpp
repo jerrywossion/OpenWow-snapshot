@@ -1596,6 +1596,7 @@ void GameLoop::OnRendererDeviceWillReset() {
   minimap_.ReleaseRendererDeviceResources();
   debug_draw_renderer_.Shutdown();
   floating_text_.ReleaseRendererDeviceResources();
+  loading_screen_.ReleaseRendererDeviceResources();
   post_process_.ReleaseRendererDeviceResources();
 }
 
@@ -1607,9 +1608,11 @@ void GameLoop::OnRendererDeviceReady(const openwow::render::api::DeviceGeneratio
 
   const bool post_process_ready = post_process_.RestoreRendererDeviceResources();
   const bool floating_text_ready = floating_text_.RestoreRendererDeviceResources();
+  const bool loading_screen_ready = loading_screen_.RestoreRendererDeviceResources();
   const bool minimap_ready = minimap_.RestoreRendererDeviceResources();
   const bool debug_draw_ready = debug_draw_renderer_.Initialize();
-  if (!post_process_ready || !floating_text_ready || !minimap_ready || !debug_draw_ready) {
+  if (!post_process_ready || !floating_text_ready || !loading_screen_ready ||
+      !minimap_ready || !debug_draw_ready) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
                               "GameLoop: renderer-device resource restore failed");
   }

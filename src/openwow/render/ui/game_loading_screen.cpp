@@ -165,6 +165,20 @@ GameLoadingScreen::~GameLoadingScreen() = default;
 bool GameLoadingScreen::Initialize() {
   if (initialized_) return true;
 
+  initialized_ = true;
+  if (!RestoreRendererDeviceResources()) {
+    initialized_ = false;
+    return false;
+  }
+
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+                            "GameLoadingScreen: initialized");
+  return true;
+}
+
+bool GameLoadingScreen::InitializeTextRenderer() {
+  gpu_->text_renderer.Shutdown();
+
   bool text_ready = false;
   if (!font_path_.empty()) {
     if (file_loader_) {
@@ -186,6 +200,43 @@ bool GameLoadingScreen::Initialize() {
             "; background and progress rendering remain available");
   }
 
+  return text_ready;
+}
+
+void GameLoadingScreen::SetFileLoader(
+    std::function<std::vector<std::uint8_t>(const std::string&)> loader) {
+  file_loader_ = std::move(loader);
+  if (!initialized_ || !renderer_device_resources_ready_) {
+    return;
+  }
+  ReleaseRendererDeviceResources();
+  if (!RestoreRendererDeviceResources()) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "GameLoadingScreen: active VFS resource refresh failed");
+  }
+}
+
+void GameLoadingScreen::SetFontPath(std::string path) {
+  if (font_path_ == path) {
+    return;
+  }
+  font_path_ = std::move(path);
+  if (renderer_device_resources_ready_) {
+    static_cast<void>(InitializeTextRenderer());
+  }
+}
+
+bool GameLoadingScreen::RestoreRendererDeviceResources() {
+  if (!initialized_) {
+    return false;
+  }
+  if (renderer_device_resources_ready_) {
+    return true;
+  }
+
+  static_cast<void>(InitializeTextRenderer());
+
   const uint32_t white = 0xFFFFFFFF;
   gpu_->white_tex = bgfx::createTexture2D(
       1, 1, false, 1, bgfx::TextureFormat::RGBA8, 0,
@@ -195,19 +246,36 @@ bool GameLoadingScreen::Initialize() {
   gpu_->program = handles.program;
   gpu_->s_tex = handles.s_tex;
 
+  if (!bgfx::isValid(gpu_->white_tex) || !bgfx::isValid(gpu_->program) ||
+      !bgfx::isValid(gpu_->s_tex)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "GameLoadingScreen: renderer-device resource creation failed");
+    ReleaseRendererDeviceResources();
+    return false;
+  }
+
   gpu_->layout.begin()
       .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
       .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
       .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
       .end();
 
-  initialized_ = true;
-  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
-                     "GameLoadingScreen: initialized");
+  renderer_device_resources_ready_ = true;
+  if (prepared_map_id_.has_value()) {
+    EnsureLoadingBarTexturesLoaded();
+    LoadBackgroundTexture(*prepared_map_id_);
+  }
   return true;
 }
 
 void GameLoadingScreen::Shutdown() {
+  ReleaseRendererDeviceResources();
+  prepared_map_id_.reset();
+  initialized_ = false;
+}
+
+void GameLoadingScreen::ReleaseRendererDeviceResources() {
   gpu_->text_renderer.Shutdown();
   if (bgfx::isValid(gpu_->bg_tex)) {
     bgfx::destroy(gpu_->bg_tex);
@@ -227,11 +295,21 @@ void GameLoadingScreen::Shutdown() {
     gpu_->white_tex = BGFX_INVALID_HANDLE;
   }
   openwow::render::ui::DestroyUiProgram(gpu_->program, gpu_->s_tex);
-  initialized_ = false;
+  gpu_->prepared_text_generation = 0u;
+  gpu_->prepared_text_width_px = -1.0f;
+  gpu_->prepared_text_scale = -1.0f;
+  gpu_->wrapped_text.clear();
+  gpu_->visible_text.clear();
+  renderer_device_resources_ready_ = false;
 }
 
 void GameLoadingScreen::PrepareMap(std::uint32_t map_id) {
+  prepared_map_id_ = map_id;
   content_aspect_ratio_ = detail::ResolveLoadingScreenTargetAspectRatio(false);
+
+  if (!renderer_device_resources_ready_) {
+    return;
+  }
 
   EnsureLoadingBarTexturesLoaded();
 
@@ -239,6 +317,7 @@ void GameLoadingScreen::PrepareMap(std::uint32_t map_id) {
 }
 
 void GameLoadingScreen::ReleaseMap() {
+  prepared_map_id_.reset();
   ReleaseTransportOverlayTextures();
 }
 
@@ -246,7 +325,10 @@ void GameLoadingScreen::Render(
     openwow::screens::LoadingScreenManager& state,
     std::uint8_t view_id, float screen_w, float screen_h) {
   state.ResetTextRenderReceipt();
-  if (!initialized_ || !state.IsVisible()) return;
+  if (!initialized_ || !renderer_device_resources_ready_ ||
+      !state.IsVisible()) {
+    return;
+  }
   const float progress = state.GetProgress();
 
   float view[16];
@@ -323,7 +405,10 @@ void GameLoadingScreen::RenderTransportProgressOverlay(
     openwow::screens::LoadingScreenManager& state,
     std::uint8_t view_id, float screen_w, float screen_h) {
   state.ResetTextRenderReceipt();
-  if (!initialized_ || !state.IsVisible()) return;
+  if (!initialized_ || !renderer_device_resources_ready_ ||
+      !state.IsVisible()) {
+    return;
+  }
 
   float view[16];
   float proj[16];
