@@ -3860,8 +3860,11 @@ void GameLoop::SetBlockingLoadingEventPump(std::function<void()> pump) {
 void GameLoop::ApplyFileLoaderBindings() {
   openwow::core::LocaleSystem locale;
   locale.SetLocaleFromString(ClientConfig::Get().GetLocale());
-  loading_screen_.SetFontPath(openwow::platform::BuildFontPath(
-      openwow::core::LocaleSystem::GetFontForLocale(locale.GetLocale())));
+  const auto font_path = openwow::platform::BuildFontPath(
+      openwow::core::LocaleSystem::GetFontForLocale(locale.GetLocale()));
+  loading_screen_.SetFontPath(font_path);
+  floating_text_.SetFontPath(font_path);
+  floating_text_.SetFileLoader(file_loader_);
   world_scene_.world_map().SetFileLoader(file_loader_);
   world_scene_.SetObjectRendererFileLoader(file_loader_);
   world_scene_.SetPrefixFileLoader(prefix_file_loader_);

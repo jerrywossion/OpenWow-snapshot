@@ -103,19 +103,10 @@ bool UnitNameRenderer::EnsureFont() {
   }
   if (!font_failure_reported_) {
     openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "UnitNameRenderer: locale font initialization failed path=" +
-            font_path_ + "; falling back to a system font");
-  }
-  if (text_renderer_.Init(kBaseFontPixelHeight)) {
-    font_failure_reported_ = true;
-    return true;
-  }
-  if (!font_failure_reported_) {
-    openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kError,
-        "UnitNameRenderer: system font fallback also failed path=" +
-            font_path_);
+        "UnitNameRenderer: locale font initialization failed path=" +
+            font_path_ + " source=" +
+            (file_loader_ ? "active-vfs" : "registered-sfile"));
     font_failure_reported_ = true;
   }
   return false;

@@ -179,17 +179,11 @@ bool GameLoadingScreen::Initialize() {
   }
   if (!text_ready) {
     openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "GameLoadingScreen: locale font initialization failed path=" +
-            font_path_ + "; falling back to a system font");
-    text_ready = gpu_->text_renderer.Init(14);
-  }
-  if (!text_ready) {
-    openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kError,
-        "GameLoadingScreen: text renderer initialization failed path=" +
-            font_path_);
-    return false;
+        "GameLoadingScreen: locale font initialization failed path=" +
+            font_path_ + " source=" +
+            (file_loader_ ? "active-vfs" : "registered-sfile") +
+            "; background and progress rendering remain available");
   }
 
   const uint32_t white = 0xFFFFFFFF;
