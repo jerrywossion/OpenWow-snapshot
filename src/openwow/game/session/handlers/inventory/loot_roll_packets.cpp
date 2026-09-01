@@ -12,7 +12,9 @@
 #include "openwow/network/protocol/wotlk/world_packet.h"
 #include "openwow/ui/game/cvar_system.h"
 #include "openwow/ui/game/script_event_dispatch.h"
+#include "openwow/foundation/diagnostics/logging.h"
 
+#include <string>
 #include <utility>
 
 namespace openwow::game {
@@ -63,7 +65,8 @@ void ResolveAllPassed(
           return;
         }
         if (!resolved) {
-          loot.state().DiscardPendingRollAfterCacheFailure(*roll);
+          PresentCompletedRoll(
+              loot.state().DiscardPendingRollAfterCacheFailure(*roll));
           return;
         }
         PresentCompletedRoll(loot.state().CompletePendingRoll(*roll));
@@ -145,6 +148,10 @@ void HandleLootRollWonPacket(
   auto decoded = loot_protocol::DecodeRollWon(
       packet.payload.data(), packet.payload.size());
   if (!decoded.has_value()) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "interaction reject malformed SMSG_LOOT_ROLL_WON bytes=" +
+            std::to_string(packet.payload.size()));
     return;
   }
   loot.HandleLootRollWon(std::move(*decoded));
@@ -167,7 +174,8 @@ void HandleLootRollWonPacket(
           return;
         }
         if (!resolved) {
-          loot.state().DiscardPendingRollAfterCacheFailure(*matched_roll);
+          PresentCompletedRoll(
+              loot.state().DiscardPendingRollAfterCacheFailure(*matched_roll));
           return;
         }
         PresentCompletedRoll(loot.state().CompletePendingRoll(*matched_roll));

@@ -60,11 +60,6 @@ namespace {
 
 constexpr std::uint32_t kMerchantTutorialId = 0x13u;
 
-bool ReadGossipMessageNpcGuid(const net::wotlk::WorldPacket &pkt, std::uint64_t *npc_guid) {
-  PacketReader reader(pkt.payload.data(), pkt.payload.size());
-  return reader.ReadU64(*npc_guid);
-}
-
 void DisplayMerchantListFailureMessage(const ObjectManager& objects,
                                        const char* message) {
   if (message == nullptr || message[0] == '\0') {
@@ -136,15 +131,8 @@ void HandleGossipMessagePacket(
     const std::function<void(std::uint64_t)>& close_interaction,
     const std::function<bool()>& prepare_gossip_text,
     const net::wotlk::WorldPacket& pkt) {
-  std::uint64_t npc_guid = 0;
-  if (ReadGossipMessageNpcGuid(pkt, &npc_guid)) {
-    if (npc_guid != 0) {
-      ui::game::SetNpcInteractionTarget(ObjectGuid(npc_guid));
-    } else if (gossip.has_gossip() && close_interaction) {
-      close_interaction(gossip.gossip().npc_guid.GetRawValue());
-    }
-  }
-
+  const std::uint64_t previous_gossip_guid =
+      gossip.has_gossip() ? gossip.gossip().npc_guid.GetRawValue() : 0;
   if (!gossip.HandleGossipMessage(pkt.payload.data(), pkt.payload.size())) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
@@ -154,6 +142,11 @@ void HandleGossipMessagePacket(
   }
 
   const auto& dialog = gossip.gossip();
+  if (!dialog.npc_guid.IsEmpty()) {
+    ui::game::SetNpcInteractionTarget(dialog.npc_guid);
+  } else if (close_interaction) {
+    close_interaction(previous_gossip_guid);
+  }
   if (queries.HasNpcText(dialog.title_text_id)) {
     if (prepare_gossip_text && prepare_gossip_text()) {
       ui::game::ScriptEventDispatch::Get().FireGossipShow();
@@ -196,6 +189,10 @@ void HandleTrainerListPacket(
     GossipManager& gossip, const std::function<void()>& update_greeting,
     const net::wotlk::WorldPacket& pkt) {
   if (!gossip.HandleTrainerList(pkt.payload.data(), pkt.payload.size())) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "interaction reject malformed SMSG_TRAINER_LIST bytes=" +
+            std::to_string(pkt.payload.size()));
     return;
   }
   if (update_greeting) {
@@ -208,6 +205,10 @@ void HandleMerchantListPacket(ObjectManager& objects, GossipManager& gossip,
                               QueryCache& queries,
                               const net::wotlk::WorldPacket& pkt) {
   if (!gossip.HandleListInventory(pkt.payload.data(), pkt.payload.size())) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "interaction reject malformed SMSG_LIST_INVENTORY bytes=" +
+            std::to_string(pkt.payload.size()));
     return;
   }
 

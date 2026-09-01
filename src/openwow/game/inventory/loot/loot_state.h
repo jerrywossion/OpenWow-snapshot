@@ -108,7 +108,8 @@ class LootState {
                                  std::uint32_t loot_slot) const;
   [[nodiscard]] std::optional<PendingRollRemoval>
   CompletePendingRoll(PendingRollHandle handle);
-  void DiscardPendingRollAfterCacheFailure(PendingRollHandle handle);
+  [[nodiscard]] std::optional<PendingRollRemoval>
+  DiscardPendingRollAfterCacheFailure(PendingRollHandle handle);
   [[nodiscard]] std::optional<PendingRollRemoval>
   RemovePendingRollBySourceAndSlot(std::uint64_t loot_guid,
                                    std::uint32_t loot_slot);
