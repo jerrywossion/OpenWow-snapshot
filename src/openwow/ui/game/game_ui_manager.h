@@ -253,7 +253,7 @@ public:
 
   bool BuildFrameStackSnapshot(bool show_hidden, TooltipFrameStackSnapshot *out_snapshot);
 
-  [[nodiscard]] debug::UiDebugSnapshot BuildDebugSnapshot(
+  [[nodiscard]] debug::UiDebugSnapshot BuildResolvedDebugSnapshot(
       const debug::UiDebugQuery& query);
   void SetDebugSubmissionReceiptsEnabled(bool enabled);
 
