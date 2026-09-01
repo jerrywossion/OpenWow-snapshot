@@ -2164,7 +2164,6 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
     interaction_.SendQueryTime();
   }
 
-  bool waiting_for_template = false;
   std::vector<std::uint32_t> poi_query_ids;
   poi_query_ids.reserve(quests_.quest_log_count());
 
@@ -2199,7 +2198,6 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
                            ui::game::ScriptEventDispatch::Get().FireQuestLogUpdate();
                          }});
     if (tmpl == nullptr) {
-      waiting_for_template = true;
       continue;
     }
 
@@ -2209,7 +2207,7 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
     }
   }
 
-  if (waiting_for_template || poi_query_ids.empty()) {
+  if (poi_query_ids.empty()) {
     return;
   }
 

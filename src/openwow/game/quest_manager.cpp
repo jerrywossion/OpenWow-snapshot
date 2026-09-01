@@ -1332,15 +1332,22 @@ bool QuestManager::HandleQueryQuestsCompleted(const std::uint8_t *data, std::siz
   std::uint32_t count;
   if (!r.ReadU32(count))
     return false;
+  if (count > r.Remaining() / sizeof(std::uint32_t)) {
+    return false;
+  }
 
-  completed_quests_.clear();
-  completed_quests_.reserve(count);
+  std::vector<std::uint32_t> completed_quests;
+  completed_quests.reserve(count);
   for (std::uint32_t i = 0; i < count; ++i) {
     std::uint32_t qid;
     if (!r.ReadU32(qid))
       return false;
-    completed_quests_.push_back(qid);
+    completed_quests.push_back(qid);
   }
+  if (r.Remaining() != 0) {
+    return false;
+  }
+  completed_quests_ = std::move(completed_quests);
   return true;
 }
 

@@ -1511,6 +1511,10 @@ void WorldSession::HandleToggleXpGain(const net::wotlk::WorldPacket &pkt) {
 
 void WorldSession::HandleQueryQuestsCompleted(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQueryQuestsCompleted(pkt.payload.data(), pkt.payload.size())) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "quest snapshot rejected malformed SMSG_QUERY_QUESTS_COMPLETED_RESPONSE bytes=" +
+            std::to_string(pkt.payload.size()));
     return;
   }
 
