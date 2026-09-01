@@ -1133,11 +1133,11 @@ void QuestManager::EraseQuestGiverStatus(const ObjectGuid &guid) {
 }
 
 bool QuestManager::HandleQuestUpdateComplete(const std::uint8_t *data, std::size_t len) {
-  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   std::uint32_t quest_id;
   if (!r.ReadU32(quest_id) || r.Remaining() != 0)
     return false;
+  pending_quest_watch_update_.reset();
   if (auto *entry = FindQuestLogEntry(quest_id)) {
     if (entry->status != QuestStatus::kFailed) {
       if (const auto *tmpl = GetTemplate(quest_id);
@@ -1151,7 +1151,6 @@ bool QuestManager::HandleQuestUpdateComplete(const std::uint8_t *data, std::size
 }
 
 bool QuestManager::HandleQuestUpdateAddKill(const std::uint8_t *data, std::size_t len) {
-  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   std::uint32_t quest_id, current, required;
   std::int32_t entry_id = 0;
@@ -1160,6 +1159,7 @@ bool QuestManager::HandleQuestUpdateAddKill(const std::uint8_t *data, std::size_
       !r.ReadGuid(guid) || r.Remaining() != 0)
     return false;
 
+  pending_quest_watch_update_.reset();
   if (auto *log = FindQuestLogEntry(quest_id)) {
 
     if (auto *tmpl = GetTemplate(quest_id)) {
@@ -1267,22 +1267,28 @@ bool QuestManager::HandleQuestGiverQuestFailed(const std::uint8_t *data, std::si
 
 bool QuestManager::HandleQuestUpdateFailed(const std::uint8_t *data, std::size_t len) {
   PacketReader r(data, len);
-  if (!r.ReadU32(last_update_failed_quest_))
+  std::uint32_t quest_id = 0;
+  if (!r.ReadU32(quest_id))
     return false;
+  last_update_failed_quest_ = quest_id;
   MarkQuestFailedInLog(last_update_failed_quest_, false);
   return true;
 }
 
 bool QuestManager::HandleQuestUpdateAddPvpKill(const std::uint8_t *data, std::size_t len) {
-  pending_quest_watch_update_.reset();
   PacketReader r(data, len);
   QuestPvpKillInfo pk;
-  if (!r.ReadU32(pk.quest_id) || !r.ReadU32(pk.current_count) || !r.ReadU32(pk.required_count))
+  if (!r.ReadU32(pk.quest_id) || !r.ReadU32(pk.current_count))
     return false;
+  pending_quest_watch_update_.reset();
+  const auto *const quest_template = GetTemplate(pk.quest_id);
+  if (quest_template != nullptr) {
+    pk.required_count = quest_template->required_player_kills;
+  }
   last_pvp_kill_ = pk;
   const auto *entry = FindQuestLogEntry(pk.quest_id);
   if (entry != nullptr && entry->status != QuestStatus::kFailed &&
-      GetTemplate(pk.quest_id) != nullptr) {
+      quest_template != nullptr) {
     pending_quest_watch_update_ = pk.quest_id;
   }
   return true;
@@ -1296,15 +1302,19 @@ std::optional<std::uint32_t> QuestManager::TakeQuestWatchUpdateQuestId() {
 
 bool QuestManager::HandleQuestForceRemove(const std::uint8_t *data, std::size_t len) {
   PacketReader r(data, len);
-  if (!r.ReadU32(force_remove_quest_))
+  std::uint32_t quest_id = 0;
+  if (!r.ReadU32(quest_id))
     return false;
+  force_remove_quest_ = quest_id;
   return true;
 }
 
 bool QuestManager::HandleQuestgiverQuestInvalid(const std::uint8_t *data, std::size_t len) {
   PacketReader r(data, len);
-  if (!r.ReadU32(quest_invalid_reason_))
+  std::uint32_t reason = 0;
+  if (!r.ReadU32(reason))
     return false;
+  quest_invalid_reason_ = reason;
   return true;
 }
 
@@ -1321,8 +1331,10 @@ bool QuestManager::HandleQuestUpdateAddItem(const std::uint8_t *data, std::size_
 
 bool QuestManager::HandleQuestUpdateFailedTimer(const std::uint8_t *data, std::size_t len) {
   PacketReader r(data, len);
-  if (!r.ReadU32(failed_timer_quest_))
+  std::uint32_t quest_id = 0;
+  if (!r.ReadU32(quest_id))
     return false;
+  failed_timer_quest_ = quest_id;
   MarkQuestFailedInLog(failed_timer_quest_, true);
   return true;
 }
@@ -1343,9 +1355,6 @@ bool QuestManager::HandleQueryQuestsCompleted(const std::uint8_t *data, std::siz
     if (!r.ReadU32(qid))
       return false;
     completed_quests.push_back(qid);
-  }
-  if (r.Remaining() != 0) {
-    return false;
   }
   completed_quests_ = std::move(completed_quests);
   return true;

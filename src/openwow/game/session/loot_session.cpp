@@ -374,11 +374,7 @@ void WorldSession::HandleLootMoneyNotify(const net::wotlk::WorldPacket &pkt) {
                            nullptr, 0, 0, 0, 0, 0, nullptr);
 }
 
-void WorldSession::HandleLootClearMoney(const net::wotlk::WorldPacket &pkt) {
-  if (!pkt.payload.empty()) {
-    LogMalformedLootPacket("SMSG_LOOT_CLEAR_MONEY", pkt.payload.size());
-    return;
-  }
+void WorldSession::HandleLootClearMoney(const net::wotlk::WorldPacket &) {
   const auto result = loot_.HandleLootClearMoney();
   if (!result.cleared_gold) {
     return;

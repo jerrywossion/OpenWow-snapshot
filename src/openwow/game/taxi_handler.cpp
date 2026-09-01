@@ -43,10 +43,6 @@ TaxiShowResult TaxiHandler::HandleShowTaxiNodes(const std::uint8_t* data,
     display.mask[word] = static_cast<std::uint32_t>(mask_pair);
     display.mask[word + 1] = static_cast<std::uint32_t>(mask_pair >> 32);
   }
-  if (reader.Remaining() != 0) {
-    return TaxiShowResult::kParseError;
-  }
-
   display_ = display;
   reachable_count_ = CountSetTaxiNodes(display_);
 
@@ -68,7 +64,7 @@ bool TaxiHandler::HandleActivateTaxiReply(const std::uint8_t* data,
                                             std::size_t len) {
   PacketReader reader(data, len);
   std::uint32_t reply = 0;
-  if (!reader.ReadU32(reply) || reader.Remaining() != 0) {
+  if (!reader.ReadU32(reply)) {
     return false;
   }
   reply_ = static_cast<TaxiReply>(reply);
@@ -91,8 +87,7 @@ bool TaxiHandler::HandleTaxiNodeStatus(const std::uint8_t* data,
                                          std::size_t len) {
   PacketReader r(data, len);
   TaxiNodeStatus status;
-  if (!r.ReadU64(status.npc_guid) || !r.ReadU8(status.status) ||
-      r.Remaining() != 0) {
+  if (!r.ReadU64(status.npc_guid) || !r.ReadU8(status.status)) {
     return false;
   }
   status_ = status;

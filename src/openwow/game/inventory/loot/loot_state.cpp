@@ -281,7 +281,7 @@ std::optional<PendingRollRemoval> LootState::CompletePendingRoll(
   return CompletePendingRollEntry(it);
 }
 
-std::optional<PendingRollRemoval> LootState::DiscardPendingRollAfterCacheFailure(
+void LootState::DiscardPendingRollAfterCacheFailure(
     const PendingRollHandle handle) {
   const auto it = std::find_if(
       pending_rolls_.begin(), pending_rolls_.end(),
@@ -290,9 +290,9 @@ std::optional<PendingRollRemoval> LootState::DiscardPendingRollAfterCacheFailure
                entry.lifetime_token == handle.lifetime_token;
       });
   if (it == pending_rolls_.end()) {
-    return std::nullopt;
+    return;
   }
-  return CompletePendingRollEntry(it);
+  pending_rolls_.erase(it);
 }
 
 std::vector<PendingRollStartEvent> LootState::NotifyItemTemplateReady(
@@ -439,8 +439,8 @@ PendingRollRemoval LootState::CompletePendingRollEntry(
     const std::list<PendingRollEntry>::iterator entry) {
   PendingRollRemoval removal;
   removal.roll_id = entry->roll_id;
-  removal.fire_cancel_event = entry->is_visible && !entry->response_submitted;
-  if (entry->is_visible && visible_pending_roll_count_ > 0) {
+  removal.fire_cancel_event = !entry->response_submitted;
+  if (removal.fire_cancel_event) {
     --visible_pending_roll_count_;
   }
   pending_rolls_.erase(entry);

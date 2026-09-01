@@ -60,8 +60,7 @@ std::optional<std::pair<ObjectGuid, bool>> DecodeLootReleaseResponse(
   PacketReader reader(data, size);
   ObjectGuid source;
   std::uint8_t accepted = 0;
-  if (!reader.ReadGuid(source) || !reader.ReadU8(accepted) ||
-      reader.Remaining() != 0) {
+  if (!reader.ReadGuid(source) || !reader.ReadU8(accepted)) {
     return std::nullopt;
   }
   return std::pair{source, accepted != 0};
@@ -82,8 +81,7 @@ std::optional<LootMoneyNotify> DecodeMoneyNotify(const std::uint8_t* data,
   PacketReader reader(data, size);
   LootMoneyNotify notify;
   std::uint8_t solo = 0;
-  if (!reader.ReadU32(notify.copper) || !reader.ReadU8(solo) ||
-      reader.Remaining() != 0) {
+  if (!reader.ReadU32(notify.copper) || !reader.ReadU8(solo)) {
     return std::nullopt;
   }
   notify.is_solo = solo != 0;
@@ -100,7 +98,7 @@ std::optional<LootRollWon> DecodeRollWon(const std::uint8_t* data,
       !reader.ReadU32(result.random_property_id) ||
       !reader.ReadU64(result.winner_guid) ||
       !reader.ReadU8(result.roll_number) ||
-      !reader.ReadU8(result.roll_type) || reader.Remaining() != 0) {
+      !reader.ReadU8(result.roll_type)) {
     return std::nullopt;
   }
   return result;

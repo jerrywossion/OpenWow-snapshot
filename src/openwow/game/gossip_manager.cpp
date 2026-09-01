@@ -1,8 +1,6 @@
 
 #include "openwow/game/gossip_manager.h"
 
-#include <algorithm>
-
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/packet_reader.h"
 #include "openwow/network/protocol/wotlk/opcodes.h"
@@ -27,15 +25,24 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
 
   std::uint32_t gossip_count;
   if (!r.ReadU32(gossip_count)) return false;
+  if (gossip_count > kMaxGossipMenuItems) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "gossip snapshot exceeds original option capacity guid=" +
+            d.npc_guid.ToString() + " options=" +
+            std::to_string(gossip_count) + " capacity=" +
+            std::to_string(kMaxGossipMenuItems));
+    return false;
+  }
   constexpr std::size_t kMinimumGossipItemWireBytes =
       2u * sizeof(std::uint32_t) + 2u * sizeof(std::uint8_t) + 2u;
   if (gossip_count > r.Remaining() / kMinimumGossipItemWireBytes) {
     return false;
   }
-  d.items.reserve(std::min<std::size_t>(gossip_count, kMaxGossipMenuItems));
+  d.items.resize(gossip_count);
 
   for (std::uint32_t i = 0; i < gossip_count; ++i) {
-    GossipMenuItem item;
+    auto &item = d.items[i];
     std::uint8_t is_coded;
     if (!r.ReadU32(item.menu_item_id) || !r.ReadU8(item.icon) ||
         !r.ReadU8(is_coded) || !r.ReadU32(item.box_money) ||
@@ -43,22 +50,28 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
         !r.ReadCString(item.box_message, kGossipOptionTextMaxBytesIncludingNul))
       return false;
     item.is_coded = is_coded != 0;
-    if (d.items.size() < kMaxGossipMenuItems) {
-      d.items.push_back(std::move(item));
-    }
   }
 
   std::uint32_t quest_count;
   if (!r.ReadU32(quest_count)) return false;
+  if (quest_count > kMaxGossipQuestItems) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "gossip snapshot exceeds original quest capacity guid=" +
+            d.npc_guid.ToString() + " quests=" +
+            std::to_string(quest_count) + " capacity=" +
+            std::to_string(kMaxGossipQuestItems));
+    return false;
+  }
   constexpr std::size_t kMinimumGossipQuestWireBytes =
       4u * sizeof(std::uint32_t) + sizeof(std::uint8_t) + 1u;
   if (quest_count > r.Remaining() / kMinimumGossipQuestWireBytes) {
     return false;
   }
-  d.quests.reserve(std::min<std::size_t>(quest_count, kMaxGossipQuestItems));
+  d.quests.resize(quest_count);
 
   for (std::uint32_t i = 0; i < quest_count; ++i) {
-    GossipQuestItem q;
+    auto &q = d.quests[i];
     std::uint8_t repeatable;
     if (!r.ReadU32(q.quest_id) || !r.ReadU32(q.quest_icon) ||
         !r.ReadI32(q.quest_level) || !r.ReadU32(q.quest_flags) ||
@@ -66,24 +79,6 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
         !r.ReadCString(q.title, kGossipQuestTitleMaxBytesIncludingNul))
       return false;
     q.is_repeatable = repeatable != 0;
-    if (d.quests.size() < kMaxGossipQuestItems) {
-      d.quests.push_back(std::move(q));
-    }
-  }
-  if (r.Remaining() != 0) {
-    return false;
-  }
-
-  if (gossip_count > kMaxGossipMenuItems ||
-      quest_count > kMaxGossipQuestItems) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "gossip snapshot exceeded display capacity guid=" +
-            d.npc_guid.ToString() + " options=" +
-            std::to_string(gossip_count) + " retainedOptions=" +
-            std::to_string(d.items.size()) + " quests=" +
-            std::to_string(quest_count) + " retainedQuests=" +
-            std::to_string(d.quests.size()));
   }
 
   gossip_ = std::move(d);
@@ -123,7 +118,7 @@ bool GossipManager::HandleTrainerList(const std::uint8_t* data,
     s.req_level = req_level;
   }
 
-  if (!r.ReadCString(t.greeting) || r.Remaining() != 0) return false;
+  if (!r.ReadCString(t.greeting)) return false;
 
   trainer_ = std::move(t);
   interaction_guid_ = trainer_->trainer_guid;
@@ -143,7 +138,7 @@ bool GossipManager::HandleListInventory(const std::uint8_t* data,
 
   if (item_count == 0) {
     std::uint8_t reason = 0;
-    if (!r.ReadU8(reason) || r.Remaining() != 0) return false;
+    if (!r.ReadU8(reason)) return false;
 
     switch (reason) {
       case 0:
@@ -182,8 +177,6 @@ bool GossipManager::HandleListInventory(const std::uint8_t* data,
     }
     vi.max_count = max_count;
   }
-  if (r.Remaining() != 0) return false;
-
   merchant_.ObserveSnapshot(std::move(v), VendorListResult::kItems);
   return true;
 }

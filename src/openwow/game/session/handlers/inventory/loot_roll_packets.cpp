@@ -65,8 +65,7 @@ void ResolveAllPassed(
           return;
         }
         if (!resolved) {
-          PresentCompletedRoll(
-              loot.state().DiscardPendingRollAfterCacheFailure(*roll));
+          loot.state().DiscardPendingRollAfterCacheFailure(*roll);
           return;
         }
         PresentCompletedRoll(loot.state().CompletePendingRoll(*roll));
@@ -174,8 +173,7 @@ void HandleLootRollWonPacket(
           return;
         }
         if (!resolved) {
-          PresentCompletedRoll(
-              loot.state().DiscardPendingRollAfterCacheFailure(*matched_roll));
+          loot.state().DiscardPendingRollAfterCacheFailure(*matched_roll);
           return;
         }
         PresentCompletedRoll(loot.state().CompletePendingRoll(*matched_roll));

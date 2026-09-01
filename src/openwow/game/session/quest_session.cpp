@@ -146,6 +146,14 @@ void LogQuestDialogTransition(const std::string &what,
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo, line.str());
 }
 
+void LogMalformedQuestPacket(const std::string_view opcode,
+                             const std::size_t payload_size) {
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "quest replication reject malformed " + std::string(opcode) +
+          " bytes=" + std::to_string(payload_size));
+}
+
 void PublishPendingQuestWatchUpdate(WorldSession &session) {
   const auto quest_id = session.quests().TakeQuestWatchUpdateQuestId();
   if (!quest_id.has_value()) {
@@ -435,7 +443,9 @@ void DisplayQuestCompletionRewardItemMessages(WorldSession &session, const std::
 }
 
 void WorldSession::HandleQuestQueryResponse(const net::wotlk::WorldPacket &pkt) {
-  quests_.HandleQuestQueryResponse(pkt.payload.data(), pkt.payload.size());
+  if (!quests_.HandleQuestQueryResponse(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUEST_QUERY_RESPONSE", pkt.payload.size());
+  }
 }
 
 bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &pkt) {
@@ -446,10 +456,7 @@ bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &p
 
   if (!quests_.HandleQuestGiverQuestDetails(pkt.payload.data(),
                                              pkt.payload.size())) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "interaction reject malformed SMSG_QUESTGIVER_QUEST_DETAILS bytes=" +
-            std::to_string(pkt.payload.size()));
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_QUEST_DETAILS", pkt.payload.size());
     return false;
   }
 
@@ -492,10 +499,7 @@ bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &p
 bool WorldSession::HandleQuestGiverOfferReward(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestGiverOfferReward(pkt.payload.data(),
                                              pkt.payload.size())) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "interaction reject malformed SMSG_QUESTGIVER_OFFER_REWARD bytes=" +
-            std::to_string(pkt.payload.size()));
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_OFFER_REWARD", pkt.payload.size());
     return false;
   }
 
@@ -525,10 +529,7 @@ bool WorldSession::HandleQuestGiverOfferReward(const net::wotlk::WorldPacket &pk
 bool WorldSession::HandleQuestGiverRequestItems(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestGiverRequestItems(pkt.payload.data(),
                                             pkt.payload.size())) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "interaction reject malformed SMSG_QUESTGIVER_REQUEST_ITEMS bytes=" +
-            std::to_string(pkt.payload.size()));
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_REQUEST_ITEMS", pkt.payload.size());
     return false;
   }
 
@@ -574,6 +575,7 @@ constexpr std::uint32_t kNpcFlagQuestGiver = 0x00000002u;
 
 bool WorldSession::HandleQuestGiverStatus(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestGiverStatus(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_STATUS", pkt.payload.size());
     return false;
   }
 
@@ -597,6 +599,7 @@ bool WorldSession::HandleQuestGiverStatus(const net::wotlk::WorldPacket &pkt) {
 
 bool WorldSession::HandleQuestGiverStatusMultiple(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestGiverStatusMultiple(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_STATUS_MULTIPLE", pkt.payload.size());
     return false;
   }
 
@@ -620,6 +623,7 @@ bool WorldSession::HandleQuestUpdateComplete(const net::wotlk::WorldPacket &pkt)
     PublishPendingQuestWatchUpdate(*this);
     return true;
   }
+  LogMalformedQuestPacket("SMSG_QUESTUPDATE_COMPLETE", pkt.payload.size());
   return false;
 }
 
@@ -628,12 +632,14 @@ bool WorldSession::HandleQuestUpdateAddKill(const net::wotlk::WorldPacket &pkt) 
     PublishPendingQuestWatchUpdate(*this);
     return true;
   }
+  LogMalformedQuestPacket("SMSG_QUESTUPDATE_ADD_KILL", pkt.payload.size());
   return false;
 }
 
 void WorldSession::HandleQuestConfirmAccept(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestConfirmAccept(pkt.payload.data(), pkt.payload.size()) ||
       !quests_.has_pending_confirm_accept()) {
+    LogMalformedQuestPacket("SMSG_QUEST_CONFIRM_ACCEPT", pkt.payload.size());
     return;
   }
 
@@ -656,6 +662,7 @@ bool WorldSession::HandleQuestGiverQuestComplete(const net::wotlk::WorldPacket &
       !reader.ReadU32(complete.honor_reward) ||
       !reader.ReadU32(complete.talent_reward) ||
       !reader.ReadU32(complete.arena_points) || reader.Remaining() != 0) {
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_QUEST_COMPLETE", pkt.payload.size());
     return false;
   }
   last_quest_complete_ = complete;
@@ -703,11 +710,13 @@ bool WorldSession::HandleQuestGiverQuestList(const net::wotlk::WorldPacket &pkt)
       }
     }
   }
+  LogMalformedQuestPacket("SMSG_QUESTGIVER_QUEST_LIST", pkt.payload.size());
   return false;
 }
 
 bool WorldSession::HandleQuestPoiQueryResponse(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestPoiQueryResponse(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUEST_POI_QUERY_RESPONSE", pkt.payload.size());
     return false;
   }
   auto &poi_data = QuestPOIData::Get();
@@ -745,12 +754,15 @@ bool WorldSession::HandleQuestPoiQueryResponse(const net::wotlk::WorldPacket &pk
 }
 
 void WorldSession::HandleQuestPushResult(const net::wotlk::WorldPacket &pkt) {
-  quests_.HandleQuestPushResult(pkt.payload.data(), pkt.payload.size());
+  if (!quests_.HandleQuestPushResult(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("MSG_QUEST_PUSH_RESULT", pkt.payload.size());
+  }
 }
 
 void WorldSession::HandleQuestGiverQuestFailed(const net::wotlk::WorldPacket &pkt) {
   const auto dialog = GetActiveQuestDialogCloseState(quests_);
   if (!quests_.HandleQuestGiverQuestFailed(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_QUEST_FAILED", pkt.payload.size());
     return;
   }
   DisplayQuestgiverQuestFailedMessage(*this, *quests_.last_quest_failed());
@@ -759,6 +771,7 @@ void WorldSession::HandleQuestGiverQuestFailed(const net::wotlk::WorldPacket &pk
 
 void WorldSession::HandleQuestUpdateFailed(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestUpdateFailed(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTUPDATE_FAILED", pkt.payload.size());
     return;
   }
 
@@ -767,13 +780,25 @@ void WorldSession::HandleQuestUpdateFailed(const net::wotlk::WorldPacket &pkt) {
 
 void WorldSession::HandleQuestUpdateAddPvpKill(const net::wotlk::WorldPacket &pkt) {
   if (quests_.HandleQuestUpdateAddPvpKill(pkt.payload.data(), pkt.payload.size())) {
+    const auto &kill = quests_.last_pvp_kill();
+    if (kill.has_value() && quests_.GetTemplate(kill->quest_id) == nullptr) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "quest update references unresolved template "
+          "opcode=SMSG_QUESTUPDATE_ADD_PVP_KILL quest=" +
+              std::to_string(kill->quest_id));
+    }
     PublishPendingQuestWatchUpdate(*this);
+    return;
   }
+  LogMalformedQuestPacket("SMSG_QUESTUPDATE_ADD_PVP_KILL", pkt.payload.size());
 }
 
 void WorldSession::HandleQuestForceRemove(const net::wotlk::WorldPacket &pkt) {
-  if (!quests_.HandleQuestForceRemove(pkt.payload.data(), pkt.payload.size()))
+  if (!quests_.HandleQuestForceRemove(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUEST_FORCE_REMOVE", pkt.payload.size());
     return;
+  }
 
   const auto *tmpl = quests_.GetTemplate(quests_.force_remove_quest());
   if (tmpl) {
@@ -785,6 +810,7 @@ void WorldSession::HandleQuestForceRemove(const net::wotlk::WorldPacket &pkt) {
 void WorldSession::HandleQuestgiverQuestInvalid(const net::wotlk::WorldPacket &pkt) {
   const auto dialog = GetActiveQuestDialogCloseState(quests_);
   if (!quests_.HandleQuestgiverQuestInvalid(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTGIVER_QUEST_INVALID", pkt.payload.size());
     return;
   }
   DisplayQuestgiverQuestInvalidMessage(quests_.quest_invalid_reason());
@@ -792,11 +818,14 @@ void WorldSession::HandleQuestgiverQuestInvalid(const net::wotlk::WorldPacket &p
 }
 
 void WorldSession::HandleQuestUpdateAddItem(const net::wotlk::WorldPacket &pkt) {
-  quests_.HandleQuestUpdateAddItem(pkt.payload.data(), pkt.payload.size());
+  if (!quests_.HandleQuestUpdateAddItem(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTUPDATE_ADD_ITEM", pkt.payload.size());
+  }
 }
 
 void WorldSession::HandleQuestUpdateFailedTimer(const net::wotlk::WorldPacket &pkt) {
   if (!quests_.HandleQuestUpdateFailedTimer(pkt.payload.data(), pkt.payload.size())) {
+    LogMalformedQuestPacket("SMSG_QUESTUPDATE_FAILEDTIMER", pkt.payload.size());
     return;
   }
 
