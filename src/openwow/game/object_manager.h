@@ -450,8 +450,15 @@ private:
     std::optional<FieldUpdateBatch> changed_fields;
   };
 
+  struct DeferredPrepassCreate {
+    ObjectGuid guid;
+    FieldUpdateBatch changed_fields;
+  };
+
   std::vector<DeferredPrepassValues> deferred_prepass_values_;
   std::size_t deferred_prepass_values_cursor_{0};
+  std::vector<DeferredPrepassCreate> deferred_prepass_creates_;
+  std::size_t deferred_prepass_creates_cursor_{0};
   ObjectGuid local_player_guid_;
   ObjectGuid active_player_corpse_guid_;
   ObjectGuid target_;
@@ -500,6 +507,8 @@ private:
       CGObject_C &object, const CreateObjectUpdate &upd);
 
   void OnCreate(const CreateObjectUpdate &upd);
+  [[nodiscard]] std::optional<FieldUpdateBatch>
+  ConsumeDeferredPrepassCreate(ObjectGuid guid);
   void ApplyPrepassValues(const ValuesUpdate &upd);
   [[nodiscard]] std::optional<FieldUpdateBatch>
   ConsumeDeferredPrepassValues(ObjectGuid guid);
