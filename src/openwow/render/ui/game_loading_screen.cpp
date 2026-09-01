@@ -167,7 +167,15 @@ bool GameLoadingScreen::Initialize() {
 
   bool text_ready = false;
   if (!font_path_.empty()) {
-    text_ready = gpu_->text_renderer.InitFromVirtualPath(font_path_, 14);
+    if (file_loader_) {
+      auto font_bytes = file_loader_(font_path_);
+      if (!font_bytes.empty()) {
+        text_ready = gpu_->text_renderer.InitFromMemory(
+            font_path_, std::move(font_bytes), 14);
+      }
+    } else {
+      text_ready = gpu_->text_renderer.InitFromVirtualPath(font_path_, 14);
+    }
   }
   if (!text_ready) {
     openwow::diagnostics::Log(
