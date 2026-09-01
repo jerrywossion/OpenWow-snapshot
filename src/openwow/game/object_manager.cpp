@@ -1548,7 +1548,7 @@ void ObjectManager::ApplyPrepassValues(const ValuesUpdate &upd) {
   if (promoted_from_pending) {
     FinalizePacketUpdatePromotion(callbacks_, *object);
   }
-  if (!batch.value_changes.empty()) {
+  if (!batch.updated_fields.empty()) {
     deferred.changed_fields = batch;
   }
 }
@@ -1588,7 +1588,7 @@ void ObjectManager::OnValues(const ValuesUpdate &upd) {
   if (callbacks_.on_object_updated && !batch.value_changes.empty())
     callbacks_.on_object_updated(*object);
 
-  if (callbacks_.on_fields_changed && !batch.value_changes.empty()) {
+  if (callbacks_.on_fields_changed && !batch.updated_fields.empty()) {
     callbacks_.on_fields_changed(*object, batch, false);
   }
 }

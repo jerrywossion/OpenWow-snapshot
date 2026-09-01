@@ -186,12 +186,6 @@ constexpr std::array kPushPlayerEventRegistrations{
                                 ui::game::events::KNOWN_TITLES_UPDATE},
     PushPlayerEventRegistration{TypeID::kPlayer, 0x788, 8,
                                 ui::game::events::KNOWN_TITLES_UPDATE},
-    PushPlayerEventRegistration{TypeID::kPlayer, 0xFF4, 4,
-                                ui::game::events::UPDATE_EXHAUSTION},
-    PushPlayerEventRegistration{TypeID::kPlayer, 0x798, 4,
-                                ui::game::events::PLAYER_XP_UPDATE},
-    PushPlayerEventRegistration{TypeID::kPlayer, 0x79C, 4,
-                                ui::game::events::PLAYER_XP_UPDATE},
     PushPlayerEventRegistration{TypeID::kPlayer, 0xFFC, 0x1C,
                                 ui::game::events::PLAYER_DAMAGE_DONE_MODS},
     PushPlayerEventRegistration{TypeID::kPlayer, 0x1018, 0x1C,
@@ -2538,121 +2532,26 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
       continue;
 
     if (evt.needs_unit_token) {
-
-      std::uint64_t guid = evt.guid_raw;
-
-      if (std::strcmp(evt.event_name, "UNIT_HEALTH") == 0) {
-        dispatch.FireUnitHealth(guid);
-      } else if (std::strcmp(evt.event_name, "UNIT_MAXHEALTH") == 0) {
-        dispatch.FireUnitMaxHealth(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_MAXMANA") == 0 ||
-                 std::strcmp(evt.event_name, "UNIT_MAXRAGE") == 0 ||
-                 std::strcmp(evt.event_name, "UNIT_MAXFOCUS") == 0 ||
-                 std::strcmp(evt.event_name, "UNIT_MAXENERGY") == 0 ||
-                 std::strcmp(evt.event_name, "UNIT_MAXHAPPINESS") == 0 ||
-                 std::strcmp(evt.event_name, "UNIT_MAXRUNIC_POWER") == 0) {
-        dispatch.FireUnitMaxPowerSpecific(guid, evt.power_type);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_MANA") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_RAGE") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_FOCUS") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_ENERGY") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_HAPPINESS") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_RUNIC_POWER") == 0) {
-        dispatch.FireUnitPowerSpecific(guid, evt.power_type);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_LEVEL") == 0) {
-        dispatch.FireUnitLevel(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_FLAGS") == 0) {
-        dispatch.FireUnitFlags(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_TARGET") == 0) {
-        dispatch.FireUnitTarget(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_MODEL_CHANGED") == 0) {
-        dispatch.FireUnitModel(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_PORTRAIT_UPDATE") == 0) {
-        dispatch.FireUnitPortrait(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_STATS") == 0) {
-        dispatch.FireUnitStats(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_ATTACK_POWER") == 0) {
-        dispatch.FireUnitAttackPower(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_ATTACK_SPEED") == 0) {
-        dispatch.FireUnitAttackSpeed(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_DAMAGE") == 0) {
-        dispatch.FireUnitAttack(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_RANGEDDAMAGE") == 0 ||
-               std::strcmp(evt.event_name, "UNIT_RANGED_ATTACK_POWER") == 0) {
-        dispatch.FireUnitRangedAttackPower(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_RESISTANCES") == 0) {
-        dispatch.FireUnitResistances(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_DEFENSE") == 0) {
-        dispatch.FireUnitDefense(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_FACTION") == 0) {
-        dispatch.FireUnitFaction(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_DISPLAYPOWER") == 0) {
-        dispatch.FireUnitDisplayPower(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_INVENTORY_CHANGED") == 0) {
-        dispatch.FireUnitInventoryChanged(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_PET") == 0) {
-        dispatch.FireUnitPet(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_AURA") == 0) {
-        dispatch.FireUnitAura(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_DYNAMIC_FLAGS") == 0) {
-        dispatch.FireUnitFlags(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "UNIT_COMBO_POINTS") == 0) {
-        dispatch.FireUnitComboPoints(guid);
-      }
-
-      else if (std::strcmp(evt.event_name, "PLAYER_GUILD_UPDATE") == 0) {
-        dispatch.FirePerUnitEvent(ui::game::events::PLAYER_GUILD_UPDATE, guid);
+      dispatch.FirePerUnitEvent(evt.event_name, evt.guid_raw);
+      if (std::strcmp(evt.event_name, "PLAYER_GUILD_UPDATE") == 0) {
         dispatch.FireEvent(ui::game::events::TABARD_CANSAVE_CHANGED);
       }
     }
 
     else {
       if (std::strcmp(evt.event_name, "PLAYER_XP_UPDATE") == 0) {
-        dispatch.FirePlayerXP();
+        if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
+          dispatch.FirePlayerXP();
+        }
       } else if (std::strcmp(evt.event_name, "PLAYER_MONEY") == 0) {
-        dispatch.FirePlayerMoney();
+        if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
+          dispatch.FirePlayerMoney();
+        }
+      } else if (std::strcmp(evt.event_name, "UPDATE_EXHAUSTION") == 0) {
+        if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
+          dispatch.FireEventArgs(ui::game::events::UPDATE_EXHAUSTION,
+                                 {std::string("player")});
+        }
       } else if (std::strcmp(evt.event_name, "PLAYER_FLAGS_CHANGED") == 0) {
         dispatch.FirePlayerFlags();
       } else if (std::strcmp(evt.event_name, "PLAYER_TALENT_UPDATE") == 0) {

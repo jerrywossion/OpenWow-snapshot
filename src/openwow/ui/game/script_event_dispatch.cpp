@@ -113,9 +113,6 @@ void AppendManualSupplementalTokenMatches(
     const std::uint64_t guid,
     std::vector<std::string> &result) {
   AppendIndexedTokensIfGuidMatches(token_to_guid, guid, "boss", 16, result);
-  AppendIndexedTokensIfGuidMatches(token_to_guid, guid, "commentator", 10, result);
-  AppendTokenIfGuidMatches(token_to_guid, guid, "questnpc", result);
-  AppendTokenIfGuidMatches(token_to_guid, guid, "none", result);
 }
 
 bool IsSessionOwnedToken(const std::string &token) {
@@ -272,8 +269,6 @@ void AppendSessionSelectionTokenMatches(
                            "focus", result);
   AppendTokenIfGuidMatches(guid, objects.GetNpcGuid().GetRawValue(), "npc",
                            result);
-  AppendTokenIfGuidMatches(guid, objects.GetMouseoverGuid().GetRawValue(),
-                           "mouseover", result);
 }
 
 void AppendUniqueGuid(std::vector<std::uint64_t> &guids, const std::uint64_t guid) {
@@ -424,6 +419,10 @@ std::vector<std::string> UnitTokenRegistry::AllTokensForGuid(
     AppendSessionSelectionTokenMatches(*session, guid, result);
   } else {
     AppendManualTokenMatches(token_to_guid_, guid, result);
+  }
+
+  if (session != nullptr) {
+    return result;
   }
 
   std::vector<std::string> extras;

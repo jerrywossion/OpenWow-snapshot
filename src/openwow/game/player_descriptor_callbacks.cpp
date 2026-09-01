@@ -31,7 +31,6 @@
 #include "openwow/game/objects/cgplayer.h"
 #include "openwow/game/shapeshift_bonus_bar.h"
 #include "openwow/game/spell_shapeshift_mask.h"
-#include "openwow/game/player_unit_field_event_callbacks.h"
 #include "openwow/game/profession_system.h"
 #include "openwow/game/skill_info.h"
 #include "openwow/game/commerce/trade/trade_interaction.h"
@@ -986,11 +985,7 @@ void OnComboTargetDescriptorChanged(
 
     if (!new_guid.IsEmpty()) {
       const auto *unit = objects.GetUnit(new_guid);
-      if (unit != nullptr) {
-
-        Player_RegisterUnitFieldEventCallbacks(
-            const_cast<void *>(static_cast<const void *>(unit)));
-      } else if (new_guid != old_guid) {
+      if (unit == nullptr && new_guid != old_guid) {
 
         if (auto *targeting_system = session.targeting_system();
             targeting_system != nullptr) {
@@ -1005,12 +1000,6 @@ void OnComboTargetDescriptorChanged(
       }
     }
 
-    if (!old_guid.IsEmpty()) {
-      if (const auto* unit = objects.GetUnit(old_guid); unit != nullptr) {
-        Player_RegisterUnitFieldEventCallbacks(
-            const_cast<void*>(static_cast<const void*>(unit)));
-      }
-    }
   }
 
   if (ObjectGuid(player_guid) == active_guid) {
@@ -1039,8 +1028,6 @@ void OnCoinageDescriptorChanged(WorldSession& session,
 
   ui::game::ScriptEventDispatch::Get().FireEvent(
       ui::game::events::TRAINER_UPDATE);
-
-  ui::game::ScriptEventDispatch::Get().FirePlayerMoney();
 
   const auto* player = session.objects().GetLocalPlayer();
   if (player != nullptr) {
