@@ -2407,7 +2407,9 @@ void UnitAnimationRuntime::ApplySelectedStandAnimation(
   SetSelectedStandAnimationState(animation_id, animation_flags);
 
   const bool looping = AnimationSequenceLoops(animation_id);
-  RequestPlayback(animation_id, looping, !looping,
+  const bool restart =
+      !looping && (animation_flags & kStandSelectorReplayFlag) != 0u;
+  RequestPlayback(animation_id, looping, restart,
                   EmoteAnimationFlagsBypassAliasResolution(animation_flags));
 }
 
