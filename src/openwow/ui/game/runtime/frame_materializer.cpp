@@ -693,6 +693,8 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
     std::size_t next_child;
   };
   std::vector<std::uint8_t> finalized(plan.frames.size());
+  std::vector<std::size_t> finalize_order;
+  finalize_order.reserve(plan.frames.size());
   std::vector<Cursor> stack;
   stack.reserve(plan.frames.size());
   for (std::size_t root_index = 0; root_index < plan.frames.size();
@@ -736,8 +738,14 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
         lua_settop(lua_, top);
       }
       WireScriptHandlers(plan.frames[frame], refs[frame]);
+      finalize_order.push_back(frame);
       ++metrics_.finalize_dispatches;
     }
+  }
+  dependencies_.layout.SolveIfDirty();
+  for (const std::size_t frame : finalize_order) {
+    if (refs[frame] != LUA_NOREF)
+      InvokeOnLoad(plan.frames[frame], refs[frame]);
   }
   if (push_root_result) lua_rawgeti(lua_, LUA_REGISTRYINDEX, refs[0]);
   return refs[0];

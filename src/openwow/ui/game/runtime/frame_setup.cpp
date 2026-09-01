@@ -458,6 +458,19 @@ void FrameMaterializer::WireScriptHandlers(const UiFrame &frame, int ref) {
     if (auto *tracked = dependencies_.frames.FindFrame(key); tracked != nullptr)
       SyncRuntimeMetadata(index, *tracked);
   }
+  lua_settop(lua_, top);
+}
+
+void FrameMaterializer::InvokeOnLoad(const UiFrame &frame, int ref) {
+  if (lua_ == nullptr || frame.script_handlers.empty())
+    return;
+  const int top = lua_gettop(lua_);
+  lua_rawgeti(lua_, LUA_REGISTRYINDEX, ref);
+  if (!lua_istable(lua_, -1)) {
+    lua_settop(lua_, top);
+    return;
+  }
+  const int index = lua_absindex(lua_, -1);
   const auto *on_load = LookupFrameScriptTypeInfo(frame.kind, "OnLoad");
   const auto invocation = InvokeFrameScriptHandler(
       lua_, index, on_load != nullptr ? on_load->canonical_name : "OnLoad", 0);

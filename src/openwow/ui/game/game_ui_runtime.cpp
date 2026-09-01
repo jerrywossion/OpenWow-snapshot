@@ -10,9 +10,11 @@
 #include "openwow/ui/display/settings/adapters/production_display_settings_runtime.h"
 #include "openwow/ui/game/game_ui_core.h"
 #include "openwow/ui/game/game_ui_scale.h"
+#include "openwow/ui/game/framescript/core/frame_script_invocation.h"
 #include "openwow/ui/game/framescript/core/frame_types_widgets.h"
 #include "openwow/ui/game/tooltip_object_bridge.h"
 #include "openwow/ui/game/tooltip_frame_sync.h"
+#include "openwow/ui/lua_c_api_convenience.h"
 #include "openwow/foundation/diagnostics/logging.h"
 
 #include <lua.hpp>
@@ -102,6 +104,11 @@ GameUIManager::GameUIManager(
           .hit_test_invalidated = [this] {
             frame_traversal_index_.InvalidateHitTest();
           },
+          .size_committed =
+              [this](const std::string_view name, const float width,
+                     const float height) {
+                PublishFrameSizeChanged(name, width, height);
+              },
       }),
       frame_traversal_index_(frame_store_, retained_layout_),
       frame_input_router_(frame_store_, frame_traversal_index_, retained_layout_),
@@ -209,6 +216,35 @@ GameUIManager::GameUIManager(
            .request_world_ui_reload = [this] { RequestWorldUiReload(); },
        });
   openwow::input::BindWorldUiInputRouter(&frame_input_router_);
+}
+
+void GameUIManager::PublishFrameSizeChanged(const std::string_view frame_name,
+                                            const float width,
+                                            const float height) {
+  if (world_lua_runtime_ == nullptr) return;
+  lua_State* const state = world_lua_runtime_->state();
+  const auto ref = frame_store_.FindLuaRef(frame_name);
+  if (state == nullptr || !ref.has_value()) return;
+
+  const int top = lua_gettop(state);
+  lua_rawgeti(state, LUA_REGISTRYINDEX, *ref);
+  if (lua_istable(state, -1) == 0) {
+    lua_settop(state, top);
+    return;
+  }
+  const int frame_index = lua_absindex(state, -1);
+  lua_pushnumber(state, width);
+  lua_pushnumber(state, height);
+  const auto invocation =
+      InvokeFrameScriptHandler(state, frame_index, "OnSizeChanged", 2);
+  if (invocation.status != LUA_OK) {
+    const char* const error = lua_tostring(state, -1);
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "GameUIManager: OnSizeChanged error for " + std::string(frame_name) +
+            ": " + (error != nullptr ? error : "(null)"));
+  }
+  lua_settop(state, top);
 }
 
 GameUIManager::~GameUIManager() {

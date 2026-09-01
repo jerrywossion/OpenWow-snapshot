@@ -405,6 +405,12 @@ bool RectanglesOverlap(const openwow::ui::framexml::FrameRect& lhs,
          lhs.y < rhs.y + rhs.height && lhs.y + lhs.height > rhs.y;
 }
 
+bool RectsEqual(const openwow::ui::framexml::FrameRect& lhs,
+                const openwow::ui::framexml::FrameRect& rhs) {
+  return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width &&
+         lhs.height == rhs.height;
+}
+
 struct RectDdc { float min_x; float min_y; float max_x; float max_y; };
 
 std::optional<RectDdc> ResolveRegionDdc(
@@ -505,6 +511,32 @@ struct RetainedLayout::Impl {
   std::unordered_set<const openwow::ui::framexml::UiFrame*> closure_member_scratch;
   std::vector<std::optional<openwow::ui::framexml::FrameRect>> solved_scratch;
   Metrics metrics;
+
+  struct SizeCommit {
+    std::string name;
+    float width{0.0F};
+    float height{0.0F};
+  };
+
+  [[nodiscard]] std::optional<SizeCommit> BuildSizeCommit(
+      const openwow::ui::framexml::UiFrame& frame,
+      const openwow::ui::framexml::FrameRect* previous,
+      const openwow::ui::framexml::FrameRect& current) const {
+    const int previous_width = previous != nullptr ? previous->width : 0;
+    const int previous_height = previous != nullptr ? previous->height : 0;
+    if (previous_width == current.width && previous_height == current.height)
+      return std::nullopt;
+    const float scale = EffectiveScale(frame, frames, height, root_scale);
+    return SizeCommit{.name = frame.name,
+                      .width = static_cast<float>(current.width) / scale,
+                      .height = static_cast<float>(current.height) / scale};
+  }
+
+  void PublishSizeCommits(const std::vector<SizeCommit>& commits) const {
+    if (!ports.size_committed) return;
+    for (const auto& commit : commits)
+      ports.size_committed(commit.name, commit.width, commit.height);
+  }
 
   void RebuildScrollFrameRanges() {
     struct PresentedBounds {
@@ -902,7 +934,14 @@ struct RetainedLayout::Impl {
   }
 
   void SolveOnDemand(std::string_view requested) {
-    if (lua == nullptr || requested.empty() || width <= 0.0F || height <= 0.0F) return;
+    if (lua == nullptr || requested.empty() || width <= 0.0F ||
+        height <= 0.0F || solving)
+      return;
+    solving = true;
+    struct Guard {
+      bool& active;
+      ~Guard() { active = false; }
+    } guard{solving};
     std::vector<std::string> names{std::string(requested)};
     std::unordered_set<std::string> members{std::string(requested)};
     std::size_t synchronized = 0;
@@ -930,10 +969,22 @@ struct RetainedLayout::Impl {
     auto solved = openwow::ui::framexml::ResolveExpandedLayout(
         solve_frames, static_cast<int>(width), static_cast<int>(height),
         height / kUiVirtualHeight * root_scale);
-    for (auto& [name, rect] : solved) {
-      if (rects.insert_or_assign(std::move(name), rect).second)
-        ++rects_generation;
+    std::vector<SizeCommit> size_commits;
+    bool rects_changed = false;
+    for (const auto* frame : solve_frames) {
+      const auto resolved = solved.find(frame->name);
+      if (resolved == solved.end()) continue;
+      const auto previous = rects.find(frame->name);
+      const auto* previous_rect =
+          previous != rects.end() ? &previous->second : nullptr;
+      rects_changed = rects_changed || previous_rect == nullptr ||
+                      !RectsEqual(*previous_rect, resolved->second);
+      if (auto commit = BuildSizeCommit(*frame, previous_rect, resolved->second))
+        size_commits.push_back(std::move(*commit));
+      rects.insert_or_assign(frame->name, resolved->second);
     }
+    if (rects_changed) ++rects_generation;
+    PublishSizeCommits(size_commits);
   }
 };
 
@@ -1130,13 +1181,22 @@ void RetainedLayout::SolveIfDirty() {
         solve_frames, static_cast<int>(x.width), static_cast<int>(x.height),
         scale, &x.solved_scratch);
 
+    std::vector<Impl::SizeCommit> size_commits;
+    bool rects_changed = false;
     for (std::size_t index = 0; index < solve_frames.size(); ++index) {
       if (const auto& rect = x.solved_scratch[index]; rect.has_value()) {
-
-        if (x.rects.insert_or_assign(solve_frames[index]->name, *rect).second)
-          ++x.rects_generation;
+        const auto previous = x.rects.find(solve_frames[index]->name);
+        const auto* previous_rect =
+            previous != x.rects.end() ? &previous->second : nullptr;
+        rects_changed = rects_changed || previous_rect == nullptr ||
+                        !RectsEqual(*previous_rect, *rect);
+        if (auto commit =
+                x.BuildSizeCommit(*solve_frames[index], previous_rect, *rect))
+          size_commits.push_back(std::move(*commit));
+        x.rects.insert_or_assign(solve_frames[index]->name, *rect);
       }
     }
+    if (rects_changed) ++x.rects_generation;
     ++x.metrics.incremental_resolves;
     x.metrics.last_resolve_candidates = solve_frames.size();
 
@@ -1152,11 +1212,25 @@ void RetainedLayout::SolveIfDirty() {
     if (scroll_ranges_may_have_changed) {
       x.RebuildScrollFrameRanges();
     }
+    x.PublishSizeCommits(size_commits);
   } else {
     const auto frames = x.frames.CollectFramePointersInRegistrationOrder();
 
-    x.rects = openwow::ui::framexml::ResolveExpandedLayout(
+    auto resolved = openwow::ui::framexml::ResolveExpandedLayout(
         frames, static_cast<int>(x.width), static_cast<int>(x.height), scale);
+    std::vector<Impl::SizeCommit> size_commits;
+    size_commits.reserve(frames.size());
+    for (const auto* frame : frames) {
+      const auto current = resolved.find(frame->name);
+      if (current == resolved.end()) continue;
+      const auto previous = x.rects.find(frame->name);
+      const auto* previous_rect =
+          previous != x.rects.end() ? &previous->second : nullptr;
+      if (auto commit =
+              x.BuildSizeCommit(*frame, previous_rect, current->second))
+        size_commits.push_back(std::move(*commit));
+    }
+    x.rects = std::move(resolved);
     ++x.rects_generation;
     x.RebuildGraph();
     x.full_solve_required = false;
@@ -1164,6 +1238,7 @@ void RetainedLayout::SolveIfDirty() {
     x.metrics.last_resolve_candidates = frames.size();
 
     x.RebuildScrollFrameRanges();
+    x.PublishSizeCommits(size_commits);
   }
   if (x.ports.hit_test_invalidated) x.ports.hit_test_invalidated();
 }

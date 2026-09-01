@@ -308,6 +308,9 @@ public:
   }
 
  private:
+  void PublishFrameSizeChanged(std::string_view frame_name, float width,
+                               float height);
+
   explicit GameUIManager(
       openwow::ui::display::ProductionDisplaySettingsRuntime* runtime,
       openwow::render::TextureManager& texture_manager,

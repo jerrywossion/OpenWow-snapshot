@@ -38,6 +38,7 @@ class RetainedLayout final {
     std::function<void(std::string_view)> inherited_order_invalidated;
     std::function<void()> on_update_order_invalidated;
     std::function<void()> hit_test_invalidated;
+    std::function<void(std::string_view, float, float)> size_committed;
   };
 
   struct Metrics {
