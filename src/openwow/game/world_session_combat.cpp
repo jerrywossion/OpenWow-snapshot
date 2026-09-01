@@ -1154,6 +1154,17 @@ void WorldSession::HandleSpellGo(const net::wotlk::WorldPacket& pkt) {
         objects().GetMutableUnit(info->caster_guid) != nullptr) {
       visual_caster = info->caster_guid;
     }
+
+    bool completed_current_cast = false;
+    if (auto* const unit = objects().GetMutableUnit(info->caster_unit_guid);
+        unit != nullptr && unit->Casts().IsCasting()) {
+      const auto& cast = unit->Casts().GetCurrentCast();
+      completed_current_cast = cast.spell_id == info->spell_id &&
+                               cast.cast_id == info->cast_count;
+      if (completed_current_cast) {
+        unit->Casts().ClearCurrentCast();
+      }
+    }
     QueueSpellGoVisual(*this, visual_caster, info->spell_id,
                        info->hit_targets, visual_destination, visual_data);
 
@@ -1226,16 +1237,6 @@ void WorldSession::HandleSpellGo(const net::wotlk::WorldPacket& pkt) {
       }
     }
 
-    bool completed_current_cast = false;
-    if (auto* const unit = objects().GetMutableUnit(info->caster_unit_guid);
-        unit != nullptr && unit->Casts().IsCasting()) {
-      const auto& cast = unit->Casts().GetCurrentCast();
-      completed_current_cast = cast.spell_id == info->spell_id &&
-                               cast.cast_id == info->cast_count;
-      if (completed_current_cast) {
-        unit->Casts().ClearCurrentCast();
-      }
-    }
     FireUnitSpellcastPacketEvent(
         *this, info->caster_unit_guid, kUnitSpellcastSucceededEvent,
         info->spell_id,

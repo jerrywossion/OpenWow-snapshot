@@ -701,15 +701,14 @@ void ObjectRenderer::Update(float dt) {
 
     if ((inst.type_id == game::TypeID::kUnit || inst.type_id == game::TypeID::kPlayer) &&
         request_animation_completed &&
-        (inst.unit_animation.looping ||
-         inst.emitted_unit_animation_completion_serial != inst.unit_animation.serial)) {
+        !inst.unit_animation.looping &&
+        inst.emitted_unit_animation_completion_serial != inst.unit_animation.serial) {
       inst.emitted_unit_animation_completion_serial = inst.unit_animation.serial;
       if (unit_animation_completion_sink_) {
         unit_animation_completion_sink_({
             .owner = inst.handle,
             .animation_id = inst.unit_animation.animation_id,
             .request_serial = inst.unit_animation.serial,
-            .has_remaining = inst.unit_animation.looping,
         });
       }
     }

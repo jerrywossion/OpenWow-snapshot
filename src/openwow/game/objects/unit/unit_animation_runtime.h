@@ -151,8 +151,7 @@ public:
                               std::uint8_t victim_state);
   void HandlePlaybackCompletion(const WorldSession &session,
                                 std::uint64_t request_serial,
-                                std::uint16_t animation_id,
-                                bool has_remaining);
+                                std::uint16_t animation_id);
   [[nodiscard]] bool IsPlayingUsingAnimation() const;
   [[nodiscard]] std::uint32_t ResolveAnimationId(
       std::uint32_t anim_id, std::uint32_t override_instance_id = 0) const;
@@ -215,7 +214,7 @@ public:
   void HandleAnimSequenceEnd(const WorldSession &session,
                              std::uint32_t animation_group,
                              std::uint32_t animation_id,
-                             std::uint32_t emote_state, bool has_remaining);
+                             std::uint32_t emote_state);
   void ResetEmoteState();
   void ResetDeathPlaybackForAliveTransition(WorldSession &session);
   void EmoteQueueHandler(const std::uint32_t *emote_pairs, std::int32_t count);

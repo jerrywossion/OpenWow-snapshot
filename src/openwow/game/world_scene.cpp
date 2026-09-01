@@ -1673,8 +1673,7 @@ void WorldScene::PublishObjectPresentation(
       continue;
     }
     unit->Animation().HandlePlaybackCompletion(
-        world_session, completion.request_serial, completion.animation_id,
-        completion.has_remaining);
+        world_session, completion.request_serial, completion.animation_id);
   }
   object_presentation_snapshot_ =
       obj_mgr.PublishPresentationSnapshot(world_session);

@@ -175,7 +175,6 @@ struct UnitAnimationCompletionEvent {
   ObjectHandle owner;
   std::uint16_t animation_id{0};
   std::uint64_t request_serial{0};
-  bool has_remaining{false};
 };
 
 struct ObjectPresentationSnapshot {

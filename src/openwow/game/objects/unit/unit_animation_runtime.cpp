@@ -1700,6 +1700,7 @@ void UnitAnimationRuntime::ApplySubmitFunnelFlagBits(
     const std::uint32_t submitted_behavior) {
   switch (submitted_behavior) {
   case kJumpEndBehaviorId:
+  case kJumpLandRunBehaviorId:
     emote_internal_flags_ |= kEmoteInternalFlagAnimationBehavior39;
     break;
   case kBirthBehaviorId:
@@ -1742,6 +1743,7 @@ void UnitAnimationRuntime::ClearSequenceEndFlagBits(
   }
   switch (finished_behavior) {
   case kJumpEndBehaviorId:
+  case kJumpLandRunBehaviorId:
     emote_internal_flags_ &= ~kEmoteInternalFlagAnimationBehavior39;
     break;
   case kBirthBehaviorId:
@@ -1820,6 +1822,10 @@ void UnitAnimationRuntime::HandleMovementAnimation(
   if (was_falling && !is_falling) {
     if (suppress_land_animation) {
 
+      return;
+    }
+    if ((emote_internal_flags_ &
+         kEmoteInternalFlagAnimationBehavior39) != 0u) {
       return;
     }
 
@@ -2140,7 +2146,7 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
 
 void UnitAnimationRuntime::HandlePlaybackCompletion(
     const WorldSession &session, const std::uint64_t request_serial,
-    const std::uint16_t animation_id, const bool has_remaining) {
+    const std::uint16_t animation_id) {
 
   if (playback_request_.serial != request_serial ||
       playback_request_.animation_id != animation_id) {
@@ -2153,7 +2159,7 @@ void UnitAnimationRuntime::HandlePlaybackCompletion(
     pending_protected_playback_.reset();
   }
   HandleAnimSequenceEnd(session, static_cast<std::uint32_t>(current_anim_group_),
-                        animation_id, animation_id, has_remaining);
+                        animation_id, animation_id);
 }
 
 bool UnitAnimationRuntime::IsPlayingUsingAnimation() const {
@@ -3975,8 +3981,7 @@ UnitAnimationRuntime::ResolveSequenceEndFollowUp(
 
 void UnitAnimationRuntime::HandleAnimSequenceEnd(const WorldSession &session,
                                      std::uint32_t, std::uint32_t,
-                                     std::uint32_t emote_state,
-                                     bool has_remaining) {
+                                     std::uint32_t emote_state) {
 
   if (Dance().Get().IsActive()) {
     Dance().Get(owner_, session).ContinuationCheck();
@@ -3989,13 +3994,6 @@ void UnitAnimationRuntime::HandleAnimSequenceEnd(const WorldSession &session,
   if (previous_selected_stand_animation_id_.has_value() &&
       previous_selected_stand_animation_id_.value() == static_cast<std::uint16_t>(emote_state))
     previous_selected_stand_animation_id_.reset();
-  if (has_remaining) {
-
-    if (finished_behavior == kJumpEndBehaviorId ||
-        finished_behavior == kJumpLandRunBehaviorId)
-      emote_internal_flags_ &= ~kEmoteInternalFlagAnimationBehavior39;
-    return;
-  }
 
   emote_internal_flags_ =
       (emote_internal_flags_ & ~kBaseAnimationStateMask) |
