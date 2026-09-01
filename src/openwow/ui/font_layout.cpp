@@ -1,4 +1,5 @@
 #include "openwow/ui/font_layout.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/render/resources/fonts/font_string_flags.h"
 
 #include <algorithm>
@@ -34,12 +35,14 @@ std::shared_ptr<openwow::render::text::FontFace> AcquireMeasurementFace(
       return hash;
     }
   };
+  struct CacheBucket {
+    std::uint64_t vfs_revision{};
+    std::unordered_map<
+        CacheKey, std::shared_ptr<openwow::render::text::FontFace>, CacheKeyHash>
+        faces;
+  };
 
-  static std::unordered_map<const openwow::vfs::VirtualFileSystem*,
-                            std::unordered_map<
-                                CacheKey,
-                                std::shared_ptr<openwow::render::text::FontFace>,
-                                CacheKeyHash>>
+  static std::unordered_map<const openwow::vfs::VirtualFileSystem*, CacheBucket>
       cache;
   static std::mutex cache_mutex;
 
@@ -47,28 +50,48 @@ std::shared_ptr<openwow::render::text::FontFace> AcquireMeasurementFace(
                      .pixel_size = pixel_size,
                      .outline = style.outline,
                      .monochrome = style.monochrome};
+  const std::uint64_t vfs_revision = vfs != nullptr ? vfs->lookup_revision() : 0;
   {
     const std::lock_guard lock(cache_mutex);
-    auto& faces = cache[vfs];
-    if (const auto found = faces.find(key); found != faces.end()) {
+    auto& bucket = cache[vfs];
+    if (bucket.vfs_revision != vfs_revision) {
+      bucket.faces.clear();
+      bucket.vfs_revision = vfs_revision;
+    }
+    if (const auto found = bucket.faces.find(key);
+        found != bucket.faces.end()) {
       return found->second;
     }
   }
 
   std::shared_ptr<openwow::render::text::FontFace> face;
   if (vfs != nullptr) {
-    if (const auto bytes = vfs->ReadFileBytes(path); bytes && !bytes->empty()) {
+    const auto bytes = vfs->ReadFileBytes(path);
+    if (bytes && !bytes->empty()) {
       face = openwow::render::text::FontFace::LoadMemory(path, *bytes,
                                                          pixel_size, style);
     }
-  }
-  if (!face) {
+    if (!face) {
+      const auto source = vfs->Resolve(path);
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kError,
+          "FontLayout: active VFS font initialization failed path=" + path +
+              " source=" +
+              (source.has_value() ? source->string() : "missing") +
+              " pixel_height=" + std::to_string(pixel_size) + " reason=" +
+              (bytes && !bytes->empty() ? "font-decode-failed"
+                                         : "read-failed-or-empty"));
+    }
+  } else {
     face = openwow::render::text::FontFace::LoadFile(path, pixel_size, style);
   }
 
-  if (face) {
+  if (face || vfs != nullptr) {
     const std::lock_guard lock(cache_mutex);
-    cache[vfs].emplace(key, face);
+    auto& bucket = cache[vfs];
+    if (bucket.vfs_revision == vfs_revision) {
+      bucket.faces.emplace(key, face);
+    }
   }
   return face;
 }
