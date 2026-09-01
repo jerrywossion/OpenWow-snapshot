@@ -600,15 +600,18 @@ bool WorldSession::HandleQuestGiverStatusMultiple(const net::wotlk::WorldPacket 
     return false;
   }
 
-  for (const auto &entry : quests_.quest_giver_statuses()) {
-    if (auto *obj = map_runtime_.objects().GetMutable(entry.guid)) {
-
-      if (IsQuestGiverStatusEligible(*obj)) {
-        obj->SetQuestGiverIconStatus(
-            static_cast<OverlayDisplayType>(static_cast<std::uint8_t>(entry.status)));
-      }
+  map_runtime_.objects().EnumVisibleObjectsMutable([this](WorldObject &obj) {
+    if (!IsQuestGiverStatusEligible(obj)) {
+      return;
     }
-  }
+
+    const auto status = quests_.FindQuestGiverStatus(obj.GetGuid());
+    obj.SetQuestGiverIconStatus(
+        status.has_value()
+            ? static_cast<OverlayDisplayType>(
+                  static_cast<std::uint8_t>(*status))
+            : OverlayDisplayType::kNone);
+  });
   return true;
 }
 
