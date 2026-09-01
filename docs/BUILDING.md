@@ -224,7 +224,19 @@ Developer Command Prompt (`vcvarsall x64`) so Ninja finds `cl.exe`.
 `SDL2::SDL2main` is linked automatically and the executable is a GUI-subsystem
 app, so it opens without a console window.
 
-## 4. Content roots and running
+## 4. Compatibility audit
+
+The cross-system compatibility audit is a source-only check and does not start
+the client or require a configured build:
+
+```sh
+cmake -DOPENWOW_SOURCE_DIR:PATH="$PWD" -P cmake/CompatibilityAudit.cmake
+```
+
+See [COMPATIBILITY_AUDIT.md](COMPATIBILITY_AUDIT.md) for the guarded contracts,
+known limits and the one-time user acceptance matrix.
+
+## 5. Content roots and running
 
 The client needs the data files from your own copy of the game. The workspace
 default is `../LocalData/335a/Data`, outside this Git repository. When that
@@ -238,7 +250,7 @@ included in macOS and iOS application bundles. Runtime downloads and generated
 content are kept separately under the platform user-data directory. See
 `docs/CONTENT_ROOTS.md` for precedence, writable paths, and bundle layout.
 
-## 5. Packaging
+## 6. Packaging
 
 `cmake/Packaging.cmake` drives CPack for the `client` install component: ZIP on
 macOS and Windows, TGZ on Linux. The `packaging/` directory holds the platform

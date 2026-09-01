@@ -9,6 +9,14 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 
 project(OpenWoW VERSION 0.1.2 LANGUAGES C CXX)
 
+add_custom_target(openwow-compatibility-audit
+  COMMAND ${CMAKE_COMMAND}
+    -DOPENWOW_SOURCE_DIR:PATH=${CMAKE_CURRENT_SOURCE_DIR}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/CompatibilityAudit.cmake
+  COMMENT "Auditing cross-system compatibility contracts"
+  VERBATIM
+)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   add_compile_definitions(OPENWOW_PLATFORM_IOS=1)
 endif()
