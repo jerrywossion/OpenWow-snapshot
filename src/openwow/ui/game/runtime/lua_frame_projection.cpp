@@ -496,6 +496,7 @@ constexpr const char* const kTextureFieldNames[] = {
     "__ow_texture_cleared",
     "__ow_portrait_unit",
     "__ow_portrait_guid",
+    "__ow_portrait_display_id",
     "__ow_tc_ul_x",
     "__ow_tc_ul_y",
     "__ow_tc_ll_x",
@@ -542,6 +543,8 @@ inline constexpr int kPortraitUnit =
     runtime::InternedLuaFieldKeyOrdinal(kTextureFieldNames, "__ow_portrait_unit");
 inline constexpr int kPortraitGuid =
     runtime::InternedLuaFieldKeyOrdinal(kTextureFieldNames, "__ow_portrait_guid");
+inline constexpr int kPortraitDisplayId = runtime::InternedLuaFieldKeyOrdinal(
+    kTextureFieldNames, "__ow_portrait_display_id");
 inline constexpr int kTexCoordUpperLeftX =
     runtime::InternedLuaFieldKeyOrdinal(kTextureFieldNames, "__ow_tc_ul_x");
 inline constexpr int kTexCoordUpperLeftY =
@@ -1022,6 +1025,7 @@ static TextureRenderState& ResetTextureRenderStateForRegion(
 static void BindTexturePortraitFromTokens(
     const std::optional<std::string>& portrait_unit,
     const std::optional<std::string>& portrait_guid,
+    const std::optional<std::uint32_t> portrait_display_id,
     const std::shared_ptr<const void>& request_owner,
     openwow::game::WorldSession* session,
     const openwow::vfs::VirtualFileSystem* vfs,
@@ -1033,14 +1037,14 @@ static void BindTexturePortraitFromTokens(
     return;
   }
   const auto bind_dynamic_portrait =
-      [&](const openwow::game::WorldObject* object) {
-        if (object == nullptr || !object->IsUnit()) {
+      [&](const std::uint32_t display_id,
+          const std::uint32_t model_instance_id) {
+        if (display_id == 0) {
           return;
         }
 
         const auto binding =
-            portraits->Acquire(request_owner, object->GetDisplayId(),
-                               object->GetPrimaryM2InstanceId(),
+            portraits->Acquire(request_owner, display_id, model_instance_id,
                                *portrait_view_id, portrait_view_limit);
         if (!binding.texture.has_value()) {
           return;
@@ -1054,13 +1058,23 @@ static void BindTexturePortraitFromTokens(
         state.texture_path.clear();
       };
 
-  if (portrait_unit.has_value()) {
-    bind_dynamic_portrait(detail::ResolveUnit(session, *portrait_unit));
+  const auto bind_object_portrait =
+      [&](const openwow::game::WorldObject* object) {
+        if (object != nullptr && object->IsUnit()) {
+          bind_dynamic_portrait(object->GetDisplayId(),
+                                object->GetPrimaryM2InstanceId());
+        }
+      };
+
+  if (portrait_display_id.has_value()) {
+    bind_dynamic_portrait(*portrait_display_id, 0);
+  } else if (portrait_unit.has_value()) {
+    bind_object_portrait(detail::ResolveUnit(session, *portrait_unit));
   } else if (portrait_guid.has_value() && !portrait_guid->empty()) {
     const auto raw_guid = static_cast<std::uint64_t>(
         std::strtoull(portrait_guid->c_str(), nullptr, 10));
     if (raw_guid != 0) {
-      bind_dynamic_portrait(
+      bind_object_portrait(
           session->objects().Get(openwow::game::ObjectGuid(raw_guid)));
     }
   }
@@ -1105,9 +1119,16 @@ void BuildTextureRenderStateFromLuaFieldsInto(
   } else {
 
     state.texture_path = frame.file;
+    int portrait_display_id = 0;
+    const bool has_portrait_display_id = texture_field::ReadInteger(
+        L, source, texture_field::kPortraitDisplayId, &portrait_display_id);
     BindTexturePortraitFromTokens(
         texture_field::ReadString(L, source, texture_field::kPortraitUnit),
         texture_field::ReadString(L, source, texture_field::kPortraitGuid),
+        has_portrait_display_id && portrait_display_id > 0
+            ? std::optional<std::uint32_t>(
+                  static_cast<std::uint32_t>(portrait_display_id))
+            : std::nullopt,
         native_source != nullptr ? native_source->portrait_request : nullptr,
         session, vfs, portraits, portrait_view_id, portrait_view_limit,
         state);
@@ -1260,6 +1281,7 @@ void BuildTextureRenderStateInto(
   } else {
     state.texture_path = frame.file;
     BindTexturePortraitFromTokens(source->portrait_unit, source->portrait_guid,
+                                  source->portrait_display_id,
                                   source->portrait_request,
                                   session, vfs, portraits, portrait_view_id,
                                   portrait_view_limit, state);

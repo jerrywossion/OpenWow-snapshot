@@ -393,6 +393,7 @@ static constexpr lua::WidgetMethodOwnership
     {"GameTooltip", "SetGuildBankItem"},
     {"GameTooltip", "SetHyperlink"},
     {"GameTooltip", "SetHyperlinkCompareItem"},
+    {"GameTooltip", "SetItemByID"},
     {"GameTooltip", "SetInboxItem"},
     {"GameTooltip", "SetInventoryItem"},
     {"GameTooltip", "SetLFGCompletionReward"},

@@ -1150,6 +1150,23 @@ const char *StoreTooltipAnchorState(lua_State *L, const int tooltip_index, const
   return canonical_anchor;
 }
 
+int LuaGameTooltip_SetItemByID(lua_State* L) {
+  const int tooltip_index = ValidateFrameObjectSelf(L, "GameTooltip");
+  if (lua_isnumber(L, 2) == 0) {
+    return luaL_error(L, "Invalid item ID in %s:SetItemByID",
+                      lua_adapter::ScriptObjectDisplayName(L, tooltip_index));
+  }
+  const auto signed_item_id =
+      openwow::ui::game::detail::TruncateLuaNumberToSseI32(lua_tonumber(L, 2));
+  if (signed_item_id <= 0) {
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_pushfstring(L, "item:%d", signed_item_id);
+  lua_replace(L, 2);
+  return detail::kSetTooltipHyperlink.trampoline(L);
+}
+
 void ApplyGameTooltipMethods(lua_State *L) {
   int f = lua_absindex(L, -1);
 
@@ -1321,6 +1338,9 @@ void ApplyGameTooltipMethods(lua_State *L) {
 
   openwow::ui::game::frame_api::RegisterTooltipContentSetter<detail::kSetTooltipHyperlink.trampoline>(
       L, f, "SetHyperlink");
+
+  openwow::ui::game::frame_api::RegisterTooltipContentSetter<
+      LuaGameTooltip_SetItemByID>(L, f, "SetItemByID");
 
   openwow::ui::game::frame_api::RegisterTooltipContentSetter<detail::kSetTooltipBagItem.trampoline>(
       L, f, "SetBagItem");

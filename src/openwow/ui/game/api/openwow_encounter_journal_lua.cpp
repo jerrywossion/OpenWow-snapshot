@@ -15,6 +15,7 @@ extern "C" {
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -28,7 +29,7 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 3;
+constexpr std::uint32_t kSchemaVersion = 6;
 constexpr std::uint32_t kRandomDungeonType = 6;
 
 struct JournalSupplementSpell final {
@@ -39,6 +40,7 @@ struct JournalSupplementSpell final {
 struct JournalEncounterSupplement final {
   std::uint32_t encounter_id{0};
   std::uint32_t creature_entry{0};
+  std::uint32_t creature_display_id{0};
   std::array<JournalSupplementSpell, 8> spells{};
   std::uint32_t spell_count{0};
 };
@@ -60,6 +62,7 @@ struct JournalLootItem final {
   std::uint32_t display_id{0};
   std::uint32_t quality{0};
   std::uint32_t inventory_type{0};
+  std::int32_t allowable_class{-1};
   std::uint32_t item_level{0};
   std::uint32_t required_level{0};
   const char* name{nullptr};
@@ -190,6 +193,24 @@ std::vector<std::uint32_t> BuildDifficulties(
   return difficulties;
 }
 
+std::optional<std::uint32_t> FindWorldMapAreaId(
+    const openwow::data::dbc::DbcLoader& dbc,
+    const std::uint32_t map_id) {
+  const openwow::data::dbc::WorldMapAreaEntry* best = nullptr;
+  for (const auto& area : dbc.world_map_area()) {
+    if (area.map_id != map_id) {
+      continue;
+    }
+    if (best == nullptr ||
+        std::tuple{area.area_id == 0 ? 0u : 1u, area.id} <
+            std::tuple{best->area_id == 0 ? 0u : 1u, best->id}) {
+      best = &area;
+    }
+  }
+  return best != nullptr ? std::optional<std::uint32_t>{best->id}
+                         : std::nullopt;
+}
+
 std::vector<const openwow::data::dbc::DungeonEncounterEntry*> BuildEncounters(
     const openwow::data::dbc::DbcLoader& dbc,
     const std::uint32_t map_id,
@@ -235,6 +256,20 @@ void LogMissingSupplementSpellOnce(const std::uint32_t encounter_id,
       "Encounter journal skipped supplemental spell: encounter=" +
           std::to_string(encounter_id) + " spell=" + std::to_string(spell_id) +
           " reason=missing from active build 12340 Spell.dbc");
+}
+
+void LogInvalidCreatureDisplayOnce(const JournalEncounterSupplement& supplement) {
+  static std::unordered_set<std::uint32_t> logged;
+  if (!logged.insert(supplement.encounter_id).second) {
+    return;
+  }
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "Encounter journal skipped supplemental creature display: encounter=" +
+          std::to_string(supplement.encounter_id) + " creature=" +
+          std::to_string(supplement.creature_entry) + " display=" +
+          std::to_string(supplement.creature_display_id) +
+          " reason=missing from active build 12340 CreatureDisplayInfo.dbc");
 }
 
 std::vector<AbilityRecord> BuildAbilities(
@@ -435,7 +470,13 @@ int LuaGetInstanceByIndex(lua_State* state) {
   lua_pushinteger(state, instance.lfg->expansion_level);
   lua_pushboolean(state, instance.is_raid ? 1 : 0);
   lua_pushinteger(state, instance.lfg->id);
-  return 9;
+  const auto world_map_area_id = FindWorldMapAreaId(*dbc, instance.map->id);
+  if (world_map_area_id.has_value()) {
+    lua_pushinteger(state, *world_map_area_id);
+  } else {
+    lua_pushnil(state);
+  }
+  return 10;
 }
 
 int LuaGetNumDifficulties(lua_State* state) {
@@ -516,10 +557,19 @@ int LuaGetEncounterByIndex(lua_State* state) {
   const auto* supplement = FindSupplement(encounter.id);
   if (supplement != nullptr) {
     lua_pushinteger(state, supplement->creature_entry);
+    if (supplement->creature_display_id != 0 &&
+        dbc->creature_display_info().LookupEntry(
+            supplement->creature_display_id) != nullptr) {
+      lua_pushinteger(state, supplement->creature_display_id);
+    } else {
+      LogInvalidCreatureDisplayOnce(*supplement);
+      lua_pushnil(state);
+    }
   } else {
     lua_pushnil(state);
+    lua_pushnil(state);
   }
-  return 5;
+  return 6;
 }
 
 int LuaGetNumAbilities(lua_State* state) {
@@ -603,7 +653,17 @@ int LuaGetLootByIndex(lua_State* state) {
   lua_pushinteger(state, item.supplement->item_level);
   lua_pushinteger(state, item.supplement->required_level);
   lua_pushinteger(state, item.item->inventory_type);
-  return 7;
+  lua_pushinteger(state, item.supplement->allowable_class);
+  std::string_view subclass_name;
+  if (const auto* const subclass = dbc->item_sub_class().LookupEntry(
+          openwow::data::dbc::ItemSubClassEntry::ComposeKey(
+              item.item->class_id, item.item->subclass_id));
+      subclass != nullptr) {
+    subclass_name = subclass->display_name.empty() ? subclass->verbose_name
+                                                    : subclass->display_name;
+  }
+  PushString(state, subclass_name);
+  return 9;
 }
 
 int LuaGetSourceSummary(lua_State* state) {
