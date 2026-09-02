@@ -44,8 +44,6 @@ class CSimpleMinimap : public CSimpleFrame {
   bool RefreshScaleCascade(bool force) override;
 
   bool OnMouseMove(const void* inputEvent) override;
-  bool OnPresentedMouseMove(const void* inputEvent,
-                            const ScreenRect& presentedRect);
 
   void RegisterLayerRenderCallbacks(SimpleRenderBatchSink& sink,
                                     int layerIndex) override;
@@ -100,8 +98,6 @@ class CSimpleMinimap : public CSimpleFrame {
 
  private:
   void InitializeStatusFontString();
-  bool UpdateHoverTooltip(const void* inputEvent,
-                          const ScreenRect& presentedRect);
 
   openwow::ui::MinimapSystem* minimap_state_{nullptr};
   openwow::game::MinimapSystem* minimap_content_{nullptr};

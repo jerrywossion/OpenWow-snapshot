@@ -610,21 +610,26 @@ void FrameInputRouter::RefreshMouseFocusAt(const float x, const float y,
   if (auto *minimap = frames_.FindMinimap(next); minimap != nullptr) {
     const auto rect = layout_.rects().find(next);
     if (rect != layout_.rects().end()) {
-      // The retained rectangle is the input presentation for this pass. Do not
-      // publish it into the native Minimap geometry: click/ping conversion owns
-      // that state independently.
       const openwow::ui::widgets::ScreenRect presented_rect{
           .left = static_cast<float>(rect->second.x),
           .top = static_cast<float>(rect->second.y),
           .right = static_cast<float>(rect->second.x + rect->second.width),
           .bottom = static_cast<float>(rect->second.y + rect->second.height),
       };
+      const auto &native_rect = minimap->GetRect();
+      if (native_rect.left != presented_rect.left ||
+          native_rect.top != presented_rect.top ||
+          native_rect.right != presented_rect.right ||
+          native_rect.bottom != presented_rect.bottom) {
+        minimap->SetRect(presented_rect);
+      }
+
       const openwow::input::InputEvent event{
           .type = openwow::input::InputEventType::MouseMove,
           .mouseX = static_cast<std::int32_t>(x),
           .mouseY = static_cast<std::int32_t>(y),
       };
-      (void)minimap->OnPresentedMouseMove(&event, presented_rect);
+      (void)minimap->OnMouseMove(&event);
     }
   }
 
