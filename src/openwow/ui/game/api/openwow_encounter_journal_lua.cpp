@@ -4,6 +4,7 @@
 #include "openwow/data/formats/dbc/dbc_loader.h"
 #include "openwow/data/formats/dbc/dbc_table_registry.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/game/inventory/items/item_icon_resolver.h"
 #include "openwow/game/spell_text_formatter.h"
 
 extern "C" {
@@ -27,7 +28,7 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 2;
+constexpr std::uint32_t kSchemaVersion = 3;
 constexpr std::uint32_t kRandomDungeonType = 6;
 
 struct JournalSupplementSpell final {
@@ -44,6 +45,28 @@ struct JournalEncounterSupplement final {
 
 #include "openwow_encounter_journal_build12340.inc"
 
+struct JournalEncounterLootCreatures final {
+  std::uint32_t encounter_id{0};
+  std::array<std::uint32_t, 4> creature_entries{};
+};
+
+struct JournalCreatureLootItem final {
+  std::uint32_t creature_entry{0};
+  std::uint32_t item_id{0};
+};
+
+struct JournalLootItem final {
+  std::uint32_t item_id{0};
+  std::uint32_t display_id{0};
+  std::uint32_t quality{0};
+  std::uint32_t inventory_type{0};
+  std::uint32_t item_level{0};
+  std::uint32_t required_level{0};
+  const char* name{nullptr};
+};
+
+#include "openwow_encounter_journal_loot_build12340.inc"
+
 struct InstanceRecord final {
   const openwow::data::dbc::LfgDungeonsEntry* lfg{nullptr};
   const openwow::data::dbc::MapEntry* map{nullptr};
@@ -53,6 +76,11 @@ struct InstanceRecord final {
 struct AbilityRecord final {
   const JournalSupplementSpell* supplement{nullptr};
   const openwow::data::dbc::SpellEntry* spell{nullptr};
+};
+
+struct LootRecord final {
+  const JournalLootItem* supplement{nullptr};
+  const openwow::data::dbc::ItemEntry* item{nullptr};
 };
 
 const openwow::data::dbc::DbcLoader* GetDbc() {
@@ -232,6 +260,102 @@ std::vector<AbilityRecord> BuildAbilities(
     abilities.push_back({.supplement = &candidate, .spell = spell});
   }
   return abilities;
+}
+
+const JournalEncounterLootCreatures* FindLootCreatures(
+    const std::uint32_t encounter_id) {
+  const auto it = std::lower_bound(
+      kJournalEncounterLootCreatures.begin(),
+      kJournalEncounterLootCreatures.end(),
+      encounter_id,
+      [](const JournalEncounterLootCreatures& candidate, const std::uint32_t id) {
+        return candidate.encounter_id < id;
+      });
+  return it != kJournalEncounterLootCreatures.end() &&
+                 it->encounter_id == encounter_id
+             ? &*it
+             : nullptr;
+}
+
+const JournalLootItem* FindLootItem(const std::uint32_t item_id) {
+  const auto it = std::lower_bound(
+      kJournalLootItems.begin(),
+      kJournalLootItems.end(),
+      item_id,
+      [](const JournalLootItem& candidate, const std::uint32_t id) {
+        return candidate.item_id < id;
+      });
+  return it != kJournalLootItems.end() && it->item_id == item_id ? &*it
+                                                                 : nullptr;
+}
+
+void LogInvalidLootItemOnce(const std::uint32_t encounter_id,
+                            const std::uint32_t item_id,
+                            const std::string_view reason) {
+  static std::unordered_set<std::uint64_t> logged;
+  const auto key = (static_cast<std::uint64_t>(encounter_id) << 32u) | item_id;
+  if (!logged.insert(key).second) {
+    return;
+  }
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "Encounter journal skipped supplemental loot: encounter=" +
+          std::to_string(encounter_id) + " item=" + std::to_string(item_id) +
+          " reason=" + std::string(reason));
+}
+
+std::vector<LootRecord> BuildLoot(const openwow::data::dbc::DbcLoader& dbc,
+                                  const std::uint32_t encounter_id,
+                                  const std::uint32_t difficulty) {
+  std::vector<LootRecord> loot;
+  if (difficulty >= 4 ||
+      dbc.dungeon_encounter().LookupEntry(encounter_id) == nullptr) {
+    return loot;
+  }
+  const auto* creatures = FindLootCreatures(encounter_id);
+  if (creatures == nullptr) {
+    return loot;
+  }
+  const auto creature_entry = creatures->creature_entries[difficulty];
+  const auto first = std::lower_bound(
+      kJournalCreatureLootItems.begin(),
+      kJournalCreatureLootItems.end(),
+      creature_entry,
+      [](const JournalCreatureLootItem& candidate, const std::uint32_t id) {
+        return candidate.creature_entry < id;
+      });
+  for (auto it = first;
+       it != kJournalCreatureLootItems.end() &&
+       it->creature_entry == creature_entry;
+       ++it) {
+    const auto* supplement = FindLootItem(it->item_id);
+    if (supplement == nullptr) {
+      LogInvalidLootItemOnce(encounter_id, it->item_id,
+                             "missing generated item metadata");
+      continue;
+    }
+    const auto* item = dbc.item().LookupEntry(it->item_id);
+    if (item == nullptr) {
+      LogInvalidLootItemOnce(encounter_id, it->item_id,
+                             "missing from active build 12340 Item.dbc");
+      continue;
+    }
+    if (supplement->display_id != 0 &&
+        supplement->display_id != item->display_info_id) {
+      LogInvalidLootItemOnce(
+          encounter_id, it->item_id,
+          "supplemental display ID disagrees with active build 12340 Item.dbc");
+      continue;
+    }
+    if (dbc.item_display_info().LookupEntry(item->display_info_id) == nullptr) {
+      LogInvalidLootItemOnce(
+          encounter_id, it->item_id,
+          "active Item.dbc display is missing from ItemDisplayInfo.dbc");
+      continue;
+    }
+    loot.push_back({.supplement = supplement, .item = item});
+  }
+  return loot;
 }
 
 void PushString(lua_State* state, const std::string_view value) {
@@ -439,6 +563,49 @@ int LuaGetAbilityByIndex(lua_State* state) {
   return 6;
 }
 
+int LuaGetNumLoot(lua_State* state) {
+  const auto encounter_id = CheckUnsigned(state, 1, "encounterID");
+  const auto difficulty = CheckUnsigned(state, 2, "difficulty");
+  const auto* dbc = GetDbc();
+  if (dbc == nullptr) {
+    lua_pushinteger(state, 0);
+    return 1;
+  }
+  const auto loot = BuildLoot(*dbc, encounter_id, difficulty);
+  lua_pushinteger(state, static_cast<lua_Integer>(loot.size()));
+  return 1;
+}
+
+int LuaGetLootByIndex(lua_State* state) {
+  const auto encounter_id = CheckUnsigned(state, 1, "encounterID");
+  const auto difficulty = CheckUnsigned(state, 2, "difficulty");
+  const auto index = CheckOneBasedIndex(state, 3);
+  const auto* dbc = GetDbc();
+  if (dbc == nullptr) {
+    lua_pushnil(state);
+    return 1;
+  }
+
+  const auto loot = BuildLoot(*dbc, encounter_id, difficulty);
+  if (index >= loot.size()) {
+    lua_pushnil(state);
+    return 1;
+  }
+  const auto& item = loot[index];
+  lua_pushinteger(state, item.item->id);
+  PushString(state, item.supplement->name != nullptr
+                        ? std::string_view(item.supplement->name)
+                        : std::string_view{});
+  const auto icon = openwow::game::ResolveItemInventoryIconTexturePath(
+      dbc, item.item->display_info_id);
+  PushString(state, icon);
+  lua_pushinteger(state, item.supplement->quality);
+  lua_pushinteger(state, item.supplement->item_level);
+  lua_pushinteger(state, item.supplement->required_level);
+  lua_pushinteger(state, item.item->inventory_type);
+  return 7;
+}
+
 int LuaGetSourceSummary(lua_State* state) {
   const auto* dbc = GetDbc();
   if (dbc == nullptr) {
@@ -473,6 +640,8 @@ void InstallEncounterJournal(lua_State* state, void*) {
   SetFunction(state, "GetEncounterByIndex", LuaGetEncounterByIndex);
   SetFunction(state, "GetNumAbilities", LuaGetNumAbilities);
   SetFunction(state, "GetAbilityByIndex", LuaGetAbilityByIndex);
+  SetFunction(state, "GetNumLoot", LuaGetNumLoot);
+  SetFunction(state, "GetLootByIndex", LuaGetLootByIndex);
   SetFunction(state, "GetSourceSummary", LuaGetSourceSummary);
   lua_setglobal(state, kApiTableName.data());
 }

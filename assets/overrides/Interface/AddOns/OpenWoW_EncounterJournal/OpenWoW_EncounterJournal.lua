@@ -4,7 +4,7 @@
 -- dependencies are not part of the supplied UI source.
 
 local API = C_OpenWoWJournal
-local REQUIRED_SCHEMA = 2
+local REQUIRED_SCHEMA = 3
 local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local BACKDROP = {
     bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -26,6 +26,8 @@ local state = {
     instances = {},
     bosses = {},
     abilities = {},
+    loot = {},
+    detailMode = "abilities",
     difficulties = {},
     instance = nil,
     boss = nil,
@@ -109,6 +111,17 @@ local function DifficultyName(rawDifficulty, maxPlayers, isRaid)
     end
     return "难度 " .. rawDifficulty
 end
+
+local QUALITY_COLORS = {
+    [0] = { 0.62, 0.62, 0.62 },
+    [1] = { 1.00, 1.00, 1.00 },
+    [2] = { 0.12, 1.00, 0.00 },
+    [3] = { 0.00, 0.44, 0.87 },
+    [4] = { 0.64, 0.21, 0.93 },
+    [5] = { 1.00, 0.50, 0.00 },
+    [6] = { 0.90, 0.80, 0.50 },
+    [7] = { 0.00, 0.80, 1.00 },
+}
 
 local frame = CreateFrame("Frame", "OpenWoWEncounterJournalFrame", UIParent)
 frame:SetSize(920, 640)
@@ -283,12 +296,14 @@ local bossSource = CreateLabel(detailPanel, "GameFontDisableSmall",
     "技能来自 build 12340 可验证目录")
 bossSource:SetPoint("TOPLEFT", bossTitle, "BOTTOMLEFT", 0, -5)
 
-local abilityHeading = CreateLabel(detailPanel, "GameFontNormal", "技能与机制")
-abilityHeading:SetPoint("TOPLEFT", detailPanel, "TOPLEFT", 13, -76)
+local abilityTab = CreateActionButton(detailPanel, "技能与机制", 104, 22)
+abilityTab:SetPoint("TOPLEFT", detailPanel, "TOPLEFT", 11, -73)
+local lootTab = CreateActionButton(detailPanel, "首领掉落", 104, 22)
+lootTab:SetPoint("LEFT", abilityTab, "RIGHT", 7, 0)
 
 local abilityDisclaimer = CreateLabel(detailPanel, "GameFontDisableSmall",
     "展示可可靠联接的技能，不代表攻略中的完整机制清单。")
-abilityDisclaimer:SetPoint("TOPLEFT", abilityHeading, "BOTTOMLEFT", 0, -3)
+abilityDisclaimer:SetPoint("TOPLEFT", abilityTab, "BOTTOMLEFT", 2, -4)
 abilityDisclaimer:SetPoint("RIGHT", detailPanel, "RIGHT", -12, 0)
 abilityDisclaimer:SetJustifyH("LEFT")
 
@@ -450,6 +465,7 @@ RefreshInstances = function(preserveSelection)
         state.boss = nil
         state.bosses = {}
         state.abilities = {}
+        state.loot = {}
         instanceTitle:SetText("没有匹配的副本")
         instanceMeta:SetText("请调整资料片筛选或搜索内容。")
         RefreshBossRows()
@@ -514,22 +530,35 @@ end
 
 RefreshAbilityRows = function()
     local pageSize = #abilityRows
-    local maxOffset = math.max(0, #state.abilities - pageSize)
+    local entries = state.detailMode == "loot" and state.loot or state.abilities
+    local maxOffset = math.max(0, #entries - pageSize)
     state.abilityOffset = math.min(math.max(0, state.abilityOffset), maxOffset)
     for index, row in ipairs(abilityRows) do
-        local ability = state.abilities[state.abilityOffset + index]
-        row.ability = ability
-        if ability then
-            row.icon:SetTexture(ability.icon or UNKNOWN_ICON)
-            row.title:SetText(ability.name)
-            local summary = ability.description
-            if summary == "" then
-                summary = ability.tooltip
+        local entry = entries[state.abilityOffset + index]
+        row.ability = state.detailMode == "abilities" and entry or nil
+        row.item = state.detailMode == "loot" and entry or nil
+        if entry then
+            row.icon:SetTexture(entry.icon or UNKNOWN_ICON)
+            row.title:SetText(entry.name)
+            if state.detailMode == "loot" then
+                local color = QUALITY_COLORS[entry.quality] or QUALITY_COLORS[1]
+                row.title:SetTextColor(color[1], color[2], color[3])
+                local detail = "物品等级 " .. entry.itemLevel
+                if entry.requiredLevel and entry.requiredLevel > 0 then
+                    detail = detail .. " · 需要等级 " .. entry.requiredLevel
+                end
+                row.description:SetText(detail .. "\n物品 ID：" .. entry.id)
+            else
+                row.title:SetTextColor(1.0, 0.82, 0.0)
+                local summary = entry.description
+                if summary == "" then
+                    summary = entry.tooltip
+                end
+                if summary == "" then
+                    summary = "该技能在 build 12340 数据中没有可展示的说明。"
+                end
+                row.description:SetText(summary)
             end
-            if summary == "" then
-                summary = "该技能在 build 12340 数据中没有可展示的说明。"
-            end
-            row.description:SetText(summary)
             row:Show()
         else
             row:Hide()
@@ -539,24 +568,28 @@ RefreshAbilityRows = function()
     if not state.boss then
         emptyState:SetText("请从左侧选择一名首领。")
         emptyState:Show()
-    elseif #state.abilities == 0 then
+    elseif #entries == 0 and state.detailMode == "loot" then
+        emptyState:SetText("该首领在当前难度下没有能够通过 build 12340 物品数据校验的掉落条目。")
+        emptyState:Show()
+    elseif #entries == 0 then
         emptyState:SetText("该首领没有能够同时通过目录映射与 build 12340 Spell.dbc 校验的技能条目。")
         emptyState:Show()
     else
         emptyState:Hide()
     end
 
-    if #state.abilities == 0 then
+    if #entries == 0 then
         abilityCountLabel:SetText("")
     else
         local first = state.abilityOffset + 1
-        local last = math.min(#state.abilities, state.abilityOffset + pageSize)
-        abilityCountLabel:SetText(first .. "–" .. last .. " / " .. #state.abilities)
+        local last = math.min(#entries, state.abilityOffset + pageSize)
+        abilityCountLabel:SetText(first .. "–" .. last .. " / " .. #entries)
     end
 end
 
 RefreshAbilities = function()
     state.abilities = {}
+    state.loot = {}
     state.abilityOffset = 0
     if state.boss then
         local count = API.GetNumAbilities(state.boss.id)
@@ -571,6 +604,23 @@ RefreshAbilities = function()
                     tooltip = tooltip or "",
                     icon = icon,
                     verifiedBuild = verifiedBuild,
+                })
+            end
+        end
+        local lootCount = API.GetNumLoot(state.boss.id, state.difficulty)
+        for index = 1, lootCount do
+            local itemID, name, icon, quality, itemLevel, requiredLevel,
+                inventoryType = API.GetLootByIndex(
+                    state.boss.id, state.difficulty, index)
+            if itemID then
+                table.insert(state.loot, {
+                    id = itemID,
+                    name = name or ("物品 " .. itemID),
+                    icon = icon,
+                    quality = quality or 1,
+                    itemLevel = itemLevel or 0,
+                    requiredLevel = requiredLevel or 0,
+                    inventoryType = inventoryType or 0,
                 })
             end
         end
@@ -660,6 +710,21 @@ local function SetAbilityOffset(offset)
     RefreshAbilityRows()
 end
 
+local function SetDetailMode(mode)
+    state.detailMode = mode
+    state.abilityOffset = 0
+    if mode == "loot" then
+        lootTab:Disable()
+        abilityTab:Enable()
+        abilityDisclaimer:SetText("仅展示稀有及以上、可归属到当前首领与难度的掉落。")
+    else
+        abilityTab:Disable()
+        lootTab:Enable()
+        abilityDisclaimer:SetText("展示可可靠联接的技能，不代表攻略中的完整机制清单。")
+    end
+    RefreshAbilityRows()
+end
+
 dungeonTab:SetScript("OnClick", function()
     if state.isRaid then
         state.isRaid = false
@@ -723,25 +788,49 @@ for _, row in ipairs(bossRows) do
 end
 for _, row in ipairs(abilityRows) do
     row:SetScript("OnEnter", function(self)
-        if not self.ability then
+        if not self.ability and not self.item then
             return
         end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.ability.name, 1.0, 0.82, 0.0)
-        local description = self.ability.description
-        if description == "" then
-            description = self.ability.tooltip
+        if self.item then
+            local cachedName, cachedLink = GetItemInfo(self.item.id)
+            if cachedName and cachedLink and GameTooltip.SetHyperlink then
+                GameTooltip:SetHyperlink(cachedLink)
+            else
+                local color = QUALITY_COLORS[self.item.quality] or QUALITY_COLORS[1]
+                GameTooltip:SetText(self.item.name, color[1], color[2], color[3])
+                GameTooltip:AddLine("物品等级 " .. self.item.itemLevel, 1.0, 1.0, 1.0)
+                if self.item.requiredLevel and self.item.requiredLevel > 0 then
+                    GameTooltip:AddLine("需要等级 " .. self.item.requiredLevel,
+                        0.75, 0.75, 0.75)
+                end
+                GameTooltip:AddLine("物品 ID：" .. self.item.id, 0.55, 0.55, 0.55)
+                GameTooltip:AddLine("物品详细属性正在从服务器缓存获取。",
+                    0.55, 0.55, 0.55, true)
+            end
+        else
+            GameTooltip:SetText(self.ability.name, 1.0, 0.82, 0.0)
+            local description = self.ability.description
+            if description == "" then
+                description = self.ability.tooltip
+            end
+            if description ~= "" then
+                GameTooltip:AddLine(description, 1.0, 1.0, 1.0, true)
+            end
+            GameTooltip:AddLine("法术 ID：" .. self.ability.id, 0.55, 0.55, 0.55)
         end
-        if description ~= "" then
-            GameTooltip:AddLine(description, 1.0, 1.0, 1.0, true)
-        end
-        GameTooltip:AddLine("法术 ID：" .. self.ability.id, 0.55, 0.55, 0.55)
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", function()
         GameTooltip:Hide()
     end)
 end
+abilityTab:SetScript("OnClick", function()
+    SetDetailMode("abilities")
+end)
+lootTab:SetScript("OnClick", function()
+    SetDetailMode("loot")
+end)
 for _, button in ipairs(difficultyButtons) do
     button:SetScript("OnClick", function(self)
         if self.difficulty ~= nil then
@@ -805,6 +894,7 @@ frame:SetScript("OnShow", function()
             button:Enable()
         end
     end
+    SetDetailMode(state.detailMode)
     RefreshInstances(true)
 end)
 
