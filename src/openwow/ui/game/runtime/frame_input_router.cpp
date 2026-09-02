@@ -26,6 +26,7 @@
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/widgets/simple_edit_box.h"
 #include "openwow/ui/widgets/simple_frame.h"
+#include "openwow/ui/widgets/simple_minimap.h"
 
 namespace openwow::ui::game::runtime {
 namespace {
@@ -598,6 +599,23 @@ void FrameInputRouter::RefreshMouseFocusAt(const float x, const float y,
                                            const bool motion) {
   mouse_focus_dirty_ = false;
   const std::string next = traversal_.HitTarget(x, y, viewport_height());
+
+  if (next != mouseover_frame_) {
+    if (auto* old_minimap = frames_.FindMinimap(mouseover_frame_);
+        old_minimap != nullptr) {
+      old_minimap->ClearHoverTooltip();
+    }
+  }
+
+  if (auto* minimap = frames_.FindMinimap(next); minimap != nullptr) {
+    const openwow::input::InputEvent event{
+        .type = openwow::input::InputEventType::MouseMove,
+        .mouseX = static_cast<std::int32_t>(x),
+        .mouseY = static_cast<std::int32_t>(y),
+    };
+    (void)minimap->TrackPresentedMouseMove(&event);
+  }
+
   if (next != mouseover_frame_) {
     const auto old_ref = frames_.FindLuaRef(mouseover_frame_);
     const auto new_ref = frames_.FindLuaRef(next);

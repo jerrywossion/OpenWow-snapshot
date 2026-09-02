@@ -201,6 +201,23 @@ std::vector<MinimapRotatingArrow> MinimapSystem::GetRotatingArrows() const {
   return rotating_arrows_;
 }
 
+void MinimapSystem::PublishMarkerPresentation(
+    std::vector<MinimapMarkerPresentation> markers) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  marker_presentation_ = std::move(markers);
+}
+
+void MinimapSystem::ClearMarkerPresentation() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  marker_presentation_.clear();
+}
+
+std::vector<MinimapMarkerPresentation>
+MinimapSystem::GetMarkerPresentationSnapshot() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return marker_presentation_;
+}
+
 void MinimapSystem::SetRotatingArrowTexturePath(
     MinimapRotatingArrowKind kind, std::string texture_path) {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -446,6 +463,7 @@ void MinimapSystem::Reset() {
   tracking_mask_ = 0;
   pins_.clear();
   rotating_arrows_.clear();
+  marker_presentation_.clear();
   guide_point_of_interest_.reset();
   player_x_ = 0.0f;
   player_y_ = 0.0f;

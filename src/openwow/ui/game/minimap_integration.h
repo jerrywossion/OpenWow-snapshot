@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace openwow::game {
@@ -72,6 +73,8 @@ class MinimapIntegration {
 
   void SetUiUnitScale(float scale);
 
+  void PrepareMarkerPresentation();
+
   bool HandleClick(float screen_x, float screen_y,
                    float& out_world_x, float& out_world_y);
 
@@ -87,6 +90,11 @@ class MinimapIntegration {
   }
 
  private:
+  struct MarkerLabel {
+    std::string text;
+    bool flight_master{false};
+  };
+
   void LoadTerrainTranslations();
 
   void UpdateVisibleTerrainTiles(float player_x, float player_y);
@@ -100,6 +108,7 @@ class MinimapIntegration {
       const openwow::game::ObjectManager& obj_mgr,
       openwow::game::ObjectGuid local_guid, float player_x, float player_y,
       float visible_radius);
+  void RebuildMarkerLabels(const openwow::game::ObjectManager* obj_mgr);
 
   openwow::render::TextureManager& texture_manager_;
   openwow::ui::MinimapSystem& minimap_state_;
@@ -118,6 +127,7 @@ class MinimapIntegration {
   bool terrain_translations_loaded_{false};
   FileLoader file_loader_;
   std::vector<openwow::game::ObjectGuid> visible_object_candidates_;
+  std::unordered_map<std::uint64_t, MarkerLabel> marker_labels_;
   std::uint32_t next_visible_object_refresh_tick_{0};
 
   static constexpr float kDefaultRadius = 70.0f;

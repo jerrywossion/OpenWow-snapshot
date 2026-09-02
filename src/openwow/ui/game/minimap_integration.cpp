@@ -35,6 +35,7 @@ constexpr std::uint32_t kMaxRenderedPoiIconId = 0xC3;
 constexpr float kMinimapBlipInRangeRadiusFraction = 0.8f;
 constexpr float kMaximumPoiArrowDistance = 694.44446f;
 constexpr std::uint32_t kVisibleObjectRefreshIntervalMs = 999;
+constexpr std::uint32_t kNpcFlagFlightMaster = 0x00002000u;
 
 struct VisibleMinimapChunkVertex {
   float world_x = 0.0f;
@@ -118,37 +119,9 @@ void AppendPointOfInterestIcons(Minimap& minimap,
     icon.texture_kind = MinimapIconTextureKind::kPoiAtlas;
     icon.atlas_icon_index = pin.icon_id;
     icon.texture_path = poi_texture_path;
+    icon.tooltip = pin.tooltip;
     minimap.AddIcon(icon);
   }
-}
-
-void AppendGuidePointOfInterestIcon(Minimap& minimap,
-                                    const openwow::ui::MinimapSystem& minimap_state,
-                                    const float player_x, const float player_y,
-                                    const float visible_radius) {
-  const auto guide_poi = minimap_state.GetGuidePointOfInterest();
-  if (!guide_poi.has_value() || guide_poi->icon_id > kMaxRenderedPoiIconId) {
-    return;
-  }
-
-  const float dx = guide_poi->x - player_x;
-  const float dy = guide_poi->y - player_y;
-  const float visible_distance = visible_radius * kMinimapBlipInRangeRadiusFraction;
-  if ((dx * dx) + (dy * dy) > visible_distance * visible_distance) {
-    return;
-  }
-
-  MinimapIcon icon;
-  icon.world_x = guide_poi->x;
-  icon.world_y = guide_poi->y;
-  icon.color = 0xFFFFFFFFu;
-  icon.type = MinimapIconType::kQuest;
-  icon.quad_span_pixels =
-      openwow::ui::kMinimapBlipQuadSpanUiUnits * minimap.ui_unit_scale();
-  icon.texture_kind = MinimapIconTextureKind::kPoiAtlas;
-  icon.atlas_icon_index = guide_poi->icon_id;
-  icon.texture_path = minimap_state.GetPoiIconTexturePath();
-  minimap.AddIcon(icon);
 }
 
 void AppendGuidePointOfInterestArrow(Minimap& minimap,
@@ -172,8 +145,12 @@ void AppendGuidePointOfInterestArrow(Minimap& minimap,
     return;
   }
 
-  minimap.AddRotatingArrow(
-      {std::atan2(dx, -dy), MinimapRotatingArrowKind::kGuidePoi, true});
+  minimap.AddRotatingArrow({
+      .angle_radians = std::atan2(dx, -dy),
+      .kind = MinimapRotatingArrowKind::kGuidePoi,
+      .visible_in_indoor_minimap = true,
+      .tooltip = guide_poi->title,
+  });
 }
 
 }
@@ -262,6 +239,8 @@ void MinimapIntegration::Shutdown() {
   terrain_chunk_leases_.fill({});
   terrain_chunk_lease_paths_.fill({});
   visible_object_candidates_.clear();
+  marker_labels_.clear();
+  minimap_state_.ClearMarkerPresentation();
   next_visible_object_refresh_tick_ = 0;
   terrain_translations_loaded_ = false;
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
@@ -340,7 +319,9 @@ void MinimapIntegration::Render(std::uint8_t view_id, float screen_w,
 }
 
 void MinimapIntegration::RenderToTexture(const std::uint8_t view_id) {
-  if (initialized_) minimap_.RenderToTexture(view_id);
+  if (initialized_) {
+    minimap_.RenderToTexture(view_id);
+  }
 }
 
 MinimapSurfaceSubmitter MinimapIntegration::surface_submitter() const {
@@ -360,6 +341,8 @@ void MinimapIntegration::OnMapChanged(std::uint32_t map_id,
   terrain_chunk_leases_.fill({});
   terrain_chunk_lease_paths_.fill({});
   visible_object_candidates_.clear();
+  marker_labels_.clear();
+  minimap_state_.ClearMarkerPresentation();
   next_visible_object_refresh_tick_ = 0;
 }
 
@@ -391,6 +374,84 @@ void MinimapIntegration::SetUiUnitScale(const float scale) {
   if (initialized_) {
     minimap_.SetUiUnitScale(scale);
   }
+}
+
+void MinimapIntegration::PrepareMarkerPresentation() {
+  if (!initialized_) {
+    minimap_state_.ClearMarkerPresentation();
+    return;
+  }
+
+  std::vector<openwow::ui::MinimapMarkerPresentation> markers;
+  markers.reserve(128);
+
+  const auto append_slot = [&](const MinimapObjectInfoSlot& slot,
+                               const float half_extent) {
+    const auto label = marker_labels_.find(slot.GetGuid().GetRawValue());
+    if (label == marker_labels_.end() || label->second.text.empty()) {
+      return;
+    }
+    markers.push_back({
+        .left = slot.GetProjectedX() - half_extent,
+        .top = slot.GetProjectedY() - half_extent,
+        .right = slot.GetProjectedX() + half_extent,
+        .bottom = slot.GetProjectedY() + half_extent,
+        .tooltip = label->second.text,
+        .transport_layer_mismatch = slot.HasTransportLayerMismatch(),
+        .flight_master = label->second.flight_master,
+    });
+  };
+  const auto append_category = [&](const std::uint32_t category,
+                                   const bool transport_layer_mismatch) {
+    const float half_extent =
+        minimap_content_.GetPresentedObjectInfoHalfExtent(category);
+    const std::uint32_t count =
+        minimap_content_.GetObjectInfoCategoryCount(category);
+    for (std::uint32_t index = 0; index < count; ++index) {
+      const auto* slot =
+          minimap_content_.GetObjectInfoCategorySlot(category, index);
+      if (slot != nullptr &&
+          slot->HasTransportLayerMismatch() == transport_layer_mismatch) {
+        append_slot(*slot, half_extent);
+      }
+    }
+  };
+
+  for (std::uint32_t category = 0; category <= 1u; ++category) {
+    append_category(category, false);
+  }
+  for (std::uint32_t category = 16; category <= 22u; ++category) {
+    append_category(category, false);
+  }
+  for (const bool transport_layer_mismatch : {false, true}) {
+    for (std::uint32_t category = 2; category <= 15u; ++category) {
+      append_category(category, transport_layer_mismatch);
+    }
+  }
+
+  const auto arrow_layout = minimap_content_.GetDirectionalArrowLayout();
+  for (std::uint32_t index = 0;
+       index < openwow::game::MinimapSystem::kVehicleIconSlotCount; ++index) {
+    const auto* slot = minimap_content_.GetVehicleIconSlot(index);
+    if (slot == nullptr || !slot->IsVisible()) {
+      continue;
+    }
+    const auto label = marker_labels_.find(slot->GetGuid().GetRawValue());
+    if (label == marker_labels_.end() || label->second.text.empty()) {
+      continue;
+    }
+    markers.push_back({
+        .left = slot->GetProjectedX() - arrow_layout.iconHalfExtent,
+        .top = slot->GetProjectedY() - arrow_layout.iconHalfExtent,
+        .right = slot->GetProjectedX() + arrow_layout.iconHalfExtent,
+        .bottom = slot->GetProjectedY() + arrow_layout.iconHalfExtent,
+        .tooltip = label->second.text,
+        .flight_master = label->second.flight_master,
+    });
+  }
+
+  minimap_.AppendMarkerPresentation(markers);
+  minimap_state_.PublishMarkerPresentation(std::move(markers));
 }
 
 bool MinimapIntegration::HandleClick(float screen_x, float screen_y,
@@ -505,6 +566,7 @@ void MinimapIntegration::RebuildMinimapContent(
     const float facing, const float visible_radius) {
   (void)player_z;
   minimap_.ClearIcons();
+  marker_labels_.clear();
 
   const auto& minimap_state = minimap_state_;
   openwow::game::Minimap_TickPOIDirections(
@@ -512,8 +574,6 @@ void MinimapIntegration::RebuildMinimapContent(
       player_x, player_y);
   AppendPointOfInterestIcons(minimap_, minimap_state, player_x, player_y,
                              visible_radius);
-  AppendGuidePointOfInterestIcon(
-      minimap_, minimap_state, player_x, player_y, visible_radius);
 
   auto& content = minimap_content_;
   content.ClearObjectInfoCategories();
@@ -538,11 +598,13 @@ void MinimapIntegration::RebuildMinimapContent(
 
   if (obj_mgr == nullptr || visible_radius <= 0.0f) {
     content.RenderMinimapContent();
+    RebuildMarkerLabels(obj_mgr);
     return;
   }
   const auto* player = obj_mgr->GetActivePlayer();
   if (player == nullptr) {
     content.RenderMinimapContent();
+    RebuildMarkerLabels(obj_mgr);
     return;
   }
 
@@ -750,9 +812,12 @@ void MinimapIntegration::RebuildMinimapContent(
       }
     } else {
 
-      minimap_.AddRotatingArrow(
-          {std::atan2(dx, -dy), MinimapRotatingArrowKind::kGroupMember,
-           true});
+      minimap_.AddRotatingArrow({
+          .angle_radians = std::atan2(dx, -dy),
+          .kind = MinimapRotatingArrowKind::kGroupMember,
+          .visible_in_indoor_minimap = true,
+          .tooltip = member.name,
+      });
     }
   }
 
@@ -788,6 +853,7 @@ void MinimapIntegration::RebuildMinimapContent(
                openwow::game::MinimapSystem::kVehicleIconSlotCount) {
       if (auto* slot = content.GetVehicleIconSlot(vehicle_arrow_index++);
           slot != nullptr) {
+        slot->SetGuid(vehicle_guid);
         slot->SetVisible(true);
         slot->SetFacingRadians(std::atan2(dy, dx));
       }
@@ -809,10 +875,81 @@ void MinimapIntegration::RebuildMinimapContent(
     const float dx = poi->worldX - player_x;
     const float dy = poi->worldY - player_y;
 
-    minimap_.AddRotatingArrow({std::atan2(dx, -dy), kind, true});
+    minimap_.AddRotatingArrow({
+        .angle_radians = std::atan2(dx, -dy),
+        .kind = kind,
+        .visible_in_indoor_minimap = true,
+        .tooltip = poi->name != nullptr ? poi->name : "",
+    });
   }
 
   content.RenderMinimapContent();
+  RebuildMarkerLabels(obj_mgr);
+}
+
+void MinimapIntegration::RebuildMarkerLabels(const ObjectManager* obj_mgr) {
+  marker_labels_.clear();
+
+  const auto group_members = GroupSystem::Get().GetMembers();
+  const auto resolve_group_name = [&](const ObjectGuid guid) {
+    const auto member = std::find_if(
+        group_members.begin(), group_members.end(),
+        [guid](const auto& candidate) { return candidate.guid == guid; });
+    return member != group_members.end() ? member->name : std::string{};
+  };
+
+  const auto retain_label = [&](const ObjectGuid guid,
+                                std::string preferred_text) {
+    if (guid.IsEmpty()) {
+      return;
+    }
+
+    bool flight_master = false;
+    if (obj_mgr != nullptr) {
+      if (const auto* object = obj_mgr->Get(guid); object != nullptr) {
+        if (preferred_text.empty()) {
+          preferred_text = object->GetName();
+        }
+        if (object->IsUnit()) {
+          const auto& unit = static_cast<const CGUnit_C&>(*object);
+          flight_master =
+              (unit.State().GetNpcFlags() & kNpcFlagFlightMaster) != 0u;
+        }
+      }
+    }
+
+    if (!preferred_text.empty()) {
+      marker_labels_[guid.GetRawValue()] = {
+          .text = std::move(preferred_text),
+          .flight_master = flight_master,
+      };
+    }
+  };
+
+  for (std::uint32_t category = 0;
+       category < openwow::game::MinimapSystem::kObjectInfoCategoryCount;
+       ++category) {
+    const std::uint32_t count =
+        minimap_content_.GetObjectInfoCategoryCount(category);
+    for (std::uint32_t index = 0; index < count; ++index) {
+      const auto* slot =
+          minimap_content_.GetObjectInfoCategorySlot(category, index);
+      if (slot == nullptr) {
+        continue;
+      }
+      retain_label(slot->GetGuid(),
+                   category <= 1u ? resolve_group_name(slot->GetGuid())
+                                  : std::string{});
+    }
+  }
+
+  for (std::uint32_t index = 0;
+       index < openwow::game::MinimapSystem::kVehicleIconSlotCount; ++index) {
+    const auto* slot = minimap_content_.GetVehicleIconSlot(index);
+    if (slot != nullptr && slot->IsVisible()) {
+      retain_label(slot->GetGuid(), {});
+    }
+  }
 }
 
 }

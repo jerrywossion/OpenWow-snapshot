@@ -1138,4 +1138,62 @@ void Minimap::ProjectWorldToScreenUnrotated(
       pos_y_ - (world_x - player_x_) / visible_radius_ * radius_;
 }
 
+void Minimap::AppendMarkerPresentation(
+    std::vector<MinimapMarkerPresentation>& markers) const {
+  for (const auto kind : {MinimapRotatingArrowKind::kStaticPoi,
+                          MinimapRotatingArrowKind::kGuidePoi,
+                          MinimapRotatingArrowKind::kCorpsePoi,
+                          MinimapRotatingArrowKind::kGroupMember}) {
+    const float ring_radius =
+        kMinimapRotatingArrowRingRadiusUiUnits * ui_unit_scale_;
+    const float half_size =
+        kMinimapRotatingArrowQuadSpanUiUnits * 0.5f * ui_unit_scale_;
+    for (const auto& arrow : rotating_arrows_) {
+      if (arrow.kind != kind || arrow.tooltip.empty() ||
+          (indoor_minimap_active_ && !arrow.visible_in_indoor_minimap)) {
+        continue;
+      }
+
+      const float render_angle =
+          rotating_ ? (arrow.angle_radians - facing_) : arrow.angle_radians;
+      const float center_x = pos_x_ + std::cos(render_angle) * ring_radius;
+      const float center_y = pos_y_ - std::sin(render_angle) * ring_radius;
+      markers.push_back({
+          .left = center_x - half_size,
+          .top = center_y - half_size,
+          .right = center_x + half_size,
+          .bottom = center_y + half_size,
+          .tooltip = arrow.tooltip,
+      });
+    }
+  }
+
+  for (const auto& icon : icons_) {
+    if (icon.tooltip.empty() ||
+        (icon.texture_kind == MinimapIconTextureKind::kPoiAtlas &&
+         icon.atlas_icon_index >=
+             openwow::ui::game::kMinimapPoiAtlasIconCount)) {
+      continue;
+    }
+
+    float center_x = 0.0f;
+    float center_y = 0.0f;
+    ProjectWorldToScreen(icon.world_x, icon.world_y, center_x, center_y);
+    const float offset_x = center_x - pos_x_;
+    const float offset_y = pos_y_ - center_y;
+    if (offset_x * offset_x + offset_y * offset_y > radius_ * radius_) {
+      continue;
+    }
+
+    const float half_size = icon.quad_span_pixels * 0.5f;
+    markers.push_back({
+        .left = center_x - half_size,
+        .top = center_y - half_size,
+        .right = center_x + half_size,
+        .bottom = center_y + half_size,
+        .tooltip = icon.tooltip,
+    });
+  }
+}
+
 }

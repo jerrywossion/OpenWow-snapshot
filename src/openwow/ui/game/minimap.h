@@ -9,6 +9,7 @@
 
 #include "openwow/render/resources/textures/texture_lease.h"
 #include "openwow/ui/game/minimap_arrows.h"
+#include "openwow/ui/game/minimap_marker_presentation.h"
 #include "openwow/ui/game/minimap_surface_submission.h"
 
 namespace openwow::render {
@@ -47,6 +48,7 @@ struct MinimapIcon {
   MinimapIconTextureKind texture_kind{MinimapIconTextureKind::kSolidColor};
   uint32_t atlas_icon_index{0};
   std::string texture_path;
+  std::string tooltip;
 };
 
 struct MinimapBackgroundVertex {
@@ -120,6 +122,8 @@ class Minimap {
                             float& screen_y) const;
   void ProjectWorldToScreenUnrotated(float world_x, float world_y,
                                      float& screen_x, float& screen_y) const;
+  void AppendMarkerPresentation(
+      std::vector<MinimapMarkerPresentation>& markers) const;
 
   void Shutdown();
 

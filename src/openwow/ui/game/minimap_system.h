@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "openwow/ui/game/minimap_arrows.h"
+#include "openwow/ui/game/minimap_marker_presentation.h"
 
 namespace openwow::ui {
 
@@ -87,6 +88,12 @@ class MinimapSystem {
   void AddRotatingArrow(const MinimapRotatingArrow& arrow);
   [[nodiscard]] std::vector<MinimapRotatingArrow> GetRotatingArrows() const;
 
+  void PublishMarkerPresentation(
+      std::vector<MinimapMarkerPresentation> markers);
+  void ClearMarkerPresentation();
+  [[nodiscard]] std::vector<MinimapMarkerPresentation>
+  GetMarkerPresentationSnapshot() const;
+
   void SetRotatingArrowTexturePath(MinimapRotatingArrowKind kind,
                                    std::string texture_path);
   [[nodiscard]] std::string GetRotatingArrowTexturePath(
@@ -142,6 +149,7 @@ class MinimapSystem {
   std::uint32_t tracking_mask_ = 0;
   std::vector<MinimapPin> pins_;
   std::vector<MinimapRotatingArrow> rotating_arrows_;
+  std::vector<MinimapMarkerPresentation> marker_presentation_;
   std::optional<MinimapGuidePointOfInterest> guide_point_of_interest_;
   float player_x_ = 0.0f, player_y_ = 0.0f, player_orient_ = 0.0f;
   Mode mode_ = Mode::Rotate;
