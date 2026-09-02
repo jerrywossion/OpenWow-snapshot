@@ -23,6 +23,7 @@ class DbcLoader;
 namespace openwow::render {
 
 class DistantTerrainRenderer;
+class DetailDoodadRenderer;
 class ShadowPresentationRuntime;
 class SkyRenderer;
 class TerrainRenderer;
@@ -123,6 +124,7 @@ class WorldPresentationScene final {
   std::unique_ptr<WeatherRenderer> weather_renderer_;
   std::unique_ptr<WaterRenderer> water_;
   std::unique_ptr<DoodadRenderer> doodads_;
+  std::unique_ptr<DetailDoodadRenderer> detail_doodads_;
   std::unique_ptr<DistantTerrainRenderer> distant_;
 
   std::unique_ptr<WmoRenderer> wmo_shader_warm_up_;

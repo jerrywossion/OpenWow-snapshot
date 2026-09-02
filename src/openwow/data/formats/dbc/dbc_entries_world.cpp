@@ -53,8 +53,8 @@ OPENWOW_DBC_SCHEMA(GroundEffectTextureEntry,
       e.doodad_id[i] = f.GetUInt32(row, 1 + i);
       e.doodad_weight[i] = f.GetInt32(row, 5 + i);
     }
-    e.sound = f.GetUInt32(row, 9);
-    e.density = f.GetUInt32(row, 10);
+    e.density = f.GetUInt32(row, 9);
+    e.sound = f.GetUInt32(row, 10);
 )
 
 OPENWOW_DBC_SCHEMA(GroundEffectDoodadEntry,

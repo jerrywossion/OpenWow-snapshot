@@ -228,7 +228,7 @@ bool CanPerformInventoryMutation() {
 constexpr float kWorldCameraNearClip = openwow::world::kWorldCameraNearClipDistance;
 constexpr float kWorldCameraFallbackFarClip = 350.0f;
 constexpr std::uint8_t kStandStateSit = 1;
-constexpr std::uint8_t kWorldSceneOpaqueViewCount = 5;
+constexpr std::uint8_t kWorldSceneOpaqueViewCount = 6;
 
 constexpr std::uint8_t kWorldSceneAlphaViewCount = 4;
 constexpr std::uint8_t kWorldWaterViewCount = 1;
@@ -560,6 +560,9 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                                              1, OffsetViewId(scene_opaque, 1)),
               .wmo = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 2,
                                            OffsetViewId(scene_opaque, 2)),
+              .detail_doodads = ResolveFrameGraphView(
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 5,
+                  OffsetViewId(scene_opaque, 5)),
               .alpha = scene_alpha,
               .reflection =
                   ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Reflection, 1),
@@ -612,12 +615,13 @@ float ResolvePlayerAnimationProgress(const CGPlayer_C &player, void *context) {
   return loop->world_scene().object_renderer().GetAnimationProgress(player.GetGuid());
 }
 
-std::array<std::uint8_t, 13>
+std::array<std::uint8_t, 14>
 BuildWorldSceneFramebufferViewList(const WorldSceneRenderViews &views) {
   return {
       views.world.sky,   views.world.scene,   views.world.wmo,        views.world.alpha,
       views.world.water, views.world.weather, views.blob_shadows,     views.objects,
-      views.mounts,      views.particles,     views.selection_circle, views.water_particulates,
+      views.world.detail_doodads, views.mounts, views.particles,
+      views.selection_circle, views.water_particulates,
 
       views.unit_names,
   };

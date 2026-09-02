@@ -65,8 +65,8 @@ struct GroundEffectTextureEntry {
   std::uint32_t id;
   std::array<std::uint32_t, 4> doodad_id;
   std::array<std::int32_t, 4> doodad_weight;
-  std::uint32_t sound;
   std::uint32_t density;
+  std::uint32_t sound;
 
   static GroundEffectTextureEntry Load(const DbcFile &f, std::uint32_t row);
 };

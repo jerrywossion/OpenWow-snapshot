@@ -19,6 +19,7 @@
 #include "openwow/world/environment/weather.h"
 #include "openwow/world/environment/wmo_fog.h"
 #include "openwow/world/liquid/wmo_liquid_surface.h"
+#include "openwow/world/terrain/ground_effect_map.h"
 
 #include <algorithm>
 #include <bit>
@@ -269,78 +270,8 @@ void VisitWaterHeightfieldFacets(
   }
 }
 
-constexpr std::size_t kTerrainChunkCellGridSide = 8u;
-constexpr std::size_t kTerrainChunkCellCount =
-    kTerrainChunkCellGridSide * kTerrainChunkCellGridSide;
-constexpr std::size_t kTerrainAlphaMapSide = 64u;
-constexpr std::size_t kTerrainAlphaPixelsPerCell = kTerrainAlphaMapSide / kTerrainChunkCellGridSide;
 constexpr float kGroundTypeQueryMapHalfSize = kWorldGridCenter;
 constexpr float kGroundTypeQueryMapFullSize = 34133.332f;
-
-[[nodiscard]] std::array<std::uint32_t, kTerrainChunkCellCount>
-BuildChunkGroundEffectIdGrid(const data::terrain::TerrainChunk &chunk, const bool big_alpha) {
-  std::array<std::uint32_t, kTerrainChunkCellCount> effect_ids{};
-  const std::size_t layer_count = std::min<std::size_t>(chunk.layers.size(), 4u);
-  if (layer_count == 0u) {
-    return effect_ids;
-  }
-
-  std::array<std::vector<std::uint8_t>, 4> layer_alpha_maps{};
-  for (std::size_t layer_index = 1u; layer_index < layer_count; ++layer_index) {
-    const auto &layer = chunk.layers[layer_index];
-    if ((layer.flags & data::terrain::AlphaMapFlags::kHasAlpha) == 0u ||
-        layer.alpha_map_offset >= chunk.alpha_data.size()) {
-      continue;
-    }
-
-    layer_alpha_maps[layer_index] = data::terrain::DecompressAlphaMap(
-        chunk.alpha_data.data() + layer.alpha_map_offset,
-        chunk.alpha_data.size() - layer.alpha_map_offset, layer.flags, big_alpha,
-        (chunk.header.flags & data::terrain::McnkFlags::kDoNotFixAlphaMap) == 0u);
-  }
-
-  for (std::size_t cell_row = 0; cell_row < kTerrainChunkCellGridSide; ++cell_row) {
-    for (std::size_t cell_col = 0; cell_col < kTerrainChunkCellGridSide; ++cell_col) {
-      const std::size_t cell_index = cell_row * kTerrainChunkCellGridSide + cell_col;
-      if (IsTerrainHoleCell(chunk.holes, static_cast<int>(cell_row),
-                            static_cast<int>(cell_col))) {
-        continue;
-      }
-
-      std::array<std::uint32_t, 4> layer_weight_sums{};
-      for (std::size_t alpha_row = 0; alpha_row < kTerrainAlphaPixelsPerCell; ++alpha_row) {
-        for (std::size_t alpha_col = 0; alpha_col < kTerrainAlphaPixelsPerCell; ++alpha_col) {
-          const std::size_t pixel_row = cell_row * kTerrainAlphaPixelsPerCell + alpha_row;
-          const std::size_t pixel_col = cell_col * kTerrainAlphaPixelsPerCell + alpha_col;
-          const std::size_t pixel_index = pixel_row * kTerrainAlphaMapSide + pixel_col;
-
-          std::uint32_t secondary_weight = 0u;
-          for (std::size_t layer_index = 1u; layer_index < layer_count; ++layer_index) {
-            const auto &alpha_map = layer_alpha_maps[layer_index];
-            const std::uint32_t alpha =
-                pixel_index < alpha_map.size() ? alpha_map[pixel_index] : 0u;
-            layer_weight_sums[layer_index] += alpha;
-            secondary_weight += alpha;
-          }
-
-          const std::uint32_t base_weight = static_cast<std::uint8_t>(255u - secondary_weight);
-          layer_weight_sums[0] += base_weight;
-        }
-      }
-
-      std::size_t best_layer = 0u;
-      for (std::size_t layer_index = 1u; layer_index < layer_count; ++layer_index) {
-        if (layer_weight_sums[layer_index] > layer_weight_sums[best_layer]) {
-          best_layer = layer_index;
-        }
-      }
-
-      effect_ids[cell_index] = chunk.layers[best_layer].effect_id;
-    }
-  }
-
-  return effect_ids;
-}
 
 [[nodiscard]] std::uint32_t ResolveGroundTypeFromEffectId(const openwow::data::dbc::DbcLoader &dbc,
                                                           const std::uint32_t effect_id) {
@@ -353,7 +284,7 @@ BuildChunkGroundEffectIdGrid(const data::terrain::TerrainChunk &chunk, const boo
     return 0u;
   }
 
-  return entry->density;
+  return entry->sound;
 }
 
 constexpr float kRetailAdtLiquidFixedTexcoordScale = 0.01171875f;
@@ -3310,7 +3241,6 @@ void WorldMap::QueueTileLoad(const TileCoord &coord) {
   const MapGeneration generation = world_staging_generation_;
   const std::uint64_t request_id = next_world_staging_request_id_++;
   const StreamOwnerHandle owner = MakeStreamOwnerHandle(request_id);
-  const bool big_alpha = (wdt_.flags & data::terrain::WdtFlags::kBigAlpha) != 0u;
   const std::uint32_t map_id = map_id_;
   std::array<std::uint32_t, 4> liquid_vertex_formats{0u, 1u, 2u, 2u};
   std::array<std::uint32_t, 4> liquid_material_variants{2u, 2u, 2u, 2u};
@@ -3348,7 +3278,7 @@ void WorldMap::QueueTileLoad(const TileCoord &coord) {
 
     const std::uint32_t task_id = world_staging_workers_.Submit(
         "world-adt:" + path, WmoTaskPriority(publication_priority),
-        [coord, generation, owner, request_id, big_alpha, map_id,
+        [coord, generation, owner, request_id, map_id,
          liquid_vertex_formats, liquid_material_variants, path, load_file,
          mailbox]() mutable {
           StagedWorldTile completion{
@@ -3370,7 +3300,8 @@ void WorldMap::QueueTileLoad(const TileCoord &coord) {
                 for (std::size_t chunk_index = 0;
                      chunk_index < tile->adt.chunks.size(); ++chunk_index) {
                   tile->terrain_cell_ground_effect_ids[chunk_index] =
-                      BuildChunkGroundEffectIdGrid(tile->adt.chunks[chunk_index], big_alpha);
+                      BuildTerrainChunkGroundEffectIdGrid(
+                          tile->adt.chunks[chunk_index]);
                 }
                 tile->water_surfaces =
                     BuildAdtWaterHeightfields(
