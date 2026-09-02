@@ -670,13 +670,18 @@ void UnitAnimationRuntime::SetAnimationBoneAvailability(
 
 void UnitAnimationRuntime::SetBodyYawTurnLatches(const bool left,
                                                  const bool right) noexcept {
-  emote_internal_flags_ &=
-      ~(kEmoteFlagTurnInPlaceLeft | kEmoteFlagTurnInPlaceRight);
+  constexpr std::uint32_t kTurnLatchMask =
+      kEmoteFlagTurnInPlaceLeft | kEmoteFlagTurnInPlaceRight;
+  const std::uint32_t previous_latches = emote_internal_flags_ & kTurnLatchMask;
+  emote_internal_flags_ &= ~kTurnLatchMask;
   if (left) {
     emote_internal_flags_ |= kEmoteFlagTurnInPlaceLeft;
   }
   if (right) {
     emote_internal_flags_ |= kEmoteFlagTurnInPlaceRight;
+  }
+  if ((emote_internal_flags_ & kTurnLatchMask) != previous_latches) {
+    stand_selector_refresh_pending_ = true;
   }
 }
 
