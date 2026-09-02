@@ -562,6 +562,9 @@ public:
 
   void SetBlipHalfExtents(float blipHalfExtent,
                           float vehicleStateBlipHalfExtent) noexcept;
+  [[nodiscard]] float GetPresentedBlipHalfExtent() const noexcept;
+  [[nodiscard]] float GetPresentedObjectInfoHalfExtent(
+      std::uint32_t categoryIndex) const noexcept;
 
   [[nodiscard]] MinimapDirectionalArrowSlot *GetVehicleIconSlot(std::uint32_t index) noexcept;
   [[nodiscard]] const MinimapDirectionalArrowSlot *

@@ -26,6 +26,7 @@
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/widgets/simple_edit_box.h"
 #include "openwow/ui/widgets/simple_frame.h"
+#include "openwow/ui/widgets/simple_minimap.h"
 
 namespace openwow::ui::game::runtime {
 namespace {
@@ -598,6 +599,40 @@ void FrameInputRouter::RefreshMouseFocusAt(const float x, const float y,
                                            const bool motion) {
   mouse_focus_dirty_ = false;
   const std::string next = traversal_.HitTarget(x, y, viewport_height());
+
+  if (next != mouseover_frame_) {
+    if (auto *old_minimap = frames_.FindMinimap(mouseover_frame_);
+        old_minimap != nullptr) {
+      old_minimap->ClearHoverTooltip();
+    }
+  }
+
+  if (auto *minimap = frames_.FindMinimap(next); minimap != nullptr) {
+    const auto rect = layout_.rects().find(next);
+    if (rect != layout_.rects().end()) {
+      const openwow::ui::widgets::ScreenRect presented_rect{
+          .left = static_cast<float>(rect->second.x),
+          .top = static_cast<float>(rect->second.y),
+          .right = static_cast<float>(rect->second.x + rect->second.width),
+          .bottom = static_cast<float>(rect->second.y + rect->second.height),
+      };
+      const auto &native_rect = minimap->GetRect();
+      if (native_rect.left != presented_rect.left ||
+          native_rect.top != presented_rect.top ||
+          native_rect.right != presented_rect.right ||
+          native_rect.bottom != presented_rect.bottom) {
+        minimap->SetRect(presented_rect);
+      }
+
+      const openwow::input::InputEvent event{
+          .type = openwow::input::InputEventType::MouseMove,
+          .mouseX = static_cast<std::int32_t>(x),
+          .mouseY = static_cast<std::int32_t>(y),
+      };
+      (void)minimap->OnMouseMove(&event);
+    }
+  }
+
   if (next != mouseover_frame_) {
     const auto old_ref = frames_.FindLuaRef(mouseover_frame_);
     const auto new_ref = frames_.FindLuaRef(next);
