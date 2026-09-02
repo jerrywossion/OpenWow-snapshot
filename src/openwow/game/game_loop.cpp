@@ -3408,11 +3408,7 @@ void GameLoop::FinalizeWorldEntryRuntime() {
     });
   }
 
-  if (world_session() != nullptr &&
-      world_scene_.world_map().IsWorldEntryStreamingComplete() &&
-      world_scene_.IsDoodadWorldEntryLoadDrained()) {
-    (void)world_session()->TrySendPendingWorldportAck();
-  }
+  TryAcknowledgeReadyWorldTransfer();
 
   UpdateLoadingTrackedPlayerState();
   ArmTransportWorldEntryHoldForRidingPlayer();
@@ -4615,6 +4611,7 @@ void GameLoop::RefreshLoadingWorldEntryState(float dt) {
   world_scene_.Update(dt, loading_camera.position[0], loading_camera.position[1],
                       loading_camera.position[2], world_cvars.GetCVarFloat("environmentDetail"),
                       ReadWeatherParticleDensity(), ReadUseWeatherShaders());
+  TryAcknowledgeReadyWorldTransfer();
   if (world_session()) {
     world_scene_.SynchronizeObjectModelBindings(world_session()->objects(), *world_session());
     RefreshExactUnitBoundsFromRenderer(world_session()->objects());
@@ -4626,6 +4623,18 @@ void GameLoop::RefreshLoadingWorldEntryState(float dt) {
           area_record->ambient_multiplier, dt);
     }
   }
+}
+
+void GameLoop::TryAcknowledgeReadyWorldTransfer() {
+  if (world_session() == nullptr ||
+      !world_scene_.world_map().IsWorldEntryStreamingComplete() ||
+      !world_scene_.IsDoodadWorldEntryLoadDrained()) {
+    return;
+  }
+
+  // Map loading is asynchronous in OpenWoW, so the post-load worldport ACK
+  // boundary may become ready only after FinalizeWorldEntryRuntime returns.
+  (void)world_session()->TrySendPendingWorldportAck();
 }
 
 void GameLoop::UpdateLoadingTrackedPlayerState() {

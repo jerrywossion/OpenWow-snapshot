@@ -302,9 +302,19 @@ bool WorldSession::TrySendPendingWorldportAck() {
     return false;
   }
 
-  world_transition_.ClearWorldportAck();
   net::wotlk::WorldPacket ack(net::wotlk::Opcode::MSG_MOVE_WORLDPORT_ACK);
-  Send(ack);
+  if (!Send(ack)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kError,
+        "WorldSession: failed to send MSG_MOVE_WORLDPORT_ACK; acknowledgement remains pending");
+    return false;
+  }
+
+  world_transition_.ClearWorldportAck();
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "WorldSession: sent MSG_MOVE_WORLDPORT_ACK map=" +
+          std::to_string(current_map_id_));
   return true;
 }
 

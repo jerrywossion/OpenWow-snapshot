@@ -333,6 +333,7 @@ class GameLoop : private openwow::render::api::RendererDeviceLifecycleObserver {
   void ShowLoadingScreen(std::uint32_t map_id);
   void HideLoadingScreen();
   void RefreshLoadingWorldEntryState(float dt);
+  void TryAcknowledgeReadyWorldTransfer();
 
   void UpdateLoadingTrackedPlayerState();
   [[nodiscard]] LoadingScreenWorldEntryGateState BuildLoadingScreenWorldEntryGateState() const;
