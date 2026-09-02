@@ -1330,7 +1330,8 @@ void WorldScene::Render(const render::api::RendererContext* renderer_context,
     (void)configure_world_view(shadow_view);
     blob_shadows_.Render(
         shadow_view, bgfx_matrices.view.data(),
-        bgfx_matrices.projection.data(), object_presentation_snapshot_, dbc_,
+        bgfx_matrices.projection.data(), object_presentation_snapshot_,
+        *object_renderer_,
         [this](const std::array<float, 6>& bounds,
                const openwow::world::CollisionFacetVisitor& visitor) {
 
