@@ -1,0 +1,10 @@
+## Interface: 30300
+## Title: OpenWoW 地下城手册
+## Notes: 以 4.3.4 Encounter Journal 旅程为基线的 3.3.5a 适配实现
+## Author: OpenWoW
+## Version: 1.0.0
+## LoadOnDemand: 1
+## SavedVariables: OpenWoWEncounterJournalDB
+## X-OpenWoW-Source-Baseline: Blizzard_EncounterJournal 4.3.4
+
+OpenWoW_EncounterJournal.lua
