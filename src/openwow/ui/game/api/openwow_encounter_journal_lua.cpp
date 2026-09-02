@@ -4,14 +4,17 @@
 #include "openwow/data/formats/dbc/dbc_loader.h"
 #include "openwow/data/formats/dbc/dbc_table_registry.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/game/spell_text_formatter.h"
 
 extern "C" {
 #include <lua.hpp>
 }
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <unordered_map>
@@ -24,13 +27,32 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 1;
+constexpr std::uint32_t kSchemaVersion = 2;
 constexpr std::uint32_t kRandomDungeonType = 6;
+
+struct JournalSupplementSpell final {
+  std::uint32_t spell_id{0};
+  std::int32_t verified_build{0};
+};
+
+struct JournalEncounterSupplement final {
+  std::uint32_t encounter_id{0};
+  std::uint32_t creature_entry{0};
+  std::array<JournalSupplementSpell, 8> spells{};
+  std::uint32_t spell_count{0};
+};
+
+#include "openwow_encounter_journal_build12340.inc"
 
 struct InstanceRecord final {
   const openwow::data::dbc::LfgDungeonsEntry* lfg{nullptr};
   const openwow::data::dbc::MapEntry* map{nullptr};
   bool is_raid{false};
+};
+
+struct AbilityRecord final {
+  const JournalSupplementSpell* supplement{nullptr};
+  const openwow::data::dbc::SpellEntry* spell{nullptr};
 };
 
 const openwow::data::dbc::DbcLoader* GetDbc() {
@@ -156,6 +178,60 @@ std::vector<const openwow::data::dbc::DungeonEncounterEntry*> BuildEncounters(
         return left->order_index < right->order_index;
       });
   return encounters;
+}
+
+const JournalEncounterSupplement* FindSupplement(
+    const std::uint32_t encounter_id) {
+  const auto it = std::lower_bound(
+      kJournalEncounterSupplements.begin(),
+      kJournalEncounterSupplements.end(),
+      encounter_id,
+      [](const JournalEncounterSupplement& candidate, const std::uint32_t id) {
+        return candidate.encounter_id < id;
+      });
+  return it != kJournalEncounterSupplements.end() &&
+                 it->encounter_id == encounter_id
+             ? &*it
+             : nullptr;
+}
+
+void LogMissingSupplementSpellOnce(const std::uint32_t encounter_id,
+                                   const std::uint32_t spell_id) {
+  static std::unordered_set<std::uint64_t> logged;
+  const auto key = (static_cast<std::uint64_t>(encounter_id) << 32u) | spell_id;
+  if (!logged.insert(key).second) {
+    return;
+  }
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "Encounter journal skipped supplemental spell: encounter=" +
+          std::to_string(encounter_id) + " spell=" + std::to_string(spell_id) +
+          " reason=missing from active build 12340 Spell.dbc");
+}
+
+std::vector<AbilityRecord> BuildAbilities(
+    const openwow::data::dbc::DbcLoader& dbc,
+    const std::uint32_t encounter_id) {
+  std::vector<AbilityRecord> abilities;
+  if (dbc.dungeon_encounter().LookupEntry(encounter_id) == nullptr) {
+    return abilities;
+  }
+  const auto* supplement = FindSupplement(encounter_id);
+  if (supplement == nullptr) {
+    return abilities;
+  }
+
+  abilities.reserve(supplement->spell_count);
+  for (std::uint32_t index = 0; index < supplement->spell_count; ++index) {
+    const auto& candidate = supplement->spells[index];
+    const auto* spell = dbc.spell().LookupEntry(candidate.spell_id);
+    if (spell == nullptr) {
+      LogMissingSupplementSpellOnce(encounter_id, candidate.spell_id);
+      continue;
+    }
+    abilities.push_back({.supplement = &candidate, .spell = spell});
+  }
+  return abilities;
 }
 
 void PushString(lua_State* state, const std::string_view value) {
@@ -313,7 +389,54 @@ int LuaGetEncounterByIndex(lua_State* state) {
   PushString(state, encounter.name);
   PushIconPath(state, *dbc, encounter.spell_icon_id);
   lua_pushinteger(state, encounter.order_index);
-  return 4;
+  const auto* supplement = FindSupplement(encounter.id);
+  if (supplement != nullptr) {
+    lua_pushinteger(state, supplement->creature_entry);
+  } else {
+    lua_pushnil(state);
+  }
+  return 5;
+}
+
+int LuaGetNumAbilities(lua_State* state) {
+  const auto encounter_id = CheckUnsigned(state, 1, "encounterID");
+  const auto* dbc = GetDbc();
+  if (dbc == nullptr) {
+    lua_pushinteger(state, 0);
+    return 1;
+  }
+  const auto abilities = BuildAbilities(*dbc, encounter_id);
+  lua_pushinteger(state, static_cast<lua_Integer>(abilities.size()));
+  return 1;
+}
+
+int LuaGetAbilityByIndex(lua_State* state) {
+  const auto encounter_id = CheckUnsigned(state, 1, "encounterID");
+  const auto index = CheckOneBasedIndex(state, 2);
+  const auto* dbc = GetDbc();
+  if (dbc == nullptr) {
+    lua_pushnil(state);
+    return 1;
+  }
+
+  const auto abilities = BuildAbilities(*dbc, encounter_id);
+  if (index >= abilities.size()) {
+    lua_pushnil(state);
+    return 1;
+  }
+
+  const auto& ability = abilities[index];
+  lua_pushinteger(state, ability.spell->id);
+  PushString(state, ability.spell->spell_name);
+  const auto description = openwow::game::ResolveSpellDescriptionForDisplay(
+      ability.spell->id, ability.spell->description);
+  PushString(state, description);
+  const auto tooltip = openwow::game::ResolveSpellDescriptionForDisplay(
+      ability.spell->id, ability.spell->tooltip);
+  PushString(state, tooltip);
+  PushIconPath(state, *dbc, ability.spell->spell_icon_id);
+  lua_pushinteger(state, ability.supplement->verified_build);
+  return 6;
 }
 
 int LuaGetSourceSummary(lua_State* state) {
@@ -348,6 +471,8 @@ void InstallEncounterJournal(lua_State* state, void*) {
   SetFunction(state, "GetDifficultyByIndex", LuaGetDifficultyByIndex);
   SetFunction(state, "GetNumEncounters", LuaGetNumEncounters);
   SetFunction(state, "GetEncounterByIndex", LuaGetEncounterByIndex);
+  SetFunction(state, "GetNumAbilities", LuaGetNumAbilities);
+  SetFunction(state, "GetAbilityByIndex", LuaGetAbilityByIndex);
   SetFunction(state, "GetSourceSummary", LuaGetSourceSummary);
   lua_setglobal(state, kApiTableName.data());
 }
