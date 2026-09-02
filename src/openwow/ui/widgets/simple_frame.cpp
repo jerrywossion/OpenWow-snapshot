@@ -1327,14 +1327,35 @@ void CSimpleMinimap::ClearHoverTooltip() {
 
 bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
   const bool hit = CSimpleFrame::OnMouseMove(inputEvent);
-
-  auto &tooltipSys = openwow::ui::game::TooltipSystem::Get();
-  auto &minimapSys = *minimap_state_;
-
   if (!hit) {
     ClearHoverTooltip();
     return false;
   }
+
+  return UpdateHoverTooltip(inputEvent, GetRect());
+}
+
+bool CSimpleMinimap::OnPresentedMouseMove(
+    const void *inputEvent, const ScreenRect &presentedRect) {
+  if (inputEvent == nullptr) {
+    return false;
+  }
+
+  const auto &event =
+      *static_cast<const openwow::input::InputEvent *>(inputEvent);
+  if (!presentedRect.ContainsPoint(static_cast<float>(event.mouseX),
+                                   static_cast<float>(event.mouseY))) {
+    ClearHoverTooltip();
+    return false;
+  }
+
+  return UpdateHoverTooltip(inputEvent, presentedRect);
+}
+
+bool CSimpleMinimap::UpdateHoverTooltip(
+    const void *inputEvent, const ScreenRect &presentedRect) {
+  auto &tooltipSys = openwow::ui::game::TooltipSystem::Get();
+  auto &minimapSys = *minimap_state_;
 
   if (!inputEvent) {
     return true;
@@ -1345,7 +1366,7 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
   const float cursorX = static_cast<float>(event.mouseX);
   const float cursorY = static_cast<float>(event.mouseY);
 
-  const auto &rect = GetRect();
+  const auto &rect = presentedRect;
   const float frameW = rect.Width();
   const float frameH = rect.Height();
 
