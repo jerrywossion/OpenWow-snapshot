@@ -4,7 +4,6 @@
 #include "openwow/core/decimal_parse.h"
 #include "openwow/core/storm_error.h"
 #include "openwow/game/actions/held_cursor/adapters/platform/cursor_surface.h"
-#include "openwow/game/group_system.h"
 #include "openwow/game/minimap_system.h"
 #include "openwow/game/object_manager.h"
 #include "openwow/game/world_session.h"
@@ -76,10 +75,6 @@ constexpr float kEpsilon = 0.00000023841858f;
 constexpr float kMinEpsilon = 0.00000011920929f;
 constexpr float kMinDepth = 0.2f;
 constexpr float kMinimapStatusAnchorOffset = 0.001f;
-constexpr float kMinimapBlipInRangeRadiusFraction = 0.8f;
-constexpr float kMaximumMinimapPoiArrowDistance = 694.44446f;
-constexpr std::uint32_t kMaximumMinimapPoiAtlasIconId = 0xC3u;
-constexpr std::string_view kMinimapTooltipOwner = "Minimap";
 constexpr uint32_t kLayoutResolvedBit = 0x100u;
 constexpr uint32_t kLayoutQueuedBit = 0x400u;
 constexpr uint32_t kLayoutResolveFailedBit = 0x800u;
@@ -1309,20 +1304,14 @@ void CSimpleFrame::FireOnLeave(bool motion, bool clearDragState) {
 }
 
 void CSimpleMinimap::FireOnLeave(bool motion, bool clearDragState) {
-  ClearHoverTooltip();
-  CSimpleFrame::FireOnLeave(motion, clearDragState);
-}
-
-void CSimpleMinimap::ClearHoverTooltip() {
   auto &tooltipSys = openwow::ui::game::TooltipSystem::Get();
-  if (tooltipSys.GetOwnerName() == kMinimapTooltipOwner) {
-    tooltipSys.Hide();
-    tooltipSys.HideLiveGameTooltipFrame();
-  }
+  tooltipSys.Hide();
+
+  tooltipSys.HideLiveGameTooltipFrame();
   tooltipPinHitMask_ = 0;
   tooltipCategoryHitMasks_.fill(0);
-  tooltipGuidePoiHit_ = false;
   tooltipVisible_ = false;
+  CSimpleFrame::FireOnLeave(motion, clearDragState);
 }
 
 bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
@@ -1332,7 +1321,25 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
   auto &minimapSys = *minimap_state_;
 
   if (!hit) {
-    ClearHoverTooltip();
+
+    const bool wasVisible = tooltipVisible_;
+    const bool hadPinHits = (tooltipPinHitMask_ != 0);
+    bool hadCategoryHits = false;
+    for (const auto mask : tooltipCategoryHitMasks_) {
+      if (mask != 0) {
+        hadCategoryHits = true;
+        break;
+      }
+    }
+
+    tooltipPinHitMask_ = 0;
+    tooltipCategoryHitMasks_.fill(0);
+    tooltipVisible_ = false;
+
+    if (wasVisible || hadPinHits || hadCategoryHits) {
+      tooltipSys.Hide();
+      tooltipSys.HideLiveGameTooltipFrame();
+    }
     return false;
   }
 
@@ -1353,27 +1360,19 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
     return true;
   }
 
+  const float blipHalfExtent = frameH * 0.0125f * 1.6666666f * 0.5f;
+
   const float visibleRadius = minimapSys.GetVisibleRadius();
   const float playerX = minimapSys.GetPlayerX();
   const float playerY = minimapSys.GetPlayerY();
 
-  auto &content = *minimap_content_;
-  const float blipHalfExtent = content.GetPresentedBlipHalfExtent();
-  const auto pins = minimapSys.GetPinsSnapshot();
+  const auto &pins = minimapSys.GetPins();
   std::uint32_t newPinHitMask = 0;
   const std::uint32_t maxPinBits =
       std::min<std::uint32_t>(static_cast<std::uint32_t>(pins.size()), 32u);
 
   for (std::uint32_t i = 0; i < maxPinBits; ++i) {
     const auto &pin = pins[i];
-    const float dx = pin.x - playerX;
-    const float dy = pin.y - playerY;
-    const float inRangeDistance =
-        visibleRadius * kMinimapBlipInRangeRadiusFraction;
-    if (!pin.is_poi || pin.icon_id > kMaximumMinimapPoiAtlasIconId ||
-        dx * dx + dy * dy > inRangeDistance * inRangeDistance) {
-      continue;
-    }
 
     const float halfSize = frameW * 0.5f;
     const float invRange =
@@ -1403,75 +1402,24 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
     }
   }
 
-  bool newGuidePoiHit = false;
-  const auto guidePoi = minimapSys.GetGuidePointOfInterest();
-  if (guidePoi.has_value()) {
-    const float dx = guidePoi->x - playerX;
-    const float dy = guidePoi->y - playerY;
-    const float distanceSquared = dx * dx + dy * dy;
-    const float inRangeDistance =
-        visibleRadius * kMinimapBlipInRangeRadiusFraction;
-    float screenX = 0.0f;
-    float screenY = 0.0f;
-    float hitHalfExtent = blipHalfExtent;
-    bool presented = false;
-    if (distanceSquared <= inRangeDistance * inRangeDistance &&
-        guidePoi->icon_id <= kMaximumMinimapPoiAtlasIconId) {
-      const float halfWidth = frameW * 0.5f;
-      const float halfHeight = frameH * 0.5f;
-      const float invRange =
-          (visibleRadius > 0.0f) ? (1.0f / visibleRadius) : 0.0f;
-      screenX = rect.left + halfWidth - dy * halfWidth * invRange;
-      screenY = rect.top + halfHeight + dx * halfHeight * invRange;
-      if (minimapSys.GetMode() == openwow::ui::MinimapSystem::Mode::Rotate) {
-        const float centerX = rect.left + halfWidth;
-        const float centerY = rect.top + halfHeight;
-        const float offsetX = screenX - centerX;
-        const float offsetY = screenY - centerY;
-        const float angle = -minimapSys.GetPlayerOrientation();
-        const float cosine = std::cos(angle);
-        const float sine = std::sin(angle);
-        screenX = centerX + offsetX * cosine - offsetY * sine;
-        screenY = centerY + offsetX * sine + offsetY * cosine;
-      }
-      presented = true;
-    } else if (distanceSquared <= kMaximumMinimapPoiArrowDistance *
-                                      kMaximumMinimapPoiArrowDistance) {
-      const auto arrowLayout = content.GetDirectionalArrowLayout();
-      float angle = std::atan2(dx, -dy);
-      if (minimapSys.GetMode() == openwow::ui::MinimapSystem::Mode::Rotate) {
-        angle -= minimapSys.GetPlayerOrientation();
-      }
-      screenX = arrowLayout.centerX + std::cos(angle) * arrowLayout.ringRadius;
-      screenY = arrowLayout.centerY - std::sin(angle) * arrowLayout.ringRadius;
-      hitHalfExtent = arrowLayout.iconHalfExtent;
-      presented = hitHalfExtent > 0.0f;
-    }
-    newGuidePoiHit =
-        presented && std::fabs(cursorX - screenX) < hitHalfExtent &&
-        std::fabs(cursorY - screenY) < hitHalfExtent;
-  }
-
   std::array<std::uint32_t, 23> newCategoryHitMasks{};
+  auto &content = *minimap_content_;
   for (std::uint32_t category = 0;
        category < openwow::game::MinimapSystem::kObjectInfoCategoryCount;
        ++category) {
-    const float categoryHalfExtent =
-        content.GetPresentedObjectInfoHalfExtent(category);
     const std::uint32_t count = std::min<std::uint32_t>(
         content.GetObjectInfoCategoryCount(category), 32u);
     for (std::uint32_t index = 0; index < count; ++index) {
       const auto *slot = content.GetObjectInfoCategorySlot(category, index);
       if (slot != nullptr &&
-          std::fabs(cursorX - slot->GetProjectedX()) < categoryHalfExtent &&
-          std::fabs(cursorY - slot->GetProjectedY()) < categoryHalfExtent) {
+          std::fabs(cursorX - slot->GetProjectedX()) < blipHalfExtent &&
+          std::fabs(cursorY - slot->GetProjectedY()) < blipHalfExtent) {
         newCategoryHitMasks[category] |= (1u << index);
       }
     }
   }
 
-  bool masksChanged = newPinHitMask != tooltipPinHitMask_ ||
-                      newGuidePoiHit != tooltipGuidePoiHit_;
+  bool masksChanged = (newPinHitMask != tooltipPinHitMask_);
   if (!masksChanged) {
     for (std::uint32_t c = 0; c < 23; ++c) {
       if (newCategoryHitMasks[c] != tooltipCategoryHitMasks_[c]) {
@@ -1481,18 +1429,18 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
     }
   }
 
-  const bool ownsTooltip =
-      tooltipSys.GetOwnerName() == kMinimapTooltipOwner;
-  if (!masksChanged && tooltipVisible_ && ownsTooltip) {
-    tooltipSys.PublishToLiveGameTooltipFrame();
+  if (!masksChanged) {
+
+    if (tooltipVisible_) {
+      tooltipSys.PublishToLiveGameTooltipFrame();
+    }
     return true;
   }
 
   tooltipPinHitMask_ = newPinHitMask;
   tooltipCategoryHitMasks_ = newCategoryHitMasks;
-  tooltipGuidePoiHit_ = newGuidePoiHit;
 
-  bool anyHit = newPinHitMask != 0 || newGuidePoiHit;
+  bool anyHit = (newPinHitMask != 0);
   if (!anyHit) {
     for (const auto mask : newCategoryHitMasks) {
       if (mask != 0) {
@@ -1503,7 +1451,11 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
   }
 
   if (!anyHit) {
-    ClearHoverTooltip();
+    if (tooltipVisible_) {
+      tooltipSys.Hide();
+      tooltipSys.HideLiveGameTooltipFrame();
+      tooltipVisible_ = false;
+    }
     return true;
   }
 
@@ -1531,17 +1483,9 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
     (void)colorblindMode;
   }
 
-  if (newGuidePoiHit && guidePoi.has_value() && !guidePoi->title.empty()) {
-    if (!tooltipText.empty()) {
-      tooltipText += '\n';
-    }
-    tooltipText += guidePoi->title;
-  }
-
   const auto* const ui_manager = openwow::ui::game::runtime::WorldUiRuntimeContext::FromActiveLua();
   const auto* const session = ui_manager != nullptr ? ui_manager->world_session() : nullptr;
   const auto* const objects = session != nullptr ? &session->objects() : nullptr;
-  const auto groupMembers = openwow::game::GroupSystem::Get().GetMembers();
   for (std::uint32_t category = 0;
        category < openwow::game::MinimapSystem::kObjectInfoCategoryCount;
        ++category) {
@@ -1554,26 +1498,9 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
         continue;
       }
       const auto *slot = content.GetObjectInfoCategorySlot(category, index);
-      if (slot == nullptr) {
-        continue;
-      }
       const auto *object =
-          objects != nullptr ? objects->Get(slot->GetGuid()) : nullptr;
-      std::string markerName;
-      if (category <= 1u) {
-        const auto member = std::find_if(
-            groupMembers.begin(), groupMembers.end(),
-            [guid = slot->GetGuid()](const auto &candidate) {
-              return candidate.guid == guid;
-            });
-        if (member != groupMembers.end()) {
-          markerName = member->name;
-        }
-      }
-      if (markerName.empty() && object != nullptr) {
-        markerName = object->GetName();
-      }
-      if (markerName.empty()) {
+          slot != nullptr && objects != nullptr ? objects->Get(slot->GetGuid()) : nullptr;
+      if (object == nullptr || object->GetName().empty()) {
         continue;
       }
       if (!tooltipText.empty()) {
@@ -1582,7 +1509,7 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
       if (slot->HasTransportLayerMismatch()) {
         tooltipText += "|cffb0b0b0";
       }
-      tooltipText += markerName;
+      tooltipText += object->GetName();
       if (slot->HasTransportLayerMismatch()) {
         tooltipText += "|r";
       }
@@ -1590,15 +1517,15 @@ bool CSimpleMinimap::OnMouseMove(const void *inputEvent) {
   }
 
   if (tooltipText.empty()) {
-    if (ownsTooltip) {
+    if (tooltipVisible_) {
       tooltipSys.Hide();
       tooltipSys.HideLiveGameTooltipFrame();
+      tooltipVisible_ = false;
     }
-    tooltipVisible_ = false;
     return true;
   }
 
-  tooltipSys.SetOwner(std::string(kMinimapTooltipOwner), "ANCHOR_CURSOR");
+  tooltipSys.SetOwner("Minimap", "ANCHOR_CURSOR");
   tooltipSys.ClearLines();
   tooltipSys.AddLine(tooltipText);
   tooltipSys.Show();

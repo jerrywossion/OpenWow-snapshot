@@ -40,7 +40,6 @@ class CSimpleMinimap : public CSimpleFrame {
   }
 
   void FireOnLeave(bool motion = false, bool clearDragState = true) override;
-  void ClearHoverTooltip();
   bool RefreshScaleCascade(bool force) override;
 
   bool OnMouseMove(const void* inputEvent) override;
@@ -115,7 +114,6 @@ class CSimpleMinimap : public CSimpleFrame {
 
   std::uint32_t tooltipPinHitMask_{0};
   std::array<std::uint32_t, 23> tooltipCategoryHitMasks_{};
-  bool tooltipGuidePoiHit_{false};
   bool tooltipVisible_{false};
 
   static CSimpleMinimap* s_primaryInstance_;
