@@ -46,6 +46,7 @@ constexpr std::uint32_t kCreatureTypeFlagHideNameplate = 0x00100000u;
 
 constexpr std::uint8_t kMinFlashThreatStatus = 2u;
 constexpr std::uint32_t kCharacterComponentModelFlag = 0x4u;
+constexpr float kNameplateWorldVerticalOffset = 2.0f / 3.0f;
 
 constexpr std::array<std::size_t, 11> kNpcItemDisplayEquipmentSlots{
     render::kSlotHead,  render::kSlotShoulders, render::kSlotBody, render::kSlotChest,
@@ -1051,7 +1052,7 @@ NameplatePresentationSnapshot WorldPresentationPublisher::PublishNameplatesFromU
     plate.guid = object.GetGuid().GetRawValue();
     plate.world_x = anchor.x;
     plate.world_y = anchor.y;
-    plate.world_z = anchor.z;
+    plate.world_z = anchor.z + kNameplateWorldVerticalOffset;
     if (object.HasObjectBoundingBox()) {
       object.GetObjectBoundingBox(plate.world_bounds.data());
       plate.has_world_bounds = true;
