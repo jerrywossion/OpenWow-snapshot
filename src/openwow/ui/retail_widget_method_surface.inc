@@ -546,6 +546,7 @@ static constexpr lua::WidgetMethodOwnership
     {"Path", "Stop"},
     {"PlayerModel", "RefreshUnit"},
     {"PlayerModel", "SetCreature"},
+    {"PlayerModel", "SetDisplayInfo"},
     {"PlayerModel", "SetRotation"},
     {"PlayerModel", "SetUnit"},
     {"QuestPOIFrame", "DrawQuestBlob"},
