@@ -259,7 +259,7 @@ bool MinimapIntegration::RestoreRendererDeviceResources() {
 
 void MinimapIntegration::Update(float player_x, float player_y,
                                 float player_z, float facing,
-                                const WorldSession& session,
+                                WorldSession& session,
                                 const ObjectManager* obj_mgr,
                                 ObjectGuid local_guid) {
   if (!initialized_) return;
@@ -560,7 +560,7 @@ void MinimapIntegration::RefreshVisibleObjectCandidates(
 }
 
 void MinimapIntegration::RebuildMinimapContent(
-    const WorldSession& session, const ObjectManager* obj_mgr,
+    WorldSession& session, const ObjectManager* obj_mgr,
     const ObjectGuid local_guid,
     const float player_x, const float player_y, const float player_z,
     const float facing, const float visible_radius) {
@@ -598,13 +598,13 @@ void MinimapIntegration::RebuildMinimapContent(
 
   if (obj_mgr == nullptr || visible_radius <= 0.0f) {
     content.RenderMinimapContent();
-    RebuildMarkerLabels(obj_mgr);
+    RebuildMarkerLabels(session, obj_mgr);
     return;
   }
   const auto* player = obj_mgr->GetActivePlayer();
   if (player == nullptr) {
     content.RenderMinimapContent();
-    RebuildMarkerLabels(obj_mgr);
+    RebuildMarkerLabels(session, obj_mgr);
     return;
   }
 
@@ -884,10 +884,11 @@ void MinimapIntegration::RebuildMinimapContent(
   }
 
   content.RenderMinimapContent();
-  RebuildMarkerLabels(obj_mgr);
+  RebuildMarkerLabels(session, obj_mgr);
 }
 
-void MinimapIntegration::RebuildMarkerLabels(const ObjectManager* obj_mgr) {
+void MinimapIntegration::RebuildMarkerLabels(WorldSession& session,
+                                             const ObjectManager* obj_mgr) {
   marker_labels_.clear();
 
   const auto group_members = GroupSystem::Get().GetMembers();
@@ -910,10 +911,33 @@ void MinimapIntegration::RebuildMarkerLabels(const ObjectManager* obj_mgr) {
         if (preferred_text.empty()) {
           preferred_text = object->GetName();
         }
+        if (preferred_text.empty() && object->IsPlayer()) {
+          if (const auto* player_name =
+                  session.query_cache().GetOrRequestPlayerName(
+                      guid.GetRawValue());
+              player_name != nullptr) {
+            preferred_text = player_name->name;
+          }
+        }
         if (object->IsUnit()) {
           const auto& unit = static_cast<const CGUnit_C&>(*object);
           flight_master =
               (unit.State().GetNpcFlags() & kNpcFlagFlightMaster) != 0u;
+          if (preferred_text.empty()) {
+            if (const auto* creature_template =
+                    session.query_cache().GetOrRequestCreatureTemplate(
+                        object->GetEntry(), guid.GetRawValue());
+                creature_template != nullptr) {
+              preferred_text = creature_template->name;
+            }
+          }
+        } else if (object->IsGameObject() && preferred_text.empty()) {
+          if (const auto* gameobject_template =
+                  session.query_cache().GetOrRequestGameObjectTemplate(
+                      object->GetEntry(), guid.GetRawValue());
+              gameobject_template != nullptr) {
+            preferred_text = gameobject_template->name;
+          }
         }
       }
     }

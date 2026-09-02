@@ -54,7 +54,7 @@ class MinimapIntegration {
   bool RestoreRendererDeviceResources();
 
   void Update(float player_x, float player_y, float player_z, float facing,
-              const openwow::game::WorldSession& session,
+              openwow::game::WorldSession& session,
               const openwow::game::ObjectManager* obj_mgr,
               openwow::game::ObjectGuid local_guid);
 
@@ -99,7 +99,7 @@ class MinimapIntegration {
 
   void UpdateVisibleTerrainTiles(float player_x, float player_y);
 
-  void RebuildMinimapContent(const openwow::game::WorldSession& session,
+  void RebuildMinimapContent(openwow::game::WorldSession& session,
                              const openwow::game::ObjectManager* obj_mgr,
                              openwow::game::ObjectGuid local_guid,
                              float player_x, float player_y, float player_z,
@@ -108,7 +108,8 @@ class MinimapIntegration {
       const openwow::game::ObjectManager& obj_mgr,
       openwow::game::ObjectGuid local_guid, float player_x, float player_y,
       float visible_radius);
-  void RebuildMarkerLabels(const openwow::game::ObjectManager* obj_mgr);
+  void RebuildMarkerLabels(openwow::game::WorldSession& session,
+                           const openwow::game::ObjectManager* obj_mgr);
 
   openwow::render::TextureManager& texture_manager_;
   openwow::ui::MinimapSystem& minimap_state_;
