@@ -845,7 +845,7 @@ void ObjectRenderer::Render(std::uint8_t view_id, const float *view_mtx, const f
                             float screen_w, float screen_h,
                             const std::span<const std::uint64_t> entity_ids) {
   RenderPass(view_id, view_mtx, proj_mtx, screen_w, screen_h, m2::M2RenderPassScope::kOpaqueOnly,
-             entity_ids, nullptr);
+             entity_ids, nullptr, true);
 }
 
 void ObjectRenderer::RenderTransparent(std::uint8_t view_id, const float *view_mtx,
@@ -853,7 +853,15 @@ void ObjectRenderer::RenderTransparent(std::uint8_t view_id, const float *view_m
                                        const std::span<const std::uint64_t> entity_ids,
                                        m2::M2TransparentDrawOrder &transparent_draw_order) {
   RenderPass(view_id, view_mtx, proj_mtx, screen_w, screen_h,
-             m2::M2RenderPassScope::kTransparentOnly, entity_ids, &transparent_draw_order);
+             m2::M2RenderPassScope::kTransparentOnly, entity_ids, &transparent_draw_order, true);
+}
+
+void ObjectRenderer::RenderShadowCasters(
+    const std::uint8_t view_id, const float* const view_mtx,
+    const float* const proj_mtx, const float shadow_map_size,
+    const std::span<const std::uint64_t> entity_ids) {
+  RenderPass(view_id, view_mtx, proj_mtx, shadow_map_size, shadow_map_size,
+             m2::M2RenderPassScope::kShadowCaster, entity_ids, nullptr, false);
 }
 
 void ObjectRenderer::ReserveTransparentDrawOrdinals(m2::M2TransparentDrawOrder &order) {
@@ -909,17 +917,20 @@ void ObjectRenderer::RenderPass(std::uint8_t view_id, const float *view_mtx, con
                                 float screen_w, float screen_h,
                                 const m2::M2RenderPassScope pass_scope,
                                 const std::span<const std::uint64_t> entity_ids,
-                                m2::M2TransparentDrawOrder *const transparent_draw_order) {
+                                m2::M2TransparentDrawOrder *const transparent_draw_order,
+                                const bool configure_view) {
   if (!initialized_)
     return;
   const bool transparent_pass = pass_scope == m2::M2RenderPassScope::kTransparentOnly;
   assert((!transparent_pass || transparent_draw_order != nullptr) &&
          "ObjectRenderer::RenderPass: the transparent pass needs the view's draw order");
 
-  bgfx::setViewRect(view_id, 0, 0, static_cast<std::uint16_t>(screen_w),
-                    static_cast<std::uint16_t>(screen_h));
-  bgfx::setViewTransform(view_id, view_mtx, proj_mtx);
-  bgfx::setViewClear(view_id, BGFX_CLEAR_NONE);
+  if (configure_view) {
+    bgfx::setViewRect(view_id, 0, 0, static_cast<std::uint16_t>(screen_w),
+                      static_cast<std::uint16_t>(screen_h));
+    bgfx::setViewTransform(view_id, view_mtx, proj_mtx);
+    bgfx::setViewClear(view_id, BGFX_CLEAR_NONE);
+  }
 
   m2::M2BatchUniforms world_uniforms;
   ApplyWorldM2SceneState(world_m2_scene_state_, &world_uniforms);
@@ -931,6 +942,10 @@ void ObjectRenderer::RenderPass(std::uint8_t view_id, const float *view_mtx, con
       character_uniforms.light_ambient[channel] =
           std::min(world_uniforms.light_ambient[channel] * multiply, 1.0f);
     }
+  }
+  if (pass_scope == m2::M2RenderPassScope::kShadowCaster) {
+    world_uniforms.world_shadow_receiver = {};
+    character_uniforms.world_shadow_receiver = {};
   }
 
   const m2::M2SharedBatchUniformsLease world_uniforms_lease(m2_system_, world_uniforms);
@@ -1014,6 +1029,18 @@ void ObjectRenderer::RenderMounts(std::uint8_t view_id, const float *view_mtx,
   if (!initialized_)
     return;
   mount_renderer_.Render(view_id, view_mtx, proj_mtx, objects, transparent_draw_order);
+}
+
+void ObjectRenderer::RenderMountShadowCasters(
+    const std::uint8_t view_id, const float* const view_mtx,
+    const float* const proj_mtx,
+    const game::ObjectPresentationSnapshot& objects,
+    const std::span<const std::uint64_t> entity_ids) {
+  if (!initialized_) {
+    return;
+  }
+  mount_renderer_.RenderShadowCasters(view_id, view_mtx, proj_mtx, objects,
+                                      entity_ids);
 }
 
 bool ObjectRenderer::IsRuntimeRenderAssetReady(game::ObjectGuid guid) const {

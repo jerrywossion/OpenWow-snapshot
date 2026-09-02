@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -82,6 +83,11 @@ class MountRenderer {
               const float* proj_mtx,
               const game::ObjectPresentationSnapshot& objects,
               m2::M2TransparentDrawOrder& transparent_draw_order);
+
+  void RenderShadowCasters(
+      std::uint8_t view_id, const float* view_mtx, const float* proj_mtx,
+      const game::ObjectPresentationSnapshot& objects,
+      std::span<const std::uint64_t> rider_entity_ids);
 
   bool GetRiderOffset(game::ObjectGuid guid,
                       float& ox, float& oy, float& oz) const;

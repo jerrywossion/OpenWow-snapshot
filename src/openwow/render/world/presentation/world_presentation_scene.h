@@ -20,10 +20,14 @@
 namespace openwow::data::dbc {
 class DbcLoader;
 }
+namespace openwow::game {
+struct ObjectPresentationSnapshot;
+}
 namespace openwow::render {
 
 class DistantTerrainRenderer;
 class DetailDoodadRenderer;
+class ObjectRenderer;
 class ShadowPresentationRuntime;
 class SkyRenderer;
 class TerrainRenderer;
@@ -61,6 +65,11 @@ class WorldPresentationScene final {
               const ViewProjection& matrices,
               std::uint16_t screen_width, std::uint16_t screen_height,
               m2::M2TransparentDrawOrder& alpha_draw_order);
+
+  void RenderShadows(
+      const world::WorldPresentationSnapshot& snapshot,
+      std::uint8_t first_shadow_view, ObjectRenderer& objects,
+      const game::ObjectPresentationSnapshot& object_snapshot);
 
   void SetWeatherGroundHeightSampler(
       std::function<std::optional<float>(float x, float y, float z)> sampler);

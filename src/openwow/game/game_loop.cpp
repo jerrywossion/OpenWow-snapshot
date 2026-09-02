@@ -228,6 +228,7 @@ bool CanPerformInventoryMutation() {
 constexpr float kWorldCameraNearClip = openwow::world::kWorldCameraNearClipDistance;
 constexpr float kWorldCameraFallbackFarClip = 350.0f;
 constexpr std::uint8_t kStandStateSit = 1;
+constexpr std::uint8_t kWorldShadowViewCount = 4;
 constexpr std::uint8_t kWorldSceneOpaqueViewCount = 6;
 
 constexpr std::uint8_t kWorldSceneAlphaViewCount = 4;
@@ -247,7 +248,8 @@ float ResolveWorldCameraFarClip() {
 constexpr std::uint8_t kWorldUiOffscreenViewCount = 128;
 constexpr std::uint8_t kWorldUiOverlayViewCount = 8;
 constexpr std::uint8_t kWorldUiViewCount = kWorldUiOffscreenViewCount + kWorldUiOverlayViewCount;
-constexpr std::uint8_t kFallbackPostProcessView = 1 + 1 + 1 + kWorldSceneOpaqueViewCount +
+constexpr std::uint8_t kFallbackPostProcessView =
+    kWorldShadowViewCount + 1 + 1 + kWorldSceneOpaqueViewCount +
                                                   kWorldSceneAlphaViewCount + kWorldWaterViewCount +
                                                   kWorldParticleViewCount;
 constexpr std::uint8_t kFallbackWorldUiBaseView =
@@ -460,7 +462,8 @@ void BuildWorldFrameGraph(openwow::render::api::FrameGraph &graph, std::uint16_t
 
   const rapi::RenderExtent extent{width, height};
   graph.Reset();
-  graph.AddPass(rapi::FrameGraphPassId::ShadowDepth, extent);
+  graph.AddPass(rapi::FrameGraphPassId::ShadowDepth, extent,
+                kWorldShadowViewCount);
   graph.AddPass(rapi::FrameGraphPassId::Reflection, extent);
   graph.AddPass(rapi::FrameGraphPassId::Refraction, extent);
   graph.AddPass(rapi::FrameGraphPassId::SceneOpaque, extent, kWorldSceneOpaqueViewCount);
@@ -540,7 +543,9 @@ WorldSceneRenderViews
 ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *renderer_context) {
   namespace rapi = openwow::render::api;
   const std::uint8_t scene_opaque =
-      ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 3);
+      ResolveFrameGraphView(
+          renderer_context, rapi::FrameGraphPassId::SceneOpaque,
+          static_cast<std::uint8_t>(kWorldShadowViewCount + 2u));
   const std::uint8_t scene_alpha =
       ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneAlpha,
                             static_cast<std::uint8_t>(scene_opaque + kWorldSceneOpaqueViewCount));
@@ -565,9 +570,12 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                   OffsetViewId(scene_opaque, 5)),
               .alpha = scene_alpha,
               .reflection =
-                  ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Reflection, 1),
+                  ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Reflection,
+                                        kWorldShadowViewCount),
               .refraction =
-                  ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Refraction, 2),
+                  ResolveFrameGraphView(
+                      renderer_context, rapi::FrameGraphPassId::Refraction,
+                      static_cast<std::uint8_t>(kWorldShadowViewCount + 1u)),
               .water = ResolveFrameGraphView(
                   renderer_context, rapi::FrameGraphPassId::Water, 0,
                   static_cast<std::uint8_t>(scene_alpha + kWorldSceneAlphaViewCount)),

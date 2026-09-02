@@ -1155,7 +1155,7 @@ void DetailDoodadRenderer::Render(
     const std::uint8_t view_id, const float* const view_mtx,
     const float* const projection_mtx, const world::Frustum* const frustum,
     const RenderVec3& camera_position, const WorldM2SceneState& scene_state,
-    bgfx::Encoder* const encoder) {
+    bgfx::Encoder* const encoder, const bool shadow_caster_pass) {
   if (!impl_->initialized ||
       !world::CWorld_HasRenderFlag(world::WorldRenderFlag::kDetailDoodads) ||
       !(impl_->ground_effect_distance > 0.0f)) {
@@ -1186,12 +1186,17 @@ void DetailDoodadRenderer::Render(
   }};
   const DrawEncoder draw{encoder};
   const RenderMatrix4x4 identity = kRenderIdentityMatrix4x4;
-  const std::uint64_t state =
-      BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-      BGFX_STATE_DEPTH_TEST_LESS |
-      BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA,
-                            BGFX_STATE_BLEND_INV_SRC_ALPHA) |
-      BGFX_STATE_MSAA;
+  const std::uint64_t state = shadow_caster_pass
+                                  ? BGFX_STATE_WRITE_Z |
+                                        BGFX_STATE_DEPTH_TEST_LESS
+                                  : BGFX_STATE_WRITE_RGB |
+                                        BGFX_STATE_WRITE_A |
+                                        BGFX_STATE_WRITE_Z |
+                                        BGFX_STATE_DEPTH_TEST_LESS |
+                                        BGFX_STATE_BLEND_FUNC(
+                                            BGFX_STATE_BLEND_SRC_ALPHA,
+                                            BGFX_STATE_BLEND_INV_SRC_ALPHA) |
+                                        BGFX_STATE_MSAA;
   const float distance_squared =
       impl_->ground_effect_distance * impl_->ground_effect_distance;
   for (auto& [_, tile] : impl_->tiles) {

@@ -56,7 +56,8 @@ class DetailDoodadRenderer {
               const float* projection_mtx, const world::Frustum* frustum,
               const RenderVec3& camera_position,
               const WorldM2SceneState& scene_state,
-              bgfx::Encoder* encoder = nullptr);
+              bgfx::Encoder* encoder = nullptr,
+              bool shadow_caster_pass = false);
 
  private:
   struct Impl;

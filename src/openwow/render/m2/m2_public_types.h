@@ -129,6 +129,7 @@ struct M2BatchUniforms {
   RenderVec4 fog_params{900.0f, 1200.0f, 0.0f, 0.0f};
   RenderVec4 fog_color{0.6f, 0.7f, 0.85f, 1.0f};
   RenderVec4 emissive_color{0.0f, 0.0f, 0.0f, 0.0f};
+  RenderVec4 world_shadow_receiver{0.0f, 0.0f, 0.0f, 0.0f};
   static constexpr int kMaxM2Lights = 4;
   RenderVec4 light_count{0.0f, 0.0f, 0.0f, 0.0f};
   std::array<RenderVec4, kMaxM2Lights> light_pos_range{};
@@ -374,12 +375,14 @@ enum class M2RenderPassScope : std::uint8_t {
   kAll = 0,
   kOpaqueOnly,
   kTransparentOnly,
+  kShadowCaster,
 };
 
 [[nodiscard]] constexpr bool M2RenderPassScopeIncludesOpaque(
     const M2RenderPassScope scope) noexcept {
   return scope == M2RenderPassScope::kAll ||
-         scope == M2RenderPassScope::kOpaqueOnly;
+         scope == M2RenderPassScope::kOpaqueOnly ||
+         scope == M2RenderPassScope::kShadowCaster;
 }
 
 [[nodiscard]] constexpr bool M2RenderPassScopeIncludesTransparent(

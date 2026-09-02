@@ -1268,6 +1268,24 @@ void WorldScene::Render(const render::api::RendererContext* renderer_context,
   m2_system_.UpdateAllEffects(
       last_frame_delta_seconds_,
       ::openwow::render::RenderMatrix4x4View{view_mtx, 16u});
+  const auto& environment = presentation_snapshot_.environment;
+  const render::WorldM2SceneState world_m2_scene_state{
+      .light_direction = environment.model_light_direction,
+      .ambient_color = environment.model_ambient,
+      .diffuse_color = environment.model_diffuse,
+      .fog = {
+          .params = {environment.fog_start, environment.fog_end,
+                     environment.fog_density, 0.0f},
+          .color = environment.fog_color,
+      },
+      .receives_world_shadows =
+          presentation_snapshot_.shadows.enabled &&
+          presentation_snapshot_.shadows.quality >= 3u,
+  };
+  object_renderer_->SetWorldM2SceneState(world_m2_scene_state);
+  world_presentation_scene_.RenderShadows(
+      presentation_snapshot_, views.world.shadow, *object_renderer_,
+      object_presentation_snapshot_);
   world_presentation_scene_.Render(
       presentation_snapshot_, views.world, matrices,
       static_cast<std::uint16_t>(screen_w),
@@ -1344,18 +1362,6 @@ void WorldScene::Render(const render::api::RendererContext* renderer_context,
 
   const std::uint8_t object_view = views.objects;
   object_renderer_->SetCameraPosition(cam_x, cam_y, cam_z);
-  const auto& environment = presentation_snapshot_.environment;
-  const render::WorldM2SceneState world_m2_scene_state{
-      .light_direction = environment.model_light_direction,
-      .ambient_color = environment.model_ambient,
-      .diffuse_color = environment.model_diffuse,
-      .fog = {
-          .params = {environment.fog_start, environment.fog_end,
-                     environment.fog_density, 0.0f},
-          .color = environment.fog_color,
-      },
-  };
-  object_renderer_->SetWorldM2SceneState(world_m2_scene_state);
   render::m2::M2BatchUniforms spell_visual_uniforms{};
   render::ApplyWorldM2SceneState(world_m2_scene_state,
                                  &spell_visual_uniforms);

@@ -1,5 +1,5 @@
 $input a_position, a_normal, a_texcoord0, a_color0, a_texcoord1, a_color1
-$output v_texcoord0, v_normal, v_color0, v_viewDist, v_envTexcoord, v_texcoord1, v_color1
+$output v_texcoord0, v_normal, v_color0, v_viewDist, v_envTexcoord, v_texcoord1, v_color1, v_worldPos
 
 #include <bgfx_shader.sh>
 #include "world_fog.sh"
@@ -18,6 +18,10 @@ void main()
     v_texcoord1 = a_texcoord1;
     v_color1 = a_color1;
     v_normal = worldNormal;
+    v_worldPos = u_wmoWorldCol0.xyz * localPosition.x
+               + u_wmoWorldCol1.xyz * localPosition.y
+               + u_wmoWorldCol2.xyz * localPosition.z
+               + u_wmoWorldCol3.xyz;
     v_viewDist = openwowWorldFogDepth(viewPosition.xyz);
 
     vec3 incident = normalize(viewPosition.xyz);

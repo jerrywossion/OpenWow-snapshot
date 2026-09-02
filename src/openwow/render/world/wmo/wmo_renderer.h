@@ -258,7 +258,8 @@ public:
       std::uint16_t viewport_width = 0,
       std::uint16_t viewport_height = 0,
       occlusion::OcclusionDepthBuffer* occlusion = nullptr,
-      bgfx::Encoder *encoder = nullptr);
+      bgfx::Encoder *encoder = nullptr,
+      bool shadow_caster_pass = false);
 
   void RenderCollisionGeometry(uint8_t view_id, const float *view_mtx, const float *proj_mtx,
                                const RenderMatrix4x4 &model_mtx,

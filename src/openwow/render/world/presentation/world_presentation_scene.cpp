@@ -10,6 +10,7 @@
 #include "openwow/render/world/detail_doodads/detail_doodad_renderer.h"
 #include "openwow/world/coordinates/frustum.h"
 #include "openwow/render/scene/shadow_presentation_runtime.h"
+#include "openwow/render/scene/object_renderer.h"
 #include "openwow/render/world/environment/sky_renderer.h"
 #include "openwow/render/world/terrain/terrain_renderer.h"
 #include "openwow/render/resources/textures/texture_manager.h"
@@ -656,6 +657,8 @@ void WorldPresentationScene::Render(
   env.models.ambient_color = snapshot.environment.model_ambient;
   env.models.diffuse_color = snapshot.environment.model_diffuse;
   env.models.fog = env.fog;
+  env.models.receives_world_shadows =
+      snapshot.shadows.enabled && snapshot.shadows.quality >= 3u;
   env.surface_to_light = snapshot.environment.light_direction;
   env.ambient = snapshot.environment.ambient;
   env.diffuse = snapshot.environment.diffuse;
@@ -896,7 +899,6 @@ void WorldPresentationScene::Render(
 
     render_sky();
     encode_distant_terrain(nullptr);
-    shadows_->Render(snapshot, views.shadow, *doodads_, *terrain_);
     encode_detailed_terrain(nullptr);
     resolve_wmo_placements();
     encode_wmo(nullptr);
@@ -907,7 +909,6 @@ void WorldPresentationScene::Render(
     return;
   }
 
-  shadows_->Render(snapshot, views.shadow, *doodads_, *terrain_);
   resolve_wmo_placements();
 
   core::FrameJobSystem* const jobs = m2_system_.frame_job_system();
@@ -987,6 +988,62 @@ void WorldPresentationScene::Render(
       encode_detailed_terrain(nullptr);
     }
   }
+}
+
+void WorldPresentationScene::RenderShadows(
+    const world::WorldPresentationSnapshot& snapshot,
+    const std::uint8_t first_shadow_view, ObjectRenderer& objects,
+    const game::ObjectPresentationSnapshot& object_snapshot) {
+  if (!initialized_ || snapshot.map_generation != generation_) {
+    return;
+  }
+
+  WorldM2SceneState model_state{};
+  model_state.light_direction = snapshot.environment.model_light_direction;
+  model_state.ambient_color = snapshot.environment.model_ambient;
+  model_state.diffuse_color = snapshot.environment.model_diffuse;
+  model_state.fog.params = {snapshot.environment.fog_start,
+                            snapshot.environment.fog_end,
+                            snapshot.environment.fog_density, 0.0f};
+  model_state.fog.color = snapshot.environment.fog_color;
+  model_state.receives_world_shadows =
+      snapshot.shadows.enabled && snapshot.shadows.quality >= 3u;
+  doodads_->SetWorldM2SceneState(model_state);
+
+  wmo_placement_scratch_.clear();
+  wmo_placement_scratch_.reserve(snapshot.world_models.size());
+  for (const auto& item : snapshot.world_models) {
+    const auto resource = models_.find(item.resource_key);
+    const auto instance = instances_.find(item.stable_id);
+    if (resource == models_.end() || instance == instances_.end() ||
+        !resource->second->renderer || !item.visible ||
+        !instance->second.visible) {
+      continue;
+    }
+    wmo_placement_scratch_.push_back(
+        ResolvedWmoPlacement{.renderer = resource->second->renderer.get(),
+                             .item = &item,
+                             .instance = &instance->second});
+  }
+
+  shadows_->Render(
+      snapshot, first_shadow_view, *doodads_, *terrain_, objects,
+      object_snapshot,
+      [&](const std::uint8_t view_id, const float* const view_mtx,
+          const float* const projection_mtx,
+          const world::Frustum& frustum, const RenderVec3& target,
+          const std::uint16_t resolution) {
+        for (const ResolvedWmoPlacement& placement :
+             wmo_placement_scratch_) {
+          auto& renderer = *placement.renderer;
+          renderer.SetFrustum(&frustum);
+          static_cast<void>(renderer.Render(
+              view_id, view_mtx, projection_mtx, placement.item->transform,
+              nullptr, {}, resolution, resolution, nullptr, nullptr, true));
+        }
+        detail_doodads_->Render(view_id, view_mtx, projection_mtx, &frustum,
+                                target, model_state, nullptr, true);
+      });
 }
 
 }

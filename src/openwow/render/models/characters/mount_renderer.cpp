@@ -326,6 +326,68 @@ void MountRenderer::Render(std::uint8_t view_id, const float* view_mtx,
   }
 }
 
+void MountRenderer::RenderShadowCasters(
+    const std::uint8_t view_id, const float* const view_mtx,
+    const float* const proj_mtx,
+    const game::ObjectPresentationSnapshot& objects,
+    const std::span<const std::uint64_t> rider_entity_ids) {
+  if (!initialized_) {
+    return;
+  }
+  static_cast<void>(proj_mtx);
+
+  auto& system = m2_system_;
+  m2::M2BatchUniforms world_uniforms;
+  ApplyWorldM2SceneState(world_m2_scene_state_, &world_uniforms);
+  world_uniforms.world_shadow_receiver = {};
+
+  render_batch_mounts_scratch_.clear();
+  render_batch_ids_scratch_.clear();
+  for (auto& [guid, inst] : mounts_) {
+    if (!std::binary_search(rider_entity_ids.begin(), rider_entity_ids.end(),
+                            guid.GetRawValue()) ||
+        !inst.mount_loaded || inst.m2_instance_id == 0u) {
+      continue;
+    }
+    if (inst.render_ready_latched_instance_id != inst.m2_instance_id) {
+      const auto readiness = system.QueryInstanceReadiness(inst.m2_instance_id);
+      if (readiness.status != m2::M2ResultStatus::kReady ||
+          !readiness.render_ready) {
+        continue;
+      }
+      inst.render_ready_latched_instance_id = inst.m2_instance_id;
+    }
+    const auto unit = std::lower_bound(
+        objects.active.begin(), objects.active.end(), guid.GetRawValue(),
+        [](const game::ObjectPresentationRecord& record,
+           const std::uint64_t raw_guid) {
+          return record.handle.guid.GetRawValue() < raw_guid;
+        });
+    if (unit == objects.active.end() || unit->handle != inst.rider) {
+      continue;
+    }
+    if (PrepareMountInstance(inst, *unit, world_uniforms)) {
+      render_batch_mounts_scratch_.push_back(&inst);
+      render_batch_ids_scratch_.push_back(inst.m2_instance_id);
+    }
+  }
+  if (render_batch_ids_scratch_.empty()) {
+    return;
+  }
+  render_batch_results_scratch_.assign(render_batch_ids_scratch_.size(), {});
+  system.RenderInstanceBatch(
+      view_id, render_batch_ids_scratch_, RenderMatrix4x4View{view_mtx, 16u},
+      m2::M2RenderPassScope::kShadowCaster, system.frame_job_system(),
+      kMountInstanceRenderMicroseconds, render_batch_results_scratch_);
+  for (std::size_t index = 0u; index < render_batch_mounts_scratch_.size();
+       ++index) {
+    if (m2::IsTerminalM2ResultStatus(
+            render_batch_results_scratch_[index].status)) {
+      ClearM2Binding(*render_batch_mounts_scratch_[index]);
+    }
+  }
+}
+
 bool MountRenderer::GetRiderOffset(game::ObjectGuid guid, float& ox,
                                    float& oy, float& oz) const {
   auto it = mounts_.find(guid);
