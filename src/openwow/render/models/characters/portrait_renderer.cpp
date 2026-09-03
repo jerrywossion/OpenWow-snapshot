@@ -15,6 +15,7 @@ constexpr std::uint16_t kPortraitExtent = 64u;
 struct PortraitEntry {
   std::unique_ptr<ModelPortrait> target;
   std::weak_ptr<const void> request_owner;
+  std::uint64_t request_revision{};
   std::uint32_t model_instance_id{};
   std::uint64_t visual_revision{};
   m2::M2ResultStatus status{m2::M2ResultStatus::kNotReady};
@@ -37,11 +38,12 @@ struct PortraitRenderer::Impl {
 
   PortraitAcquireResult AcquireFrom(
       const std::shared_ptr<const void>& request_owner,
+      const std::uint64_t request_revision,
       const std::uint32_t display_id,
       const std::uint32_t model_instance_id,
       std::uint8_t& next_view_id,
       const std::uint16_t view_id_limit) {
-    if (!request_owner) {
+    if (!request_owner || request_revision == 0u) {
       return Failure(m2::M2ResultStatus::kFailed,
                      m2::M2ResultReason::kInvalidHandle,
                      "portrait request identity is incomplete");
@@ -60,18 +62,43 @@ struct PortraitRenderer::Impl {
     PortraitEntry& entry = it->second;
     if (inserted) entry.request_owner = request_owner;
 
-    if (entry.visual_revision == 0u) {
+    if (entry.request_revision != request_revision) {
       if (display_id == 0u || model_instance_id == 0u) {
-        return Failure(m2::M2ResultStatus::kFailed,
-                       m2::M2ResultReason::kInvalidHandle,
-                       "portrait source identity is incomplete");
+        if (!entry.has_content) {
+          return Failure(m2::M2ResultStatus::kFailed,
+                         m2::M2ResultReason::kInvalidHandle,
+                         "portrait source identity is incomplete");
+        }
+        return {
+            .status = m2::M2ResultStatus::kReady,
+            .texture = PortraitTexture{
+                .handle = entry.target->GetTexture(),
+                .width = kPortraitExtent,
+                .height = kPortraitExtent,
+            },
+        };
       }
       const auto visual = models.QueryVisualTreeRevision(model_instance_id);
       if (visual.status != m2::M2ResultStatus::kReady) {
-        return Failure(visual.status, visual.reason, visual.detail);
+        if (!entry.has_content) {
+          return Failure(visual.status, visual.reason, visual.detail);
+        }
+        return {
+            .status = m2::M2ResultStatus::kReady,
+            .texture = PortraitTexture{
+                .handle = entry.target->GetTexture(),
+                .width = kPortraitExtent,
+                .height = kPortraitExtent,
+            },
+        };
       }
+      entry.request_revision = request_revision;
       entry.model_instance_id = model_instance_id;
       entry.visual_revision = visual.revision;
+      entry.status = m2::M2ResultStatus::kNotReady;
+      entry.reason = m2::M2ResultReason::kNone;
+      entry.detail.clear();
+      entry.dirty = true;
     }
 
     if (!entry.target) {
@@ -154,6 +181,7 @@ void PortraitRenderer::InvalidateAll() {
 
 PortraitAcquireResult PortraitRenderer::Acquire(
     std::shared_ptr<const void> request_owner,
+    const std::uint64_t request_revision,
     const std::uint32_t display_id,
     const std::uint32_t model_instance_id, std::uint8_t& next_view_id,
     std::uint16_t view_id_limit) {
@@ -163,8 +191,8 @@ PortraitAcquireResult PortraitRenderer::Acquire(
                    "portrait renderer is not initialized");
   }
   view_id_limit = std::min<std::uint16_t>(view_id_limit, 255u);
-  return impl_->AcquireFrom(request_owner, display_id, model_instance_id,
-                            next_view_id, view_id_limit);
+  return impl_->AcquireFrom(request_owner, request_revision, display_id,
+                            model_instance_id, next_view_id, view_id_limit);
 }
 
 }

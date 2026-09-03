@@ -42,6 +42,7 @@ class PortraitRenderer final {
 
   [[nodiscard]] PortraitAcquireResult Acquire(
       std::shared_ptr<const void> request_owner,
+      std::uint64_t request_revision,
       std::uint32_t display_id, std::uint32_t model_instance_id,
       std::uint8_t& next_view_id, std::uint16_t view_id_limit);
 
