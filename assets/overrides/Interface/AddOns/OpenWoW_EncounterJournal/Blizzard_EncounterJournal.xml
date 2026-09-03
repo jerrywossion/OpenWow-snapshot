@@ -366,12 +366,7 @@
 				GameTooltip:Hide();
 				self.showingTooltip = false;
 			</OnLeave>
-			<OnClick>
-				if not ChatFrameUtil.TryInsertChatLink(self.link) then
-					EncounterJournal_DisplayInstance(self.instanceID);
-					PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN);
-				end
-			</OnClick>
+			<OnClick function="EncounterJournalInstanceButton_OnClick"/>
 		</Scripts>
 		<Frames>
 			<Button parentKey="ModifiedInstanceIcon" hidden="true" mixin="ModifiedInstanceIconMixin">

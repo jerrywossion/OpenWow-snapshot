@@ -18,7 +18,6 @@ local EJ_NUM_INSTANCE_PER_ROW = 4;
 
 local EJ_MAX_SECTION_MOVE = 320;
 
-local EJ_START_TIER = 1;
 local EJ_START_DUNGEON_DIFF = 1;
 local EJ_START_RAID_DIFF = 3;
 
@@ -232,6 +231,30 @@ function EncounterBossButtonMixin:Init(elementData)
 	end
 end
 
+local function EncounterJournal_RefreshContentTabs(self)
+	local dungeonAvailable = EJ_GetInstanceByIndex(1, false) ~= nil;
+	local raidAvailable = EJ_GetInstanceByIndex(1, true) ~= nil;
+
+	EJ_ContentTab_SetEnabled(self.dungeonsTab, dungeonAvailable);
+	EJ_ContentTab_SetEnabled(self.raidsTab, raidAvailable);
+
+	local dungeonTabID = self.dungeonsTab:GetID();
+	local raidTabID = self.raidsTab:GetID();
+	local selectedTab = self.selectedTab;
+	if selectedTab == dungeonTabID and not dungeonAvailable then
+		selectedTab = raidAvailable and raidTabID or nil;
+	elseif selectedTab == raidTabID and not raidAvailable then
+		selectedTab = dungeonAvailable and dungeonTabID or nil;
+	elseif selectedTab ~= dungeonTabID and selectedTab ~= raidTabID then
+		selectedTab = dungeonAvailable and dungeonTabID or (raidAvailable and raidTabID or nil);
+	end
+
+	if selectedTab then
+		OpenWoWJournal_SetTab(self, selectedTab);
+	end
+	return dungeonAvailable, raidAvailable;
+end
+
 function EncounterJournal_OnLoad(self)
 	self:SetTitle(ENCOUNTER_JOURNAL);
 	self:SetPortraitToAsset("Interface\\EncounterJournal\\UI-EJ-PortraitIcon");
@@ -325,6 +348,7 @@ function EncounterJournal_OnLoad(self)
 			button.tooltipTitle = elementData.name;
 			button.tooltipText = elementData.description;
 			button.link = elementData.link;
+			button:Enable();
 			button:Show();
 			if ( EncounterJournal.localizeInstanceButton ) then
 				EncounterJournal.localizeInstanceButton(button);
@@ -367,7 +391,7 @@ function EncounterJournal_OnLoad(self)
 	NavBar_Initialize(self.navBar, "NavButtonTemplate", homeData, self.navBar.home, self.navBar.overflow);
 
 	-- initialize tabs
-	--local instanceSelect = self.instanceSelect;
+	local instanceSelect = self.instanceSelect;
 	OpenWoWJournal_SetNumTabs(self, 2);
 	self.maxTabWidth = self:GetWidth() / #self.Tabs;
 
@@ -381,25 +405,13 @@ function EncounterJournal_OnLoad(self)
 	lootContainer.slotFilter:SetWidth(90);
 	lootContainer.slotFilter:SetPoint("LEFT", lootContainer.filter, "RIGHT", 10, 0);
 
-	-- check if tabs are active
-	local dungeonInstanceID = EJ_GetInstanceByIndex(1, false);
-	if( not dungeonInstanceID ) then
-		EJ_ContentTab_SetEnabled(self.dungeonsTab, false);
-	end
-	local raidInstanceID = EJ_GetInstanceByIndex(1, true);
-	if( not raidInstanceID ) then
-		EJ_ContentTab_SetEnabled(self.raidsTab, false);
-	end
-
-	EJ_SelectTier(GetClassicExpansionLevel() + 1);
-	local instanceSelect = EncounterJournal.instanceSelect;
-	EJ_ContentTab_SetEnabled(EncounterJournal.dungeonsTab, true);
-	EJ_ContentTab_SetEnabled(EncounterJournal.raidsTab, true);
-
+	local startTier = GetClassicExpansionLevel() + 1;
+	EJ_SelectTier(startTier);
 	EncounterJournal.selectedTab = EncounterJournal.dungeonsTab:GetID();
+	EncounterJournal_RefreshContentTabs(EncounterJournal);
 	--EncounterJournal_UpdateDifficulty(EJ_START_DUNGEON_DIFF);
 
-	local tierData = GetEJTierData(EJ_START_TIER);
+	local tierData = GetEJTierData(startTier);
 	instanceSelect.bg:SetAtlas(tierData.backgroundAtlas, true);
 end
 
@@ -493,8 +505,7 @@ end
 local function ExpansionDropdown_SelectInternal(self, tier)
 	EJ_SelectTier(tier);
 	local instanceSelect = EncounterJournal.instanceSelect;
-	EJ_ContentTab_SetEnabled(EncounterJournal.dungeonsTab, true);
-	EJ_ContentTab_SetEnabled(EncounterJournal.raidsTab, true);
+	EncounterJournal_RefreshContentTabs(EncounterJournal);
 
 	local tierData = GetEJTierData(tier);
 	instanceSelect.bg:SetAtlas(tierData.backgroundAtlas, true);
@@ -806,32 +817,21 @@ function EncounterJournal_UpdatePortraits()
 	end
 end
 
-local infiniteLoopPolice = false; --design might make a tier that has no instances at all sigh
 function EncounterJournal_ListInstances()
 	local instanceSelect = EncounterJournal.instanceSelect;
 
 	EncounterJournal_SetupExpansionDropdown(EncounterJournal);
 	EncounterJournal.encounter:Hide();
 	instanceSelect:Show();
+	local dungeonAvailable, raidAvailable = EncounterJournal_RefreshContentTabs(EncounterJournal);
 
 	local dataIndex = 1;
 	local showRaid = EncounterJournal_IsRaidTabSelected(EncounterJournal);
 	local instanceID, name, description, _, buttonImage, _, _, _, link, _, mapID = EJ_GetInstanceByIndex(dataIndex, showRaid);
-
-	--No instances in this tab
-	if not instanceID and not infiniteLoopPolice then
-		--disable this tab and select the other one.
-		infiniteLoopPolice = true;
-		if ( showRaid ) then
-			EJ_ContentTab_SetEnabled(EncounterJournal.raidsTab, false);
-			EJ_ContentTab_Select(EncounterJournal.dungeonsTab:GetID());
-		else
-			EJ_ContentTab_SetEnabled(EncounterJournal.dungeonsTab, false);
-			EJ_ContentTab_Select(EncounterJournal.raidsTab:GetID());
-		end
-		return;
+	local selectedTabAvailable = showRaid and raidAvailable or dungeonAvailable;
+	if selectedTabAvailable and not instanceID then
+		error("Encounter Journal: selected content tab has no first instance for tier " .. tostring(EJ_GetCurrentTier()));
 	end
-	infiniteLoopPolice = false;
 
 	local dataProvider = CreateDataProvider();
 	while instanceID ~= nil do
@@ -850,23 +850,19 @@ function EncounterJournal_ListInstances()
 
 	instanceSelect.ScrollBox:Show(); -- Scrollbox children will not have resolvable rects unless the scrollbox is shown first
 	instanceSelect.ScrollBox:SetDataProvider(dataProvider);
-
-	--check if the other tab is empty
-	local otherInstanceID = EJ_GetInstanceByIndex(1, not showRaid);
-	--No instances in the other tab
-	if not otherInstanceID then
-		--disable the other tab.
-		if ( showRaid ) then
-			EJ_ContentTab_SetEnabled(EncounterJournal.dungeonsTab, false);
-		else
-			EJ_ContentTab_SetEnabled(EncounterJournal.raidsTab, false);
-		end
-	end
 end
 
 function EncounterJournalInstanceButton_OnClick(self)
+	local instanceID = self and self.instanceID;
+	if not instanceID then
+		error("Encounter Journal: instance button has no instanceID");
+	end
+	if self.link and ChatFrameUtil.TryInsertChatLink(self.link) then
+		return;
+	end
 	NavBar_Reset(EncounterJournal.navBar);
-	EncounterJournal_DisplayInstance(EncounterJournal.instanceID);
+	EncounterJournal_DisplayInstance(instanceID);
+	PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN);
 end
 
 local function EncounterJournal_SetupIconFlags(sectionID, infoHeaderButton)
