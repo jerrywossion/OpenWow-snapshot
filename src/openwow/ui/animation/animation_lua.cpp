@@ -3,6 +3,7 @@
 #include "openwow/ui/animation/animation_lua.h"
 #include "openwow/ui/animation/animation_coordinate_space.h"
 #include "openwow/ui/animation/animation_lua_helpers.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/ui/game/api/game_lua_api_internal.h"
 #include "openwow/ui/game/lua_cpu_profiler.h"
 #include "openwow/ui/lua_binding_registry.h"
@@ -3690,6 +3691,52 @@ void ApplyFrameXmlLoadBehavior(lua_State* L,
         lua_setfield(L, parent_idx, parent_key.c_str());
       }
     }
+  }
+
+  if (!frame.parent_arrays.empty() && parent_idx != 0) {
+    parent_idx = lua_absindex(L, parent_idx);
+    if (lua_istable(L, parent_idx) != 0) {
+      for (const auto& parent_array : frame.parent_arrays) {
+        if (parent_array.empty()) {
+          continue;
+        }
+        lua_getfield(L, parent_idx, parent_array.c_str());
+        if (lua_istable(L, -1) == 0) {
+          lua_pop(L, 1);
+          lua_newtable(L);
+          lua_pushvalue(L, -1);
+          lua_setfield(L, parent_idx, parent_array.c_str());
+        }
+        const int array_idx = lua_absindex(L, -1);
+        lua_pushvalue(L, frame_idx);
+        lua_rawseti(L, array_idx, luaL_len(L, array_idx) + 1);
+        lua_pop(L, 1);
+      }
+    }
+  }
+
+  for (const auto& mixin_name : frame.mixins) {
+    if (mixin_name.empty()) {
+      continue;
+    }
+    lua_getglobal(L, mixin_name.c_str());
+    if (lua_istable(L, -1) == 0) {
+      lua_pop(L, 1);
+      diagnostics::Log(diagnostics::LogLevel::kWarn,
+                       "FrameXML: couldn't find mixin " + mixin_name +
+                           " for " + (frame.name.empty() ? std::string("<unnamed>")
+                                                         : frame.name));
+      continue;
+    }
+    const int mixin_idx = lua_absindex(L, -1);
+    lua_pushnil(L);
+    while (lua_next(L, mixin_idx) != 0) {
+      lua_pushvalue(L, -2);
+      lua_pushvalue(L, -2);
+      lua_settable(L, frame_idx);
+      lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
   }
 
   if (frame.animation_groups.empty()) {

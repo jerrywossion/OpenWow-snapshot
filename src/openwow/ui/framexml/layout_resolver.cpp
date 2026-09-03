@@ -328,6 +328,27 @@ void MergeFromTemplate(UiFrame *frame, const UiFrame &templ) {
   if (frame->parent.empty() && !templ.parent.empty()) {
     frame->parent = templ.parent;
   }
+  if (frame->parent_keys.empty()) {
+    frame->parent_keys = templ.parent_keys;
+  } else if (!templ.parent_keys.empty()) {
+    auto merged = templ.parent_keys;
+    merged.insert(merged.end(), frame->parent_keys.begin(), frame->parent_keys.end());
+    frame->parent_keys = std::move(merged);
+  }
+  if (frame->parent_arrays.empty()) {
+    frame->parent_arrays = templ.parent_arrays;
+  } else if (!templ.parent_arrays.empty()) {
+    auto merged = templ.parent_arrays;
+    merged.insert(merged.end(), frame->parent_arrays.begin(), frame->parent_arrays.end());
+    frame->parent_arrays = std::move(merged);
+  }
+  if (frame->mixins.empty()) {
+    frame->mixins = templ.mixins;
+  } else if (!templ.mixins.empty()) {
+    auto merged = templ.mixins;
+    merged.insert(merged.end(), frame->mixins.begin(), frame->mixins.end());
+    frame->mixins = std::move(merged);
+  }
   if (!frame->width.has_value() && templ.width.has_value()) {
     frame->width = templ.width;
   }

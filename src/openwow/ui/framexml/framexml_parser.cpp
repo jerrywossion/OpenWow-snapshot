@@ -1,5 +1,6 @@
 #include "openwow/ui/framexml/framexml_parser.h"
 #include "openwow/ui/framexml/framexml_parser_detail.h"
+#include "openwow/ui/framexml/framexml_name_utils.h"
 #include "openwow/ui/framexml/framexml_value_utils.h"
 #include "openwow/ui/ui_enum_helpers.h"
 #include "openwow/ui/xml/frame_xml_parser.h"
@@ -1402,6 +1403,10 @@ std::size_t BeginWidget(ParserContext* ctx, const XmlNode& node) {
   if (const auto parent_key = Attr(node, "parentKey"); !parent_key.empty()) {
     frame.parent_keys.push_back(parent_key);
   }
+  if (const auto parent_array = Attr(node, "parentArray"); !parent_array.empty()) {
+    frame.parent_arrays.push_back(parent_array);
+  }
+  frame.mixins = SplitTemplateList(Attr(node, "mixin"), TemplateListSyntax::kCommaSeparated);
   frame.inherits =
       detail::ResolveParentToken(detail::NormalizeInherits(Attr(node, "inherits")), parent_name);
   frame.file = Attr(node, "file");

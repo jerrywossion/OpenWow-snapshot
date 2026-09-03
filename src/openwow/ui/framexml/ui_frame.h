@@ -292,6 +292,8 @@ struct UiFrame {
   bool has_id{false};
   std::string parent;
   std::vector<std::string> parent_keys;
+  std::vector<std::string> parent_arrays;
+  std::vector<std::string> mixins;
   std::string inherits;
   std::string file;
 
