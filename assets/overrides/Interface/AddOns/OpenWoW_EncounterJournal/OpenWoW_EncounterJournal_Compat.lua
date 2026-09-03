@@ -47,6 +47,46 @@ InstallString("PLAYER_DIFFICULTY1", "普通")
 InstallString("PLAYER_DIFFICULTY2", "英雄")
 InstallString("PLAYER_DIFFICULTY3", "团队查找器")
 
+local function ReportWorldMapOpenFailure(mapID, reason)
+    local message = "|cffff5050地下城地图打开失败|r：WorldMapAreaID=" ..
+        tostring(mapID) .. "，" .. tostring(reason)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(message)
+    end
+    if UIErrorsFrame and UIErrorsFrame.AddMessage then
+        UIErrorsFrame:AddMessage("地下城地图打开失败", 1.0, 0.2, 0.2, 1.0)
+    end
+end
+
+-- MoP Classic routes the journal button through OpenWorldMap. Build 12340
+-- exposes the same observable transition as ShowUIPanel followed by SetMapByID.
+function OpenWorldMap(mapID)
+    local worldMapAreaID = tonumber(mapID)
+    if not worldMapAreaID or worldMapAreaID <= 0 then
+        ReportWorldMapOpenFailure(mapID, "地图编号无效")
+        return false
+    end
+    if not WorldMapFrame or type(ShowUIPanel) ~= "function" or
+        type(SetMapByID) ~= "function" then
+        ReportWorldMapOpenFailure(worldMapAreaID, "世界地图接口未就绪")
+        return false
+    end
+
+    ShowUIPanel(WorldMapFrame)
+    if SetMapByID(worldMapAreaID) then
+        return true
+    end
+
+    if type(HideUIPanel) == "function" then
+        HideUIPanel(WorldMapFrame)
+    end
+    if EncounterJournal and type(ShowUIPanel) == "function" then
+        ShowUIPanel(EncounterJournal)
+    end
+    ReportWorldMapOpenFailure(worldMapAreaID, "目标 build 的 WorldMapArea 记录不可用")
+    return false
+end
+
 local sectionFlags = {
     "坦克预警", "伤害输出预警", "治疗预警", "英雄难度", "灭团技",
     "重要", "可打断技能", "法术效果", "诅咒效果", "毒药效果",

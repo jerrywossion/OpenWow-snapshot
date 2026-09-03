@@ -331,7 +331,11 @@ void WorldMapSystem::BuildRuntimeDataFromDbcNoLock(const openwow::data::dbc::Dbc
   continents_.reserve(dbc.world_map_area().size());
 
   for (const auto &wma : dbc.world_map_area()) {
-    if (wma.area_id != 0) {
+    // area_id == 0 also occurs on instance roots. WorldMapContinent is the
+    // authority for which of those roots are exposed as continents.
+    const auto continent_entry_it = continent_bounds_by_map_id.find(wma.map_id);
+    if (wma.area_id != 0 || continent_entry_it == continent_bounds_by_map_id.end() ||
+        continent_entry_it->second == nullptr) {
       continue;
     }
 
@@ -344,18 +348,15 @@ void WorldMapSystem::BuildRuntimeDataFromDbcNoLock(const openwow::data::dbc::Dbc
       ci.name = std::move(*map_name);
     }
 
-    if (const auto bounds_it = continent_bounds_by_map_id.find(wma.map_id);
-        bounds_it != continent_bounds_by_map_id.end() && bounds_it->second != nullptr) {
-      const auto &continent_entry = *bounds_it->second;
-      ci.left_boundary = continent_entry.left_boundary;
-      ci.right_boundary = continent_entry.right_boundary;
-      ci.top_boundary = continent_entry.top_boundary;
-      ci.bottom_boundary = continent_entry.bottom_boundary;
-      ci.continent_offset_x = continent_entry.continent_offset_x;
-      ci.continent_offset_y = continent_entry.continent_offset_y;
-      ci.scale = continent_entry.scale;
-      ci.has_overview_bounds = true;
-    }
+    const auto &continent_entry = *continent_entry_it->second;
+    ci.left_boundary = continent_entry.left_boundary;
+    ci.right_boundary = continent_entry.right_boundary;
+    ci.top_boundary = continent_entry.top_boundary;
+    ci.bottom_boundary = continent_entry.bottom_boundary;
+    ci.continent_offset_x = continent_entry.continent_offset_x;
+    ci.continent_offset_y = continent_entry.continent_offset_y;
+    ci.scale = continent_entry.scale;
+    ci.has_overview_bounds = true;
 
     for (const auto &child_wma : dbc.world_map_area()) {
       if (child_wma.area_id == 0) {
@@ -618,6 +619,18 @@ bool WorldMapSystem::SetMapByWorldMapAreaId(std::uint32_t world_map_area_id, int
 
     const auto continent_index = FindContinentIndexByMapIdNoLock(wma_it->second.map_id);
     if (continent_index < 0) {
+      if (dungeon_map_id <= 0 && wma_it->second.default_dungeon_map_id > 0) {
+        dungeon_map_id = wma_it->second.default_dungeon_map_id;
+      } else if (dungeon_map_id <= 0 && wma_it->second.default_dungeon_map_id != -1) {
+        // Build 12340 SetMapByID selects floor 1 when the WMA marks a dungeon
+        // but does not name an explicit default DungeonMap record.
+        for (const auto &dungeon_map : dungeon_maps_in_order_) {
+          if (dungeon_map.map_id == wma_it->second.map_id && dungeon_map.floor_index == 1) {
+            dungeon_map_id = static_cast<int>(dungeon_map.id);
+            break;
+          }
+        }
+      }
       updated = CommitSelectionAndRefreshLandmarksNoLock(-2, static_cast<int>(world_map_area_id),
                                                          dungeon_map_id);
     } else {

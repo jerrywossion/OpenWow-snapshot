@@ -10,6 +10,7 @@
 #include "openwow/game/object_manager.h"
 #include "openwow/game/quest_poi.h"
 #include "openwow/game/update_fields.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/ui/game/framescript/core/frame_input_state.h"
 #include "openwow/ui/game/framescript/core/frame_method_registry.h"
 #include "openwow/ui/game/framescript/core/frame_runtime_identity.h"
@@ -27,6 +28,7 @@
 #include "openwow/world/camera/world_camera.h"
 
 #include <array>
+#include <string>
 
 namespace openwow::ui::game::detail {
 
@@ -641,12 +643,21 @@ int LuaSetMapByID(lua_State* L) {
   const auto signed_area_id =
       openwow::ui::TruncateLuaNumberToI32(lua_tonumber(L, 1));
   if (signed_area_id < 0) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "World map selection failed: operation=SetMapByID worldMapAreaID=" +
+            std::to_string(signed_area_id) + " reason=negative ID");
     return 0;
   }
 
   auto& wm = GetMapUiManager(L)->world_map();
   if (!wm.SetMapByWorldMapAreaId(
           static_cast<std::uint32_t>(signed_area_id))) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "World map selection failed: operation=SetMapByID worldMapAreaID=" +
+            std::to_string(signed_area_id) +
+            " reason=missing from active WorldMapArea.dbc");
     return 0;
   }
   lua_pushboolean(L, 1);
