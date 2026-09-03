@@ -2,21 +2,21 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
     <!-- Shared FrameXML pieces introduced between 3.3.5a and 4.3.4. -->
-    <Font name="QuestFont_Super_Huge" font="Fonts\MORPHEUS.ttf" virtual="true">
+    <Font name="QuestFont_Super_Huge" inherits="GameFontNormalHuge" virtual="true">
         <FontHeight><AbsValue val="24"/></FontHeight>
         <Color r="1" g=".82" b="0"/>
     </Font>
-    <Font name="GameFontNormalMed3" font="Fonts\FRIZQT__.TTF" virtual="true">
+    <Font name="GameFontNormalMed3" inherits="GameFontNormal" virtual="true">
         <FontHeight><AbsValue val="14"/></FontHeight>
         <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
         <Color r="1" g=".82" b="0"/>
     </Font>
-    <Font name="GameFontNormalLarge2" font="Fonts\FRIZQT__.TTF" virtual="true">
+    <Font name="GameFontNormalLarge2" inherits="GameFontNormalLarge" virtual="true">
         <FontHeight><AbsValue val="16"/></FontHeight>
         <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
         <Color r="1" g=".82" b="0"/>
     </Font>
-    <Font name="QuestTitleFontBlackShadow" font="Fonts\MORPHEUS.ttf" virtual="true">
+    <Font name="QuestTitleFontBlackShadow" inherits="GameFontNormalLarge" virtual="true">
         <FontHeight><AbsValue val="18"/></FontHeight>
         <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
         <Color r="1" g=".82" b="0"/>

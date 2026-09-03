@@ -484,21 +484,31 @@ function OpenWoWPortraitFrameMixin:SetPortraitToAsset(asset)
 end
 
 OpenWoWScrollingFontMixin = {}
+local function GetScrollingFontText(scrollingFont)
+    local content = scrollingFont.Content
+    local text = content and content.Text
+    if not text then
+        error("OpenWoW Encounter Journal: scrolling font has no Content.Text region")
+    end
+    return text
+end
 function OpenWoWScrollingFontMixin:GetScrollBox()
     return self.ScrollBox
 end
 function OpenWoWScrollingFontMixin:SetText(text)
-    self.Text:SetText(text or "")
-    local height = math.max(self:GetHeight(), self.Text:GetStringHeight() + 4)
+    local textRegion = GetScrollingFontText(self)
+    textRegion:SetText(text or "")
+    local height = math.max(self:GetHeight(), textRegion:GetStringHeight() + 4)
     self.Content:SetHeight(height)
     ConfigureScrollBar(self.ScrollBox, self.ScrollBox.__scrollBar,
         height - self:GetHeight(), false)
 end
 function OpenWoWScrollingFontMixin:SetTextColor(colorOrRed, green, blue, alpha)
+    local textRegion = GetScrollingFontText(self)
     if type(colorOrRed) == "table" and colorOrRed.GetRGBA then
-        self.Text:SetTextColor(colorOrRed:GetRGBA())
+        textRegion:SetTextColor(colorOrRed:GetRGBA())
     else
-        self.Text:SetTextColor(colorOrRed, green, blue, alpha)
+        textRegion:SetTextColor(colorOrRed, green, blue, alpha)
     end
 end
 function OpenWoWScrollingFontMixin:HasScrollableExtent()
@@ -574,6 +584,12 @@ function OpenWoWDropdownMixin:SetDefaultText(text)
     if self.Text then
         self.Text:SetText(text or "")
     end
+end
+function OpenWoWDropdownMixin:SetText(text)
+    self.Text:SetText(text or "")
+end
+function OpenWoWDropdownMixin:SetFormattedText(formatString, ...)
+    self.Text:SetFormattedText(formatString, ...)
 end
 function OpenWoWDropdownMixin:Enable()
     self.__disabled = false

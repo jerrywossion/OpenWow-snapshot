@@ -1129,7 +1129,7 @@
 				</FontString>
 			</Layer>
 			<Layer level="OVERLAY" textureSubLevel="1">
-				<Texture parentKey="IconBorder" file="Interface\Common\WhiteIconFrame" hidden="true">
+				<Texture parentKey="IconBorder" inherits="UI-EJ-AbilityIconBorder" hidden="true">
 					<Size x="37" y="37"/>
 					<Anchors>
 						<Anchor point="TOPLEFT" relativeKey="$parent.icon"/>
@@ -1350,7 +1350,7 @@
 										</Texture>
 									</Layer>
 									<Layer level="ARTWORK">
-										<FontString name="$parentText" font="GameFontNormal" justifyH="LEFT" text="ENCOUNTER_JOURNAL_SHOW_MAP">
+										<FontString name="$parentText" inherits="GameFontNormal" justifyH="LEFT" text="ENCOUNTER_JOURNAL_SHOW_MAP">
 											<Size x="0" y="0"/>
 											<Anchors>
 												<Anchor point="LEFT" relativePoint="RIGHT" x="2" y="0"/>

@@ -176,7 +176,8 @@ local function BuildInstances()
                 API.GetInstanceByIndex(index, isRaid)
             if mapID then
                 local presentation = PRESENTATION.instances[mapID]
-                local uiTier = (tonumber(tier) or 0) + 1
+                local uiTier = tonumber(presentation and presentation.tier) or
+                    ((tonumber(tier) or 0) + 1)
                 local instance = {
                     id = mapID,
                     name = name or "",
