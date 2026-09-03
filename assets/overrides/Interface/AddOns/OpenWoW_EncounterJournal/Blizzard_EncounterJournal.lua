@@ -368,7 +368,7 @@ function EncounterJournal_OnLoad(self)
 
 	-- initialize tabs
 	--local instanceSelect = self.instanceSelect;
-	PanelTemplates_SetNumTabs(self, 2);
+	OpenWoWJournal_SetNumTabs(self, 2);
 	self.maxTabWidth = self:GetWidth() / #self.Tabs;
 
 	self.instanceSelect.ExpansionDropdown:SetWidth(160);
@@ -2354,7 +2354,7 @@ function EJ_ContentTab_OnClick(self)
 end
 
 function EJ_ContentTab_Select(id)
-	PanelTemplates_SetTab(EncounterJournal, id);
+	OpenWoWJournal_SetTab(EncounterJournal, id);
 	EncounterJournal.selectedTab = id;
 
 	local instanceSelect = EncounterJournal.instanceSelect;
@@ -2404,7 +2404,7 @@ function EJ_ContentTab_SelectAppropriateInstanceTab(instanceID)
 end
 
 function EJ_ContentTab_SetEnabled(self, enabled)
-	PanelTemplates_SetTabEnabled(EncounterJournal, self:GetID(), enabled);
+	OpenWoWJournal_SetTabEnabled(EncounterJournal, self:GetID(), enabled);
 end
 
 function EncounterJournal_ExpansionDropdown_Select(self, tier)

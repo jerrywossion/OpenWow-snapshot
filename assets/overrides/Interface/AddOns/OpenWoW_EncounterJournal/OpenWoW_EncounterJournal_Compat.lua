@@ -542,7 +542,7 @@ function EJ_GetInstanceByIndex(index, isRaid)
     end
     return instance.id, instance.name, instance.description, instance.background,
         instance.buttonImage, instance.loreImage, instance.worldMapAreaID,
-        instance.link, true, nil, instance.id
+        nil, instance.link, true, instance.id
 end
 
 function EJ_GetNumTiers()
@@ -601,8 +601,8 @@ function EJ_GetInstanceInfo(instanceID)
         return nil
     end
     return instance.name, instance.description, instance.background,
-        instance.buttonImage, instance.loreImage, instance.worldMapAreaID,
-        instance.link, true, nil, instance.id, instance.isRaid
+        nil, instance.loreImage, instance.buttonImage, instance.worldMapAreaID,
+        nil, instance.link, true, instance.isRaid
 end
 
 function EJ_GetCurrentInstance()
@@ -797,6 +797,7 @@ local function BuildSearchCatalog()
                                 id = item.id, searchType = 0,
                                 difficulty = uiDifficulty, instanceID = instance.id,
                                 encounterID = encounter.id, name = item.name,
+                                itemLink = item.link,
                             })
                         end
                     end
@@ -845,7 +846,7 @@ function EJ_GetSearchResult(index)
         return nil
     end
     return result.id, result.searchType, result.difficulty,
-        result.instanceID, result.encounterID
+        result.instanceID, result.encounterID, result.itemLink
 end
 
 local classTokens = {

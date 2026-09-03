@@ -400,6 +400,19 @@ end
 
 ScrollBoxConstants = ScrollBoxConstants or { RetainScrollPosition = true }
 
+function OpenWoWPanelScrollFrame_OnLoad(self)
+    local scrollBar = self.ScrollBar
+    if not scrollBar then
+        error("OpenWoW Encounter Journal: panel scroll frame has no ScrollBar child")
+    end
+    self.__scrollBar = scrollBar
+    scrollBar.scrollBox = self
+end
+
+function OpenWoWPanelScrollFrame_OnScrollRangeChanged(self, _, verticalRange)
+    ConfigureScrollBar(self, self.ScrollBar, tonumber(verticalRange) or 0, true)
+end
+
 function OpenWoWScrollBox_OnMouseWheel(self, delta)
     local scrollBar = self.__scrollBar
     if scrollBar then
@@ -417,6 +430,45 @@ end
 OpenWoWMinimalScrollBarMixin = {}
 function OpenWoWMinimalScrollBarMixin:ScrollToBegin()
     self:SetValue(0)
+end
+
+local function JournalTab(frame, id)
+    for _, tab in ipairs(frame.Tabs or {}) do
+        if tab:GetID() == id then
+            return tab
+        end
+    end
+    return nil
+end
+
+local function UpdateJournalTabs(frame)
+    for _, tab in ipairs(frame.Tabs or {}) do
+        if tab.isDisabled then
+            PanelTemplates_SetDisabledTabState(tab)
+        elseif tab:GetID() == frame.selectedTab then
+            PanelTemplates_SelectTab(tab)
+        else
+            PanelTemplates_DeselectTab(tab)
+        end
+    end
+end
+
+function OpenWoWJournal_SetNumTabs(frame, numTabs)
+    frame.numTabs = numTabs
+end
+
+function OpenWoWJournal_SetTab(frame, id)
+    frame.selectedTab = id
+    UpdateJournalTabs(frame)
+end
+
+function OpenWoWJournal_SetTabEnabled(frame, id, enabled)
+    local tab = JournalTab(frame, id)
+    if not tab then
+        error("OpenWoW Encounter Journal: missing content tab " .. tostring(id))
+    end
+    tab.isDisabled = enabled and nil or true
+    UpdateJournalTabs(frame)
 end
 
 OpenWoWPortraitFrameMixin = {}
@@ -763,9 +815,14 @@ function ClassMenu.InitClassSpecDropdown(dropdown, getClassFilter, getSpecFilter
         end, function(value)
             setFilter(value, 0)
         end, 0)
+        local classNames = {
+            [1] = "战士", [2] = "圣骑士", [3] = "猎人", [4] = "潜行者",
+            [5] = "牧师", [6] = "死亡骑士", [7] = "萨满祭司", [8] = "法师",
+            [9] = "术士", [11] = "德鲁伊",
+        }
         local classIDs = { EJ_GetAvailableClasses() }
         for _, classID in ipairs(classIDs) do
-            local _, className = GetClassInfo(classID)
+            local className = classNames[classID] or tostring(classID)
             rootDescription:CreateRadio(className or tostring(classID), function(value)
                 return getClassFilter() == value
             end, function(value)
@@ -820,6 +877,8 @@ end
 function EJ_IsSearchFinished()
     return true
 end
+function EJ_EndSearch()
+end
 function EJ_GetSearchSize()
     return EJ_GetNumSearchResults()
 end
@@ -839,4 +898,8 @@ function EJ_ResetLootFilter()
     EJ_SetClassLootFilter(0)
 end
 function SetItemButtonQuality()
+end
+if not SharedTooltip_SetBackdropStyle then
+    function SharedTooltip_SetBackdropStyle()
+    end
 end

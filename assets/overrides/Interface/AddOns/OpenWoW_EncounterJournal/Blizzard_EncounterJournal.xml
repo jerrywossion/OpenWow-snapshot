@@ -1646,7 +1646,7 @@
 									</OnLeave>
 								</Scripts>
 							</Button>
-							<ScrollFrame name="$parentDetailsScrollFrame" parentKey="detailsScroll" inherits="ScrollFrameTemplate">
+							<ScrollFrame name="$parentDetailsScrollFrame" parentKey="detailsScroll" inherits="OpenWoWPanelScrollFrameTemplate">
 								<Size x="350" y="383"/>
 								<KeyValues>
 									<KeyValue key="scrollBarX" value="-15" type="number"/>
@@ -1690,7 +1690,7 @@
 									</OnHide>
 								</Scripts>
 							</ScrollFrame>
-							<ScrollFrame name="$parentOverviewScrollFrame" parentKey="overviewScroll" inherits="ScrollFrameTemplate">
+							<ScrollFrame name="$parentOverviewScrollFrame" parentKey="overviewScroll" inherits="OpenWoWPanelScrollFrameTemplate">
 								<Size x="350" y="383"/>
 								<KeyValues>
 									<KeyValue key="scrollBarX" value="-15" type="number"/>
@@ -2011,7 +2011,7 @@
 						</FontString>
 					</Layer>
 					<Layer level="OVERLAY">
-						<Texture parentKey="IconBorder" file="Interface\Common\WhiteIconFrame" hidden="true">
+							<Texture parentKey="IconBorder" inherits="UI-EJ-AbilityIconBorder" hidden="true">
 							<Size x="28" y="28"/>
 							<Anchors>
 								<Anchor point="CENTER" relativeKey="$parent.icon"/>
@@ -2082,7 +2082,7 @@
 						</FontString>
 					</Layer>
 					<Layer level="OVERLAY">
-						<Texture parentKey="IconBorder" file="Interface\Common\WhiteIconFrame" hidden="true">
+							<Texture parentKey="IconBorder" inherits="UI-EJ-AbilityIconBorder" hidden="true">
 							<Size x="28" y="2"/>
 							<Anchors>
 								<Anchor point="CENTER" relativeKey="$parent.icon"/>

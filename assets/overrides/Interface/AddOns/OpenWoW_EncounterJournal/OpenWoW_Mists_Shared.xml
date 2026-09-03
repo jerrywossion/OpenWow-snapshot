@@ -43,6 +43,21 @@
         </ThumbTexture>
     </Slider>
 
+    <ScrollFrame name="OpenWoWPanelScrollFrameTemplate" virtual="true" inherits="WowScrollBoxList">
+        <Frames>
+            <Slider name="$parentScrollBar" parentKey="ScrollBar" inherits="MinimalScrollBar">
+                <Anchors>
+                    <Anchor point="TOPLEFT" relativePoint="TOPRIGHT" x="-15" y="-6"/>
+                    <Anchor point="BOTTOMLEFT" relativePoint="BOTTOMRIGHT" x="-15" y="6"/>
+                </Anchors>
+            </Slider>
+        </Frames>
+        <Scripts>
+            <OnLoad>OpenWoWPanelScrollFrame_OnLoad(self);</OnLoad>
+            <OnScrollRangeChanged>OpenWoWPanelScrollFrame_OnScrollRangeChanged(self, xrange, yrange);</OnScrollRangeChanged>
+        </Scripts>
+    </ScrollFrame>
+
     <Button name="OpenWoWDropdownChoiceTemplate" virtual="true">
         <Size x="120" y="20"/>
         <Layers>
