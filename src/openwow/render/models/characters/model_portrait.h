@@ -58,7 +58,6 @@ class ModelPortrait {
 
   void SetSourceInstance(std::uint32_t source_instance_id,
                          std::uint64_t visual_revision);
-  void UseUnitPortraitLighting();
 
   void SetModelPath(std::string model_path);
 
@@ -135,7 +134,6 @@ class ModelPortrait {
   std::optional<m2::M2ParticleColorRecord> owned_display_particle_colors_;
   std::uint32_t owned_instance_id_ = 0u;
   m2::M2VisualCloneLease visual_clone_;
-  bool uses_unit_portrait_lighting_ = false;
 
   std::optional<m2::M2CameraPose> stable_camera_pose_;
   bool stable_camera_missing_ = false;

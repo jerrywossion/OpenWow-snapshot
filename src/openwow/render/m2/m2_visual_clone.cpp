@@ -270,19 +270,6 @@ M2VisualCloneCreateResult M2System::CreateVisualClone(
           .lease = M2VisualCloneLease(std::move(state))};
 }
 
-M2ResultStatus M2System::SetVisualCloneBatchUniforms(
-    const M2VisualCloneLease& lease, const M2BatchUniforms& uniforms) {
-  if (!lease.valid()) {
-    return M2ResultStatus::kFailed;
-  }
-  M2ResultStatus result = M2ResultStatus::kReady;
-  for (const auto& node : lease.state_->nodes) {
-    result = MergeM2ResultStatus(
-        result, SetBatchUniforms(node.clone_instance_id, uniforms));
-  }
-  return result;
-}
-
 M2RenderInstanceResult M2System::RenderVisualClone(
     const std::uint16_t view, const M2VisualCloneLease& lease,
     const RenderMatrix4x4& root, const RenderMatrix4x4View view_matrix) {

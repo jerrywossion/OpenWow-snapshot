@@ -2,7 +2,6 @@
 
 #include "openwow/foundation/math/projection_aspect.h"
 #include "openwow/foundation/diagnostics/logging.h"
-#include "openwow/render/world/environment/world_light_accumulator.h"
 
 #include <bx/math.h>
 
@@ -46,29 +45,6 @@ void BuildSimpleModelOrthographicViewProjection(
   bx::mtxOrtho(proj_mtx, -half_width, half_width, -half_height, half_height,
                kSimpleModelOrthoNear, kSimpleModelOrthoFar, 0.0f,
                bgfx::getCaps()->homogeneousDepth, bx::Handedness::Left);
-}
-
-[[nodiscard]] m2::M2BatchUniforms BuildUnitPortraitBatchUniforms() {
-  WorldLightAccumulator receiver;
-  receiver.Initialize(0u, {});
-  receiver.AddAmbientRgb({0.45f, 0.45f, 0.45f});
-  receiver.AddDirectionalRgb({1.0f, 1.0f, 1.0f},
-                             {-1.0f, 0.0f, -1.0f});
-  const ProjectedDirectionalLightState lighting =
-      receiver.GetProjectedDirectionalState();
-
-  m2::M2BatchUniforms uniforms;
-  uniforms.light_ambient = {lighting.ambient_rgb[0], lighting.ambient_rgb[1],
-                            lighting.ambient_rgb[2], 0.0f};
-  uniforms.light_count = {1.0f, 0.0f, 0.0f, 0.0f};
-  uniforms.light_pos_range[0] = {
-      -lighting.normalized_light_direction[0],
-      -lighting.normalized_light_direction[1],
-      -lighting.normalized_light_direction[2], 0.0f};
-  uniforms.light_color[0] = {lighting.projected_diffuse_rgb[0],
-                             lighting.projected_diffuse_rgb[1],
-                             lighting.projected_diffuse_rgb[2], 0.0f};
-  return uniforms;
 }
 
 }
@@ -122,14 +98,6 @@ void ModelPortrait::SetSourceInstance(const std::uint32_t source_instance_id,
   }
   source_instance_id_ = source_instance_id;
   source_visual_revision_ = visual_revision;
-}
-
-void ModelPortrait::UseUnitPortraitLighting() {
-  if (uses_unit_portrait_lighting_) {
-    return;
-  }
-  uses_unit_portrait_lighting_ = true;
-  visual_clone_ = {};
 }
 
 void ModelPortrait::SetModelPath(std::string model_path) {
@@ -236,14 +204,6 @@ ModelPortraitResult ModelPortrait::SynchronizeVisualClone() {
       source_instance_id_, source_visual_revision_);
   if (clone.status != m2::M2ResultStatus::kReady || !clone.lease.valid()) {
     return MakeResult(clone.status, clone.reason, std::move(clone.detail));
-  }
-  if (uses_unit_portrait_lighting_ &&
-      m2_system_.SetVisualCloneBatchUniforms(
-          clone.lease, BuildUnitPortraitBatchUniforms()) !=
-          m2::M2ResultStatus::kReady) {
-    return MakeResult(m2::M2ResultStatus::kFailed,
-                      m2::M2ResultReason::kInvalidQuery,
-                      "unit portrait lighting setup failed");
   }
 
   visual_clone_ = std::move(clone.lease);

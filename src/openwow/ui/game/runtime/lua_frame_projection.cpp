@@ -1023,6 +1023,7 @@ static TextureRenderState& ResetTextureRenderStateForRegion(
 }
 
 static void BindTexturePortraitFromTokens(
+    const std::string_view texture_name,
     const std::optional<std::string>& portrait_unit,
     const std::optional<std::string>& portrait_guid,
     const std::optional<std::uint32_t> portrait_display_id,
@@ -1032,20 +1033,54 @@ static void BindTexturePortraitFromTokens(
     openwow::render::PortraitRenderer* portraits,
     std::uint8_t* portrait_view_id, const std::uint16_t portrait_view_limit,
     TextureRenderState& state) {
+  static std::string player_portrait_trace_state;
+  const bool trace_player_portrait = texture_name == "PlayerPortrait";
+  const auto record_player_portrait_state =
+      [&](std::string detail) {
+        if (!trace_player_portrait || detail == player_portrait_trace_state) {
+          return;
+        }
+        player_portrait_trace_state = std::move(detail);
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kInfo,
+            "[temporary portrait trace] projection " +
+                player_portrait_trace_state);
+      };
   if (session == nullptr || vfs == nullptr || portraits == nullptr ||
       portrait_view_id == nullptr) {
+    record_player_portrait_state(
+        "outcome=missing-dependency session=" +
+        std::to_string(session != nullptr) + " vfs=" +
+        std::to_string(vfs != nullptr) + " renderer=" +
+        std::to_string(portraits != nullptr) + " view_cursor=" +
+        std::to_string(portrait_view_id != nullptr));
     return;
   }
   const auto bind_dynamic_portrait =
       [&](const std::uint32_t display_id,
           const std::uint32_t model_instance_id) {
         if (display_id == 0) {
+          record_player_portrait_state(
+              "outcome=zero-display model_instance_id=" +
+              std::to_string(model_instance_id));
           return;
         }
 
+        const std::uint8_t view_id_before = *portrait_view_id;
         const auto binding =
             portraits->Acquire(request_owner, display_id, model_instance_id,
                                *portrait_view_id, portrait_view_limit);
+        record_player_portrait_state(
+            "outcome=acquire request_owner=" +
+            std::to_string(reinterpret_cast<std::uintptr_t>(
+                request_owner.get())) +
+            " display_id=" + std::to_string(display_id) +
+            " model_instance_id=" + std::to_string(model_instance_id) +
+            " view_id=" + std::to_string(view_id_before) +
+            " status=" + openwow::render::m2::M2ResultStatusName(binding.status) +
+            " reason=" + openwow::render::m2::M2ResultReasonName(binding.reason) +
+            " texture=" + std::to_string(binding.texture.has_value()) +
+            " detail=" + binding.detail);
         if (!binding.texture.has_value()) {
           return;
         }
@@ -1069,7 +1104,12 @@ static void BindTexturePortraitFromTokens(
   if (portrait_display_id.has_value()) {
     bind_dynamic_portrait(*portrait_display_id, 0);
   } else if (portrait_unit.has_value()) {
-    bind_object_portrait(detail::ResolveUnit(session, *portrait_unit));
+    const auto* const object = detail::ResolveUnit(session, *portrait_unit);
+    if (object == nullptr) {
+      record_player_portrait_state("outcome=unresolved-unit unit=" +
+                                   *portrait_unit);
+    }
+    bind_object_portrait(object);
   } else if (portrait_guid.has_value() && !portrait_guid->empty()) {
     const auto raw_guid = static_cast<std::uint64_t>(
         std::strtoull(portrait_guid->c_str(), nullptr, 10));
@@ -1123,6 +1163,7 @@ void BuildTextureRenderStateFromLuaFieldsInto(
     const bool has_portrait_display_id = texture_field::ReadInteger(
         L, source, texture_field::kPortraitDisplayId, &portrait_display_id);
     BindTexturePortraitFromTokens(
+        frame.name,
         texture_field::ReadString(L, source, texture_field::kPortraitUnit),
         texture_field::ReadString(L, source, texture_field::kPortraitGuid),
         has_portrait_display_id && portrait_display_id > 0
@@ -1267,6 +1308,28 @@ void BuildTextureRenderStateInto(
 
   const runtime::TextureRenderStateSource* const source =
       runtime::FindTextureRenderStateSource(L, table_index);
+  if (frame.name == "PlayerPortrait") {
+    static std::string player_portrait_source_trace_state;
+    const std::string detail =
+        source == nullptr
+            ? "outcome=no-native-source"
+            : "outcome=native-source texture=" +
+                  std::to_string(source->texture.has_value()) +
+                  " cleared=" + std::to_string(source->texture_cleared) +
+                  " unit=" + source->portrait_unit.value_or("<none>") +
+                  " guid=" + source->portrait_guid.value_or("<none>") +
+                  " display_id=" +
+                  std::to_string(source->portrait_display_id.value_or(0u)) +
+                  " request_owner=" +
+                  std::to_string(reinterpret_cast<std::uintptr_t>(
+                      source->portrait_request.get()));
+    if (detail != player_portrait_source_trace_state) {
+      player_portrait_source_trace_state = detail;
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kInfo,
+          "[temporary portrait trace] retained " + detail);
+    }
+  }
   if (source == nullptr) {
     state.texture_path = frame.file;
     return;
@@ -1280,7 +1343,8 @@ void BuildTextureRenderStateInto(
     state.clear_texture = true;
   } else {
     state.texture_path = frame.file;
-    BindTexturePortraitFromTokens(source->portrait_unit, source->portrait_guid,
+    BindTexturePortraitFromTokens(frame.name, source->portrait_unit,
+                                  source->portrait_guid,
                                   source->portrait_display_id,
                                   source->portrait_request,
                                   session, vfs, portraits, portrait_view_id,
