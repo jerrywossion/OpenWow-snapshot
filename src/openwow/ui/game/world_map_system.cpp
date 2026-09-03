@@ -12,6 +12,7 @@
 #include "openwow/ui/game/game_ui_manager.h"
 #include "openwow/ui/rect_utils.h"
 #include "openwow/vfs/virtual_file_system.h"
+#include "openwow/world/streaming/world_map.h"
 
 #include <algorithm>
 #include <bit>
@@ -675,17 +676,29 @@ bool WorldMapSystem::ClickLandmark(const std::uint32_t map_link_id) {
 }
 
 bool WorldMapSystem::UpdatePlayerPosition(const openwow::game::WorldSession &session) {
+  const auto *const player = session.objects().GetLocalPlayerTyped();
+  const std::int32_t map_id =
+      session.has_current_map()
+          ? static_cast<std::int32_t>(session.current_map_id())
+          : -1;
+  std::int32_t wmo_group_id = -1;
+  if (player != nullptr && map_id >= 0 && world_map_ != nullptr &&
+      world_map_->map_id() == static_cast<std::uint32_t>(map_id)) {
+    wmo_group_id = world_map_->ResolveAreaEnvironmentContextAtPosition(
+        player->GetX(), player->GetY(), player->GetZ()).wmo_group_id;
+  }
+
   bool updated = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    const auto *player = session.objects().GetLocalPlayerTyped();
+    current_wmo_map_id_ = map_id;
+    current_wmo_group_id_ = wmo_group_id;
+    current_wmo_dungeon_map_id_ = -1;
     if (!player) {
       updated = CommitSelectionAndRefreshLandmarksNoLock(-1, -1, -1);
     } else {
 
-      std::int32_t map_id =
-          session.has_current_map() ? static_cast<std::int32_t>(session.current_map_id()) : -1;
       if (map_id < 0) {
         updated = CommitSelectionAndRefreshLandmarksNoLock(-1, -1, -1);
       } else {

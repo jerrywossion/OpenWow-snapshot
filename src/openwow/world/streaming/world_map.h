@@ -140,6 +140,7 @@ enum class MovementWmoCollisionCompleteness : std::uint8_t {
 
 struct AreaEnvironmentContext {
   std::uint32_t area_id{0u};
+  std::int32_t wmo_group_id{-1};
   bool outdoors{true};
   bool has_wmo_context{false};
   float depth{0.0f};
@@ -492,6 +493,7 @@ private:
     bool resolved{false};
 
     bool group_resident{false};
+    std::int32_t wmo_group_id{-1};
     std::uint32_t group_flags{0u};
     const data::dbc::WMOAreaTableEntry *group{nullptr};
     const data::dbc::WMOAreaTableEntry *root{nullptr};

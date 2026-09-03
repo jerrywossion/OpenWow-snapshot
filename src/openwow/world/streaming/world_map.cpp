@@ -1922,9 +1922,10 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
         std::max(1.0f, std::ceil(extent / kWmoMinimapUnitsPerPixel)));
     return std::clamp(std::bit_ceil(required_pixels), 32u, 256u);
   };
-  const auto emit_group = [&](const std::size_t group_index) {
+  const auto emit_group = [&](const std::size_t group_index,
+                              const bool force_active_group) {
     const Bounds bounds = group_bounds(group_index);
-    if (!bounds_intersect(bounds, query_bounds)) {
+    if (!force_active_group && !bounds_intersect(bounds, query_bounds)) {
       return;
     }
     const float extent_x = bounds[3] - bounds[0];
@@ -1999,12 +2000,15 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
                               : (flags & (data::wmo::kMogpExterior |
                                           data::wmo::kMogpExteriorLit)) ==
                                     expected_family;
-    if (!accepted || !bounds_intersect(group_bounds(group_index), query_bounds)) {
+    const bool is_active_group = group_index == active_group;
+    if ((!accepted ||
+         !bounds_intersect(group_bounds(group_index), query_bounds)) &&
+        !is_active_group) {
       return;
     }
 
     visited[group_index] = true;
-    emit_group(group_index);
+    emit_group(group_index, is_active_group);
     if ((instance.placement_flags & 0x18u) != 0u) {
       return;
     }
@@ -2069,6 +2073,10 @@ WorldMap::ResolvedWmoAreaRows WorldMap::ResolveWmoAreaRowsForGroup(
   rows.group_flags = rows.group_resident
                          ? cached.groups[group_index].header.flags
                          : cached.root.groupInfos[group_index].flags;
+  if (rows.group_resident) {
+    rows.wmo_group_id = static_cast<std::int32_t>(
+        cached.groups[group_index].header.wmoGroupID);
+  }
 
   constexpr std::int32_t kWmoAreaTableRootGroupId = -1;
   rows.root = openwow::data::DBClient_FindWmoAreaTable(
@@ -2410,6 +2418,8 @@ WorldMap::ResolveAreaEnvironmentAtPosition(
     const ResolvedWmoAreaRows wmo_rows =
         ResolveWmoAreaRowsForGroup(*best_group);
     if (wmo_rows.resolved) {
+
+      result.wmo_group_id = wmo_rows.wmo_group_id;
 
       const data::dbc::WMOAreaTableEntry *const naming_row =
           wmo_rows.group != nullptr ? wmo_rows.group : wmo_rows.root;
