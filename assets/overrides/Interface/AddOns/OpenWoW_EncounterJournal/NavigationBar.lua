@@ -121,6 +121,16 @@ function NavBar_ClearTrailingButtons(list, freeList, button)
 	NavBar_CheckLength(button:GetParent());
 end
 
+function NavBar_OpenTo(self, id)
+	for index, button in ipairs(self.navList) do
+		if button.data and button.data.id == id then
+			NavBar_ClearTrailingButtons(self.navList, self.freeButtons, button);
+			return button;
+		end
+	end
+	return nil;
+end
+
 function NavBar_ButtonOnClick(self, button)
 	local parent = self:GetParent()
 	CloseDropDownMenus();

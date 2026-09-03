@@ -384,7 +384,7 @@ local function BuildEncounters(instance, uiDifficulty)
                 instanceID = instance.id,
                 difficulty = uiDifficulty,
                 rawDifficulty = raw,
-                rootSectionID = nil,
+                rootSectionID = 0,
             }
             encounter.link = JournalLink(1, encounterID, uiDifficulty, encounter.name)
 
@@ -671,7 +671,7 @@ function EJ_GetEncounterInfoByIndex(index)
         return nil
     end
     return encounter.name, encounter.description, encounter.id,
-        encounter.rootSectionID, encounter.link
+        encounter.rootSectionID or 0, encounter.link
 end
 
 function EJ_GetEncounterInfo(encounterID)
@@ -680,7 +680,7 @@ function EJ_GetEncounterInfo(encounterID)
         return nil
     end
     return encounter.name, encounter.description, encounter.id,
-        encounter.rootSectionID, encounter.link
+        encounter.rootSectionID or 0, encounter.link
 end
 
 function EJ_SelectEncounter(encounterID)

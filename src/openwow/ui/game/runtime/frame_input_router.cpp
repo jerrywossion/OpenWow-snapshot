@@ -862,7 +862,7 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
       }
     }
     *capture = {};
-    return handled;
+    return true;
   }
 
   RebuildTraversalIfDirty();
@@ -890,9 +890,8 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
   if ((frame == nullptr || !IsButtonFrame(*frame)) &&
       IsRegisteredClickPhase(lua_, *ref, button_name, false)) {
     (void)FireButton(lua_, *ref, "OnClick", button_name);
-    handled = true;
   }
-  return handled;
+  return true;
 }
 
 bool FrameInputRouter::HandleMouseMove(float x, float y) {

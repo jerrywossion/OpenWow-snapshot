@@ -256,6 +256,18 @@ void CreateFontStringTable(lua_State *L, int parent_idx) {
   lua_setfield(L, fs, "GetStringHeight");
 
   lua_pushcclosure(L, [](lua_State *Ls) -> int {
+    const int self = ValidateFrameObjectSelf(Ls, "FontString");
+    const auto measurement = MeasureLuaFontStringMetrics(Ls, self);
+    if (measurement.has_value() && measurement->truncated) {
+      lua_pushnumber(Ls, 1);
+    } else {
+      lua_pushnil(Ls);
+    }
+    return 1;
+  }, 0);
+  lua_setfield(L, fs, "IsTruncated");
+
+  lua_pushcclosure(L, [](lua_State *Ls) -> int {
     return SetLuaRegionDimension(Ls, "SetWidth", "width", "__ow_width");
   }, 0);
   lua_setfield(L, fs, "SetWidth");
