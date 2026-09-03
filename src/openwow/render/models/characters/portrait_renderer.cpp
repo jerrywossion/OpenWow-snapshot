@@ -60,7 +60,7 @@ struct PortraitRenderer::Impl {
     PortraitEntry& entry = it->second;
     if (inserted) entry.request_owner = request_owner;
 
-    if (entry.visual_revision == 0u) {
+    if (!entry.has_content) {
       if (display_id == 0u || model_instance_id == 0u) {
         return Failure(m2::M2ResultStatus::kFailed,
                        m2::M2ResultReason::kInvalidHandle,
@@ -70,8 +70,15 @@ struct PortraitRenderer::Impl {
       if (visual.status != m2::M2ResultStatus::kReady) {
         return Failure(visual.status, visual.reason, visual.detail);
       }
-      entry.model_instance_id = model_instance_id;
-      entry.visual_revision = visual.revision;
+      if (entry.model_instance_id != model_instance_id ||
+          entry.visual_revision != visual.revision) {
+        entry.model_instance_id = model_instance_id;
+        entry.visual_revision = visual.revision;
+        entry.status = m2::M2ResultStatus::kNotReady;
+        entry.reason = m2::M2ResultReason::kNone;
+        entry.detail.clear();
+        entry.dirty = true;
+      }
     }
 
     if (!entry.target) {
