@@ -75,6 +75,21 @@ namespace {
 
 constexpr std::uint32_t kShapeshiftFormFlagSuppressCreateUiRefresh = 0x1u;
 
+void LogActivePlayerVitals(const char* stage, const CGUnit_C& player) {
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      std::string("WorldSession: Active player vitals stage=") + stage +
+          " authoritative_health=" +
+          std::to_string(player.GetUInt32(UNIT_FIELD_HEALTH)) +
+          " displayed_health=" + std::to_string(player.State().GetHealth()) +
+          " max_health=" +
+          std::to_string(player.GetUInt32(UNIT_FIELD_MAXHEALTH)) +
+          " base_health=" +
+          std::to_string(player.GetUInt32(UNIT_FIELD_BASE_HEALTH)) +
+          " max_health_modifier=" +
+          std::to_string(player.GetFloat(UNIT_FIELD_MAXHEALTHMODIFIER)));
+}
+
 [[nodiscard]] std::optional<DancePlayerClass> ToDancePlayerClass(
     const std::uint8_t external_class) {
   switch (external_class) {
@@ -885,6 +900,7 @@ void WorldSession::OnLocalPlayerCreated(const ObjectGuid &guid) {
       (void)ui::game::detail::RefreshActionSlotsForChangedItemEntry(*this, entry);
       SpellBookFrame::HandleTrackedMultiCastTotemItemEntry(*this, entry);
     }
+    LogActivePlayerVitals("create", *player);
   }
 
   openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
@@ -2260,6 +2276,14 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
     if (obj.GetTypeId() == TypeID::kPlayer &&
         (is_create || HasUpdatedField(updates, UNIT_FIELD_HEALTH))) {
       EvaluateActivePlayerLifeLevel(false);
+    }
+
+    if (!is_create && obj.GetTypeId() == TypeID::kPlayer &&
+        HasUpdatedField(updates, UNIT_FIELD_MAXHEALTH)) {
+      if (const auto* const local_player = objects().GetLocalPlayerTyped();
+          local_player != nullptr) {
+        LogActivePlayerVitals("max-health-update", *local_player);
+      }
     }
 
     if (obj.GetTypeId() == TypeID::kPlayer &&
