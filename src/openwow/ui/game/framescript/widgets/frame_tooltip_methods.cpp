@@ -78,6 +78,9 @@ struct TooltipLuaTextStyle {
 };
 
 const char *CanonicalTooltipAnchorType(const char *anchor);
+const char *StoreTooltipAnchorState(lua_State *L, int tooltip_index,
+                                    const char *anchor, float offset_x,
+                                    float offset_y);
 
 float ConvertTooltipScriptPixelsToStoredCoordinate(const float pixels) {
   return openwow::ui::PixelUiHorizontalCoordinateToStored(pixels);
@@ -1025,6 +1028,11 @@ void SyncTooltipRegisteredLinesFromSystem(lua_State *L, int tooltip_index) {
     lua_setfield(L, tooltip_index, "__ow_alpha");
     (void)openwow::ui::game::detail::ShowLuaScriptFrame(L, tooltip_index);
   } else {
+    if (!tooltip_system.HasOwner()) {
+      lua_pushnil(L);
+      lua_setfield(L, tooltip_index, kTooltipOwnerFrameField);
+      StoreTooltipAnchorState(L, tooltip_index, "ANCHOR_NONE", 0.0F, 0.0F);
+    }
     (void)openwow::ui::game::detail::HideLuaScriptFrame(L, tooltip_index);
   }
 

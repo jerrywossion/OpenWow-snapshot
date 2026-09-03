@@ -4,6 +4,7 @@
 
 #include "openwow/core/storm_string.h"
 #include "openwow/data/formats/dbc/dbc_loader.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/arena_system.h"
 #include "openwow/game/action_validation_utils.h"
 #include "openwow/game/inventory/equipment/equipment_sets.h"
@@ -41,7 +42,9 @@ extern "C" {
 #include <cstdlib>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace {
@@ -238,21 +241,45 @@ float ClampStatusBarValue(const float min_value, const float max_value,
   return std::clamp(value, min_value, max_value);
 }
 
+void LogTooltipLuaBridgeFailureOnce(const std::string &stage,
+                                    const std::string &operation,
+                                    const std::string &cause) {
+  static std::mutex mutex;
+  static std::unordered_set<std::string> reported_failures;
+  const std::string key = stage + ":" + operation + ":" + cause;
+  {
+    const std::lock_guard lock(mutex);
+    if (!reported_failures.insert(key).second) {
+      return;
+    }
+  }
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "Tooltip Lua bridge failed: stage=" + stage + " operation=" + operation +
+          " cause=" + cause);
+}
+
 bool CallLuaFrameMethod(lua_State *L, const char *global_name, const char *method_name,
                         const std::function<int(lua_State *)> &push_args) {
   if (L == nullptr || global_name == nullptr || method_name == nullptr) {
     return false;
   }
 
+  const std::string operation = std::string(global_name) + "." + method_name;
+
   const int base = lua_gettop(L);
   lua_getglobal(L, global_name);
   if (lua_istable(L, -1) == 0) {
+    LogTooltipLuaBridgeFailureOnce(
+        "method-call", operation, "global-is-not-a-frame-table");
     lua_settop(L, base);
     return false;
   }
 
   lua_getfield(L, -1, method_name);
   if (lua_isfunction(L, -1) == 0) {
+    LogTooltipLuaBridgeFailureOnce(
+        "method-call", operation, "method-is-unavailable");
     lua_settop(L, base);
     return false;
   }
@@ -264,8 +291,68 @@ bool CallLuaFrameMethod(lua_State *L, const char *global_name, const char *metho
   }
 
   const bool ok = lua_pcall(L, arg_count, 0, 0) == LUA_OK;
+  if (!ok) {
+    const char *const error = lua_tostring(L, -1);
+    LogTooltipLuaBridgeFailureOnce(
+        "method-call", operation,
+        error != nullptr && error[0] != '\0'
+            ? std::string("lua-error:") + error
+            : "lua-error:unknown");
+  }
   lua_settop(L, base);
   return ok;
+}
+
+std::optional<bool> IsLiveTooltipOwnedByFrame(lua_State *L,
+                                              const char *tooltip_name,
+                                              const char *owner_name) {
+  if (L == nullptr || tooltip_name == nullptr || owner_name == nullptr) {
+    return std::nullopt;
+  }
+
+  const std::string operation =
+      std::string(tooltip_name) + ".IsOwned(" + owner_name + ")";
+
+  const int base = lua_gettop(L);
+  lua_getglobal(L, tooltip_name);
+  if (lua_istable(L, -1) == 0) {
+    LogTooltipLuaBridgeFailureOnce(
+        "owner-query", operation, "tooltip-global-is-not-a-frame-table");
+    lua_settop(L, base);
+    return std::nullopt;
+  }
+
+  lua_getfield(L, -1, "IsOwned");
+  if (lua_isfunction(L, -1) == 0) {
+    LogTooltipLuaBridgeFailureOnce(
+        "owner-query", operation, "method-is-unavailable");
+    lua_settop(L, base);
+    return std::nullopt;
+  }
+
+  lua_pushvalue(L, -2);
+  lua_getglobal(L, owner_name);
+  if (lua_istable(L, -1) == 0) {
+    LogTooltipLuaBridgeFailureOnce(
+        "owner-query", operation, "owner-global-is-not-a-frame-table");
+    lua_settop(L, base);
+    return std::nullopt;
+  }
+
+  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+    const char *const error = lua_tostring(L, -1);
+    LogTooltipLuaBridgeFailureOnce(
+        "owner-query", operation,
+        error != nullptr && error[0] != '\0'
+            ? std::string("lua-error:") + error
+            : "lua-error:unknown");
+    lua_settop(L, base);
+    return std::nullopt;
+  }
+
+  const bool owned = lua_toboolean(L, -1) != 0;
+  lua_settop(L, base);
+  return owned;
 }
 
 void SyncLiveWorldGameObjectTooltipFrame(const std::string &owner, const std::string &anchor,
@@ -282,13 +369,14 @@ void SyncLiveWorldGameObjectTooltipFrame(const std::string &owner, const std::st
   }
 
   const std::string effective_owner = owner.empty() ? "WorldFrame" : owner;
-  (void)CallLuaFrameMethod(lua, "GameTooltip", "SetOwner",
-                           [&](lua_State *state) {
-                             lua_pushlstring(state, effective_owner.c_str(),
-                                             effective_owner.size());
-                             lua_pushlstring(state, anchor.c_str(), anchor.size());
-                             return 2;
-                           });
+  if (!CallLuaFrameMethod(lua, "GameTooltip", "SetOwner",
+                          [&](lua_State *state) {
+                            lua_getglobal(state, effective_owner.c_str());
+                            lua_pushlstring(state, anchor.c_str(), anchor.size());
+                            return 2;
+                          })) {
+    return;
+  }
   (void)CallLuaFrameMethod(lua, "GameTooltip", "ClearLines", nullptr);
 
   for (const auto &line : lines) {
@@ -373,6 +461,27 @@ void SyncLiveWorldGameObjectStatusBar(const TooltipStatusBarSnapshot &status_bar
 }
 
 void HideLiveWorldGameObjectTooltipFrame() {
+  auto *const manager = openwow::ui::game::runtime::WorldUiRuntimeContext::FromActiveLua();
+  if (manager == nullptr || !manager->is_initialized()) {
+    return;
+  }
+
+  lua_State *const lua = manager->lua_state();
+  if (lua == nullptr) {
+    return;
+  }
+
+  const auto owned_by_world =
+      IsLiveTooltipOwnedByFrame(lua, "GameTooltip", "WorldFrame");
+  if (!owned_by_world.value_or(false)) {
+    return;
+  }
+
+  (void)CallLuaFrameMethod(lua, "GameTooltipStatusBar", "Hide", nullptr);
+  (void)CallLuaFrameMethod(lua, "GameTooltip", "Hide", nullptr);
+}
+
+void HideLiveGameTooltipFrameUnconditionally() {
   auto *const manager = openwow::ui::game::runtime::WorldUiRuntimeContext::FromActiveLua();
   if (manager == nullptr || !manager->is_initialized()) {
     return;
@@ -1440,6 +1549,11 @@ const std::vector<TooltipTextureData> &TooltipSystem::GetTextures() const {
 }
 
 void TooltipSystem::Show() {
+  if (owner_.empty() || lines_.empty()) {
+    Hide();
+    return;
+  }
+
   ClearFadeState();
   CommitLayoutState();
   shown_ = true;
@@ -1488,15 +1602,16 @@ void TooltipSystem::ClearFadeState() {
 void TooltipSystem::Hide() {
   const bool had_world_game_object_tooltip =
       world_game_object_guid_.has_value() || has_status_bar_;
-  ClearFadeState();
-  if (shown_) {
-    shown_ = false;
-    MarkPresentationChanged();
-  }
-
   if (had_world_game_object_tooltip) {
     HideLiveWorldGameObjectTooltipFrame();
   }
+
+  ClearFadeState();
+  shown_ = false;
+  owner_.clear();
+  anchor_ = "ANCHOR_NONE";
+  ClearLines();
+  CommitLayoutState();
 }
 
 void TooltipSystem::Reset() {
@@ -2051,7 +2166,7 @@ void TooltipSystem::PublishToLiveGameTooltipFrame() {
 }
 
 void TooltipSystem::HideLiveGameTooltipFrame() {
-  HideLiveWorldGameObjectTooltipFrame();
+  HideLiveGameTooltipFrameUnconditionally();
 }
 
 void TooltipSystem::SetFrameStack(const TooltipFrameStackSnapshot &snapshot) {
