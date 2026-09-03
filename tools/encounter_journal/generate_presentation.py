@@ -66,6 +66,9 @@ TIER_ART = {
     2: ("mop", 605326),
     3: ("mop", 605329),
 }
+SHARED_UI_ART = {
+    5767279,  # Classic WowStyle1Dropdown atlas.
+}
 ART_FIELDS = {
     "background": "BackgroundFileDataID",
     "button": "ButtonFileDataID",
@@ -379,6 +382,11 @@ def main() -> int:
         source = mop if source_key == "mop" else retail
         source_path = source.root / f"tier-art-{file_data_id}.blp"
         key = f"{source_key}-{file_data_id}.blp"
+        asset_manifest.setdefault(key, copy_asset(source_path, args.asset_output, key))
+
+    for file_data_id in SHARED_UI_ART:
+        source_path = mop.root / f"ui-art-{file_data_id}.blp"
+        key = f"mop-{file_data_id}.blp"
         asset_manifest.setdefault(key, copy_asset(source_path, args.asset_output, key))
 
     args.lua_output.parent.mkdir(parents=True, exist_ok=True)
