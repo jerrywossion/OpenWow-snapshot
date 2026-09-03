@@ -30,7 +30,6 @@ struct TextureRenderStateSource {
   std::optional<std::string> portrait_guid;
   std::optional<std::uint32_t> portrait_display_id;
   std::shared_ptr<const TexturePortraitRequest> portrait_request;
-  std::uint64_t portrait_request_revision{};
 
   bool has_tex_coord_quad{false};
   std::array<double, 8> tex_coord_quad{};
@@ -298,7 +297,6 @@ inline void SetTextureRenderStateString(
     case TextureRenderStateField::kTexture:
       source->texture = value;
       source->portrait_request.reset();
-      source->portrait_request_revision = 0u;
       break;
     case TextureRenderStateField::kPortraitUnit:
       source->portrait_unit = value;

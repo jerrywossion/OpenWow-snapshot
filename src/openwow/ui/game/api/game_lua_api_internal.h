@@ -633,35 +633,6 @@ inline void MarkPortraitTexturePresent(lua_State *L, const int texture_index) {
       false);
 }
 
-struct PortraitRequestState {
-  std::shared_ptr<const runtime::TexturePortraitRequest> owner;
-  std::uint64_t revision{};
-};
-
-inline PortraitRequestState CapturePortraitRequestState(
-    lua_State* L, const int texture_index) {
-  const auto* const source =
-      runtime::FindTextureRenderStateSource(L, texture_index);
-  return source != nullptr
-             ? PortraitRequestState{source->portrait_request,
-                                    source->portrait_request_revision}
-             : PortraitRequestState{};
-}
-
-inline void AdvancePortraitRequest(
-    lua_State* L, const int texture_index, PortraitRequestState previous) {
-  auto* const source =
-      runtime::EnsureTextureRenderStateSource(L, texture_index);
-  source->portrait_request =
-      previous.owner != nullptr
-          ? std::move(previous.owner)
-          : std::make_shared<runtime::TexturePortraitRequest>();
-  source->portrait_request_revision = previous.revision + 1u;
-  if (source->portrait_request_revision == 0u) {
-    source->portrait_request_revision = 1u;
-  }
-}
-
 inline void ClearPortraitState(lua_State *L, const int texture_index) {
   using runtime::TextureRenderStateField;
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kTexture, {});
@@ -699,8 +670,6 @@ inline void BindPortraitTexturePath(lua_State *L, const int texture_index,
 inline void BindPortraitUnitToken(lua_State *L, const int texture_index,
                                   const std::string_view unit_id) {
   using runtime::TextureRenderStateField;
-  PortraitRequestState request =
-      CapturePortraitRequestState(L, texture_index);
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kTexture, {});
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitUnit,
                         unit_id);
@@ -712,14 +681,12 @@ inline void BindPortraitUnitToken(lua_State *L, const int texture_index,
           TextureRenderStateField::kPortraitDisplayId));
   auto* const source = runtime::EnsureTextureRenderStateSource(L, texture_index);
   source->portrait_display_id.reset();
-  AdvancePortraitRequest(L, texture_index, std::move(request));
+  source->portrait_request = std::make_shared<runtime::TexturePortraitRequest>();
   MarkPortraitTexturePresent(L, texture_index);
 }
 
 inline void BindPortraitGuid(lua_State *L, const int texture_index, const ObjectGuid &guid) {
   using runtime::TextureRenderStateField;
-  PortraitRequestState request =
-      CapturePortraitRequestState(L, texture_index);
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kTexture, {});
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitUnit, {});
   if (guid.IsEmpty()) {
@@ -736,15 +703,13 @@ inline void BindPortraitGuid(lua_State *L, const int texture_index, const Object
       runtime::TextureRenderStateFieldName(
           TextureRenderStateField::kPortraitDisplayId));
   source->portrait_display_id.reset();
-  AdvancePortraitRequest(L, texture_index, std::move(request));
+  source->portrait_request = std::make_shared<runtime::TexturePortraitRequest>();
   MarkPortraitTexturePresent(L, texture_index);
 }
 
 inline void BindPortraitDisplayId(lua_State* L, const int texture_index,
                                   const std::uint32_t display_id) {
   using runtime::TextureRenderStateField;
-  PortraitRequestState request =
-      CapturePortraitRequestState(L, texture_index);
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kTexture, {});
   SetPortraitStateField(L, texture_index, TextureRenderStateField::kPortraitUnit,
                         {});
@@ -757,7 +722,7 @@ inline void BindPortraitDisplayId(lua_State* L, const int texture_index,
           TextureRenderStateField::kPortraitDisplayId));
   auto* const source = runtime::EnsureTextureRenderStateSource(L, texture_index);
   source->portrait_display_id = display_id;
-  AdvancePortraitRequest(L, texture_index, std::move(request));
+  source->portrait_request = std::make_shared<runtime::TexturePortraitRequest>();
   MarkPortraitTexturePresent(L, texture_index);
 }
 

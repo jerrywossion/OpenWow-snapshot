@@ -1027,7 +1027,6 @@ static void BindTexturePortraitFromTokens(
     const std::optional<std::string>& portrait_guid,
     const std::optional<std::uint32_t> portrait_display_id,
     const std::shared_ptr<const void>& request_owner,
-    const std::uint64_t request_revision,
     openwow::game::WorldSession* session,
     const openwow::vfs::VirtualFileSystem* vfs,
     openwow::render::PortraitRenderer* portraits,
@@ -1045,9 +1044,8 @@ static void BindTexturePortraitFromTokens(
         }
 
         const auto binding =
-            portraits->Acquire(request_owner, request_revision, display_id,
-                               model_instance_id, *portrait_view_id,
-                               portrait_view_limit);
+            portraits->Acquire(request_owner, display_id, model_instance_id,
+                               *portrait_view_id, portrait_view_limit);
         if (!binding.texture.has_value()) {
           return;
         }
@@ -1132,9 +1130,6 @@ void BuildTextureRenderStateFromLuaFieldsInto(
                   static_cast<std::uint32_t>(portrait_display_id))
             : std::nullopt,
         native_source != nullptr ? native_source->portrait_request : nullptr,
-        native_source != nullptr
-            ? native_source->portrait_request_revision
-            : 0u,
         session, vfs, portraits, portrait_view_id, portrait_view_limit,
         state);
   }
@@ -1288,7 +1283,6 @@ void BuildTextureRenderStateInto(
     BindTexturePortraitFromTokens(source->portrait_unit, source->portrait_guid,
                                   source->portrait_display_id,
                                   source->portrait_request,
-                                  source->portrait_request_revision,
                                   session, vfs, portraits, portrait_view_id,
                                   portrait_view_limit, state);
   }
