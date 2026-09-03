@@ -1933,11 +1933,6 @@ int LuaGetMapInfo(lua_State *L) {
 int LuaSetPortraitTexture(lua_State *L) {
   const LuaCallFrame call{L};
   const int texture_index = ValidateTextureWidgetArgument(L);
-  const char* const texture_name =
-      openwow::ui::BorrowRawLuaStringField(L, texture_index, "__ow_name");
-  const bool trace_player_portrait =
-      texture_name != nullptr &&
-      std::string_view(texture_name) == "PlayerPortrait";
   if (lua_isnumber(L, 2) != 0) {
     const auto display_id = SaturateLuaNumberToU32(lua_tonumber(L, 2));
     const auto* const dbc = GetDbcLoader(L);
@@ -1957,12 +1952,6 @@ int LuaSetPortraitTexture(lua_State *L) {
   const std::string unit_id = SafeLuaString(L, 2);
   auto *session = GetWorldSession(L);
   if (session == nullptr) {
-    if (trace_player_portrait) {
-      openwow::diagnostics::Log(
-          openwow::diagnostics::LogLevel::kInfo,
-          "[temporary portrait trace] SetPortraitTexture unit=" + unit_id +
-              " outcome=no-session");
-    }
     ClearPortraitState(L, texture_index);
     return call.boolean(false);
   }
@@ -1971,16 +1960,6 @@ int LuaSetPortraitTexture(lua_State *L) {
   const WorldObject *object = ResolveUnit(session, unit_id);
 
   if (object != nullptr && object->IsUnit()) {
-    if (trace_player_portrait) {
-      openwow::diagnostics::Log(
-          openwow::diagnostics::LogLevel::kInfo,
-          "[temporary portrait trace] SetPortraitTexture unit=" + unit_id +
-              " outcome=dynamic guid=" +
-              std::to_string(object->GetGuid().GetRawValue()) +
-              " display_id=" + std::to_string(object->GetDisplayId()) +
-              " model_instance_id=" +
-              std::to_string(object->GetPrimaryM2InstanceId()));
-    }
     BindPortraitUnitToken(L, texture_index, unit_id);
     return call.boolean(true);
   }
@@ -2009,12 +1988,6 @@ int LuaSetPortraitTexture(lua_State *L) {
     }
   }
 
-  if (trace_player_portrait) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kInfo,
-        "[temporary portrait trace] SetPortraitTexture unit=" + unit_id +
-            " outcome=clear guid=" + std::to_string(guid.GetRawValue()));
-  }
   ClearPortraitState(L, texture_index);
   return call.boolean(false);
 }

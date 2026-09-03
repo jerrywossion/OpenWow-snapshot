@@ -83,6 +83,7 @@ struct PortraitRenderer::Impl {
 
     if (!entry.target) {
       entry.target = std::make_unique<ModelPortrait>(models);
+      entry.target->UseUnitPortraitLighting();
       if (!entry.target->Initialize(kPortraitExtent, kPortraitExtent)) {
         entry.target.reset();
         return Failure(m2::M2ResultStatus::kNotReady,
