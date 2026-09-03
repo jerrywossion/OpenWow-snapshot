@@ -1453,6 +1453,9 @@ void WorldSession::HandleAttackStart(const net::wotlk::WorldPacket& pkt) {
         attacker != nullptr) {
 
       attacker->Interaction().SetCachedUpdateTarget(parsed->victim);
+      if (attacker->IsActivePlayer()) {
+        ui::game::ScriptEventDispatch::Get().FirePlayerEnterCombat();
+      }
     }
     if (auto_attack_combat_event_callback_) {
       auto_attack_combat_event_callback_(
@@ -1473,6 +1476,9 @@ void WorldSession::HandleAttackStop(const net::wotlk::WorldPacket& pkt) {
         attacker != nullptr) {
 
       attacker->Interaction().SetCachedUpdateTarget(ObjectGuid{});
+      if (attacker->IsActivePlayer()) {
+        ui::game::ScriptEventDispatch::Get().FirePlayerLeaveCombat();
+      }
     }
     if (auto_attack_combat_event_callback_) {
       auto_attack_combat_event_callback_(

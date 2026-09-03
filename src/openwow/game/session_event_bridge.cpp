@@ -57,10 +57,6 @@ void SessionEventBridge::Reset() {
   prev_spells_ = {};
   prev_trade_ = {};
   prev_mail_ = {};
-  prev_combat_ = {};
-  if (session_ != nullptr) {
-    prev_combat_.combat_log_serial = session_->combat_log().log_entry_serial();
-  }
   prev_talents_ = {};
   prev_auras_ = {};
   prev_player_state_ = {};
@@ -127,7 +123,6 @@ void SessionEventBridge::Poll(float elapsed_seconds) {
   PollSpellState();
   PollTradeState();
   PollMailState(elapsed_seconds);
-  PollCombatState();
   PollTalentState();
   PollPlayerExtendedState();
   PollPetState();
@@ -357,20 +352,6 @@ void SessionEventBridge::PollMailState(float elapsed_seconds) {
     ui_->frame_events().dispatcher().FireEvent(events::MAIL_INBOX_UPDATE);
     prev_mail_.inbox_count = cur_inbox_count;
   }
-}
-
-void SessionEventBridge::PollCombatState() {
-  auto& sed = ScriptEventDispatch::Get();
-  const bool cur_in_combat = session_->combat().in_combat();
-
-  if (cur_in_combat && !prev_combat_.in_combat) {
-    sed.FirePlayerEnterCombat();
-  } else if (!cur_in_combat && prev_combat_.in_combat) {
-    sed.FirePlayerLeaveCombat();
-  }
-  prev_combat_.in_combat = cur_in_combat;
-
-  prev_combat_.combat_log_serial = session_->combat_log().log_entry_serial();
 }
 
 void SessionEventBridge::PollTalentState() {
