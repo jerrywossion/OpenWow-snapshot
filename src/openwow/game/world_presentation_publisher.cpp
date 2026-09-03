@@ -793,31 +793,31 @@ void WorldPresentationPublisher::SyncCharacterAppearance(ObjectProjection &insta
     const auto *const display = dbc_->creature_display_info().LookupEntry(instance.display_id);
     const auto *const model =
         display != nullptr ? dbc_->creature_model_data().LookupEntry(display->model_id) : nullptr;
-    if (model != nullptr && (model->flags & kCharacterComponentModelFlag) != 0u) {
-      if (is_player) {
+    if (is_player) {
+      if (model != nullptr && (model->flags & kCharacterComponentModelFlag) != 0u) {
         cache.component_source = CharacterComponentSource::kPlayer;
-      } else {
-        const auto *const extra =
-            display->extra_info != 0u
-                ? dbc_->creature_display_info_extra().LookupEntry(display->extra_info)
-                : nullptr;
-        if (extra != nullptr) {
-          cache.component_source = CharacterComponentSource::kNpc;
-          cache.npc_selection = {
-              .race = static_cast<std::uint8_t>(extra->display_race_id),
-              .gender = static_cast<std::uint8_t>(extra->display_sex_id),
-              .skin_color = static_cast<std::uint8_t>(extra->skin_id),
-              .face = static_cast<std::uint8_t>(extra->face_id),
-              .hair_style = static_cast<std::uint8_t>(extra->hair_style_id),
-              .hair_color = static_cast<std::uint8_t>(extra->hair_color_id),
-              .facial_hair = static_cast<std::uint8_t>(extra->facial_hair_id),
-          };
-          for (std::size_t index = 0u; index < extra->item_display.size(); ++index) {
-            cache.npc_selection.equipment_display_ids[kNpcItemDisplayEquipmentSlots[index]] =
-                extra->item_display[index];
-          }
-          cache.npc_prebaked_body_texture = BuildNpcBakedTexturePath(extra->bake_name);
+      }
+    } else {
+      const auto *const extra =
+          display != nullptr && display->extra_info != 0u
+              ? dbc_->creature_display_info_extra().LookupEntry(display->extra_info)
+              : nullptr;
+      if (extra != nullptr && !extra->bake_name.empty()) {
+        cache.component_source = CharacterComponentSource::kNpc;
+        cache.npc_selection = {
+            .race = static_cast<std::uint8_t>(extra->display_race_id),
+            .gender = static_cast<std::uint8_t>(extra->display_sex_id),
+            .skin_color = static_cast<std::uint8_t>(extra->skin_id),
+            .face = static_cast<std::uint8_t>(extra->face_id),
+            .hair_style = static_cast<std::uint8_t>(extra->hair_style_id),
+            .hair_color = static_cast<std::uint8_t>(extra->hair_color_id),
+            .facial_hair = static_cast<std::uint8_t>(extra->facial_hair_id),
+        };
+        for (std::size_t index = 0u; index < extra->item_display.size(); ++index) {
+          cache.npc_selection.equipment_display_ids[kNpcItemDisplayEquipmentSlots[index]] =
+              extra->item_display[index];
         }
+        cache.npc_prebaked_body_texture = BuildNpcBakedTexturePath(extra->bake_name);
       }
     }
   }
