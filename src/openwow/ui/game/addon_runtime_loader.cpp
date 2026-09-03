@@ -596,6 +596,13 @@ bool AddonRuntimeLoader::LoadInternal(
     const ScopedAddonExecutionContext execution_scope(
         secure_execution_, &lua_state_, secure_context, addon_state->name);
 
+    // SavedVariables are part of the add-on's initial Lua environment.  They
+    // must be restored before any file in the TOC runs so add-on code can keep
+    // references to the restored tables instead of references to temporary
+    // defaults that are replaced after execution.
+    (void)LoadAddonSavedVariables(&lua_state_, addon_state->name,
+                                  context.identity, &addon_status);
+
     if (!ui_manager_.LoadToc(addon_state->toc_path, &addon_status,
                              context.progress, addon_state->name, nullptr)) {
       AppendAddonStatus(context.status_sink, addon_state->name, addon_status);
@@ -612,9 +619,6 @@ bool AddonRuntimeLoader::LoadInternal(
           LoadFile(binding_profiles_, &lua_state_, &vfs_, bindings_xml_path,
                    &addon_status, nullptr);
     }
-    (void)LoadAddonSavedVariables(&lua_state_, addon_state->name,
-                                  context.identity, &addon_status);
-
     if (secure_context) {
       const auto actual_digest = openwow::net::wotlk::ComputeAddonContentDigest(
           addon_state->name,
