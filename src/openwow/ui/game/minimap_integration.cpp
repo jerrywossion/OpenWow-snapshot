@@ -651,16 +651,16 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
         const float max_x = record.local_bounds[3];
         const float max_y = record.local_bounds[4];
         const std::array<openwow::world::Vec3, 4> local_vertices{{
-            {max_x, max_y, z},
-            {max_x, min_y, z},
             {min_x, min_y, z},
+            {max_x, min_y, z},
+            {max_x, max_y, z},
             {min_x, max_y, z},
         }};
         const std::array<std::array<float, 2>, 4> texture_coords{{
-            {0.0f, 0.0f},
-            {1.0f, 0.0f},
-            {1.0f, 1.0f},
             {0.0f, 1.0f},
+            {1.0f, 1.0f},
+            {1.0f, 0.0f},
+            {0.0f, 0.0f},
         }};
 
         PublishedWmoTile tile;

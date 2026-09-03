@@ -2102,6 +2102,22 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     visit_group(visit_group, active_group, active_group);
   }
 
+  std::stable_sort(
+      source.tiles.begin(), source.tiles.end(),
+      [active_group](const WmoMinimapTileRecord& lhs,
+                     const WmoMinimapTileRecord& rhs) {
+        const bool lhs_active = lhs.group_index == active_group;
+        const bool rhs_active = rhs.group_index == active_group;
+        if (lhs_active != rhs_active) {
+          return !lhs_active;
+        }
+        if (lhs_active) {
+          return false;
+        }
+        return (lhs.local_bounds[2] + lhs.local_bounds[5]) <
+               (rhs.local_bounds[2] + rhs.local_bounds[5]);
+      });
+
   source.status = WmoMinimapSourceStatus::kReady;
   return source;
 }
