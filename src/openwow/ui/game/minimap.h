@@ -96,6 +96,7 @@ class Minimap {
   void SetRotatingArrowTexturePath(MinimapRotatingArrowKind kind,
                                    const std::string& texture_path);
   void SetIndoorMinimapActive(bool active);
+  void SetWmoMinimapActive(bool active);
 
   void SetPlayerArrowTexturePath(const std::string& texture_path);
   void SetPlayerArrowSize(float width, float height);
@@ -189,6 +190,7 @@ class Minimap {
   std::vector<MinimapRotatingArrow> rotating_arrows_;
   std::size_t last_render_terrain_submission_count_{0u};
   bool indoor_minimap_active_{false};
+  bool wmo_minimap_active_{false};
   std::string mask_texture_path_{"Textures\\MinimapMask"};
   std::string static_poi_arrow_texture_{
       "Interface\\Minimap\\Rotating-MinimapArrow"};

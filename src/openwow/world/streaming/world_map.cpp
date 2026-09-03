@@ -1850,27 +1850,18 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     return source;
   }
 
-  Bounds query_bounds{
-      std::numeric_limits<float>::infinity(),
-      std::numeric_limits<float>::infinity(),
-      std::numeric_limits<float>::infinity(),
-      -std::numeric_limits<float>::infinity(),
-      -std::numeric_limits<float>::infinity(),
-      -std::numeric_limits<float>::infinity(),
+  const float query_min_x =
+      std::floor(source.player_local[0] / visible_radius) * visible_radius;
+  const float query_min_y =
+      std::floor(source.player_local[1] / visible_radius) * visible_radius;
+  const Bounds query_bounds{
+      query_min_x,
+      query_min_y,
+      source.player_local[2] - visible_radius * 0.5f,
+      query_min_x + visible_radius,
+      query_min_y + visible_radius,
+      source.player_local[2],
   };
-  for (const float world_x : {x - visible_radius, x + visible_radius}) {
-    for (const float world_y : {y - visible_radius, y + visible_radius}) {
-      for (const float world_z : {z - visible_radius * 0.5f, z}) {
-        const Vec3 local = TransformPoint(instance.inverse_model_matrix,
-                                          {world_x, world_y, world_z});
-        for (std::size_t axis = 0u; axis < 3u; ++axis) {
-          query_bounds[axis] = std::min(query_bounds[axis], local[axis]);
-          query_bounds[axis + 3u] =
-              std::max(query_bounds[axis + 3u], local[axis]);
-        }
-      }
-    }
-  }
 
   const auto group_bounds = [&cached](const std::size_t group_index) {
     const auto& info = cached.root.groupInfos[group_index];

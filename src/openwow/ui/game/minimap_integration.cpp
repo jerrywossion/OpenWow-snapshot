@@ -478,6 +478,7 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
                                                    const float player_y,
                                                    const float player_z) {
   minimap_.ClearBackgroundTiles();
+  minimap_.SetWmoMinimapActive(false);
   if (current_map_name_.empty()) {
     return;
   }
@@ -497,6 +498,7 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
             player_x, player_y, player_z, minimap_state_.GetVisibleRadius());
     if (wmo_source.status !=
         openwow::world::WmoMinimapSourceStatus::kOutdoor) {
+      minimap_.SetWmoMinimapActive(true);
       terrain_chunk_window_map_name_.clear();
       terrain_chunk_window_.fill({});
       terrain_chunk_leases_.fill({});
@@ -527,8 +529,16 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
 
       std::unordered_set<std::string> visible_paths;
       std::vector<std::uint32_t> submitted_groups;
+      struct PreparedWmoTile {
+        const openwow::world::WmoMinimapTileRecord* record{nullptr};
+        std::string texture_path;
+        std::uint32_t texture_width{0u};
+        std::uint32_t texture_height{0u};
+      };
+      std::vector<PreparedWmoTile> prepared_tiles;
+      prepared_tiles.reserve(wmo_source.tiles.size());
       std::size_t unresolved_path_count = 0u;
-      std::size_t submitted_tile_count = 0u;
+      std::size_t pending_texture_count = 0u;
       for (const auto& record : wmo_source.tiles) {
         const int tile_key[3] = {
             static_cast<int>(record.group_index),
@@ -553,13 +563,55 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
               openwow::render::TextureLoadPriority::kDemand);
         }
         if (!texture_lease.valid()) {
+          ++pending_texture_count;
           continue;
         }
         const auto [texture_width, texture_height] =
             texture_manager_.GetTextureDimensions(texture_path);
         if (texture_width == 0u || texture_height == 0u) {
+          ++pending_texture_count;
           continue;
         }
+
+        prepared_tiles.push_back({
+            .record = &record,
+            .texture_path = texture_path,
+            .texture_width = texture_width,
+            .texture_height = texture_height,
+        });
+      }
+
+      for (auto lease = wmo_tile_leases_.begin();
+           lease != wmo_tile_leases_.end();) {
+        if (!visible_paths.contains(lease->first)) {
+          lease = wmo_tile_leases_.erase(lease);
+        } else {
+          ++lease;
+        }
+      }
+
+      if (unresolved_path_count != 0u) {
+        report_diagnostic(
+            "WMO minimap texture mapping incomplete root=" +
+                wmo_source.root_path +
+                " group=" + std::to_string(wmo_source.active_group_index) +
+                " unresolved=" + std::to_string(unresolved_path_count) +
+                " records=" + std::to_string(wmo_source.tiles.size()),
+            true);
+        return;
+      }
+      if (pending_texture_count != 0u) {
+        report_diagnostic(
+            "WMO minimap textures pending root=" + wmo_source.root_path +
+                " group=" + std::to_string(wmo_source.active_group_index) +
+                " pending=" + std::to_string(pending_texture_count) +
+                " records=" + std::to_string(wmo_source.tiles.size()),
+            false);
+        return;
+      }
+
+      for (const auto& prepared : prepared_tiles) {
+        const auto& record = *prepared.record;
 
         const float min_x = record.local_bounds[0];
         const float min_y = record.local_bounds[1];
@@ -580,8 +632,8 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
         }};
 
         MinimapBackgroundTile tile;
-        tile.texture_path = texture_path;
-        tile.texture_lease = texture_lease;
+        tile.texture_path = prepared.texture_path;
+        tile.texture_lease = wmo_tile_leases_.at(prepared.texture_path);
         tile.color = terrain_tint;
         for (std::size_t index = 0u; index < local_vertices.size(); ++index) {
           const openwow::world::Vec3 world_vertex =
@@ -591,64 +643,38 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
                                         tile.vertices[index].x,
                                         tile.vertices[index].y);
           tile.vertices[index].u = ContractNormalizedTextureCoordForHalfTexel(
-              texture_coords[index][0], texture_width);
+              texture_coords[index][0], prepared.texture_width);
           tile.vertices[index].v = ContractNormalizedTextureCoordForHalfTexel(
-              texture_coords[index][1], texture_height);
+              texture_coords[index][1], prepared.texture_height);
         }
         minimap_.AddBackgroundTile(std::move(tile));
         if (std::find(submitted_groups.begin(), submitted_groups.end(),
                       record.group_index) == submitted_groups.end()) {
           submitted_groups.push_back(record.group_index);
         }
-        ++submitted_tile_count;
       }
 
-      for (auto lease = wmo_tile_leases_.begin();
-           lease != wmo_tile_leases_.end();) {
-        if (!visible_paths.contains(lease->first)) {
-          lease = wmo_tile_leases_.erase(lease);
-        } else {
-          ++lease;
+      std::string group_summary;
+      constexpr std::size_t kDiagnosticGroupLimit = 16u;
+      for (std::size_t index = 0u;
+           index < std::min(submitted_groups.size(), kDiagnosticGroupLimit);
+           ++index) {
+        if (!group_summary.empty()) {
+          group_summary += ',';
         }
+        group_summary += std::to_string(submitted_groups[index]);
       }
-
-      if (unresolved_path_count != 0u) {
-        report_diagnostic(
-            "WMO minimap texture mapping incomplete root=" +
-                wmo_source.root_path +
-                " group=" + std::to_string(wmo_source.active_group_index) +
-                " unresolved=" + std::to_string(unresolved_path_count) +
-                " records=" + std::to_string(wmo_source.tiles.size()),
-            true);
-      } else if (submitted_tile_count == 0u) {
-        report_diagnostic(
-            "WMO minimap textures pending root=" + wmo_source.root_path +
-                " group=" + std::to_string(wmo_source.active_group_index) +
-                " records=" + std::to_string(wmo_source.tiles.size()),
-            false);
-      } else {
-        std::string group_summary;
-        constexpr std::size_t kDiagnosticGroupLimit = 16u;
-        for (std::size_t index = 0u;
-             index < std::min(submitted_groups.size(), kDiagnosticGroupLimit);
-             ++index) {
-          if (!group_summary.empty()) {
-            group_summary += ',';
-          }
-          group_summary += std::to_string(submitted_groups[index]);
-        }
-        if (submitted_groups.size() > kDiagnosticGroupLimit) {
-          group_summary += ",...";
-        }
-        report_diagnostic(
-            "WMO minimap ready root=" + wmo_source.root_path +
-                " group=" + std::to_string(wmo_source.active_group_index) +
-                " tile_groups=[" + group_summary + "]" +
-                " records=" + std::to_string(wmo_source.tiles.size()) +
-                " mapped=" + std::to_string(visible_paths.size()) +
-                " submitted=" + std::to_string(submitted_tile_count),
-            false);
+      if (submitted_groups.size() > kDiagnosticGroupLimit) {
+        group_summary += ",...";
       }
+      report_diagnostic(
+          "WMO minimap ready root=" + wmo_source.root_path +
+              " group=" + std::to_string(wmo_source.active_group_index) +
+              " tile_groups=[" + group_summary + "]" +
+              " records=" + std::to_string(wmo_source.tiles.size()) +
+              " mapped=" + std::to_string(visible_paths.size()) +
+              " submitted=" + std::to_string(prepared_tiles.size()),
+          false);
       return;
     }
   }

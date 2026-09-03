@@ -71,6 +71,7 @@ void EnsureLayout() {
 
 constexpr std::array<std::uint16_t, 6> kQuadIndices{0, 1, 2, 0, 2, 3};
 constexpr std::uint32_t kWhite = 0xFFFFFFFFu;
+constexpr std::uint32_t kOpaqueBlack = 0xFF000000u;
 constexpr std::uint64_t kMaskAlphaWriteState = BGFX_STATE_WRITE_A;
 constexpr std::uint64_t kMaskedTerrainBlendState =
     BGFX_STATE_WRITE_RGB |
@@ -419,6 +420,10 @@ void Minimap::SetIndoorMinimapActive(bool active) {
   indoor_minimap_active_ = active;
 }
 
+void Minimap::SetWmoMinimapActive(bool active) {
+  wmo_minimap_active_ = active;
+}
+
 void Minimap::SetTexture(const std::uint8_t* rgba_data, std::uint32_t width,
                          std::uint32_t height) {
   if (!rgba_data || width == 0 || height == 0) {
@@ -660,6 +665,13 @@ void Minimap::RenderBackground(std::uint8_t view_id,
       backbuffer_masked
           ? kMaskedTerrainBlendState
           : (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+
+  if (wmo_minimap_active_ && bgfx::isValid(render_->white_texture)) {
+    SubmitQuad(view_id, render_->white_texture.idx,
+               BuildScreenQuad(pos_x_ - radius_, pos_y_ - radius_,
+                               pos_x_ + radius_, pos_y_ + radius_),
+               kOpaqueBlack, terrain_state);
+  }
 
   if (!background_tiles_.empty()) {
     for (const auto& tile : background_tiles_) {
