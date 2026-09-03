@@ -493,7 +493,7 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
           : 0xFF99B3D9u);
   if (world_map_ != nullptr) {
     const openwow::world::WmoMinimapSource wmo_source =
-        world_map_->BuildWmoMinimapSource(
+        world_map_->PrepareWmoMinimapSource(
             player_x, player_y, player_z, minimap_state_.GetVisibleRadius());
     if (wmo_source.status !=
         openwow::world::WmoMinimapSourceStatus::kOutdoor) {
@@ -526,6 +526,7 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
       }
 
       std::unordered_set<std::string> visible_paths;
+      std::vector<std::uint32_t> submitted_groups;
       std::size_t unresolved_path_count = 0u;
       std::size_t submitted_tile_count = 0u;
       for (const auto& record : wmo_source.tiles) {
@@ -595,6 +596,10 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
               texture_coords[index][1], texture_height);
         }
         minimap_.AddBackgroundTile(std::move(tile));
+        if (std::find(submitted_groups.begin(), submitted_groups.end(),
+                      record.group_index) == submitted_groups.end()) {
+          submitted_groups.push_back(record.group_index);
+        }
         ++submitted_tile_count;
       }
 
@@ -622,9 +627,23 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
                 " records=" + std::to_string(wmo_source.tiles.size()),
             false);
       } else {
+        std::string group_summary;
+        constexpr std::size_t kDiagnosticGroupLimit = 16u;
+        for (std::size_t index = 0u;
+             index < std::min(submitted_groups.size(), kDiagnosticGroupLimit);
+             ++index) {
+          if (!group_summary.empty()) {
+            group_summary += ',';
+          }
+          group_summary += std::to_string(submitted_groups[index]);
+        }
+        if (submitted_groups.size() > kDiagnosticGroupLimit) {
+          group_summary += ",...";
+        }
         report_diagnostic(
             "WMO minimap ready root=" + wmo_source.root_path +
                 " group=" + std::to_string(wmo_source.active_group_index) +
+                " tile_groups=[" + group_summary + "]" +
                 " records=" + std::to_string(wmo_source.tiles.size()) +
                 " mapped=" + std::to_string(visible_paths.size()) +
                 " submitted=" + std::to_string(submitted_tile_count),

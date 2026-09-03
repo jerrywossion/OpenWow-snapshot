@@ -412,8 +412,8 @@ public:
   [[nodiscard]] std::uint32_t ResolveTerrainGroundTypeAtPosition(float x, float y) const;
   [[nodiscard]] AreaEnvironmentContext ResolveAreaEnvironmentContextAtPosition(
       float x, float y, float z) const;
-  [[nodiscard]] WmoMinimapSource BuildWmoMinimapSource(
-      float x, float y, float z, float visible_radius) const;
+  [[nodiscard]] WmoMinimapSource PrepareWmoMinimapSource(
+      float x, float y, float z, float visible_radius);
 
   [[nodiscard]] MoverWmoSoundContext ResolveWmoSoundContextAtPosition(
       float x, float y, float z) const;

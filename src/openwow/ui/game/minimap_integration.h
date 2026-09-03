@@ -52,7 +52,7 @@ class MinimapIntegration {
   void BindWorldSceneState(const openwow::game::WorldSceneState* scene_state) {
     world_scene_state_ = scene_state;
   }
-  void BindWorldMap(const openwow::world::WorldMap* world_map) {
+  void BindWorldMap(openwow::world::WorldMap* world_map) {
     world_map_ = world_map;
   }
 
@@ -124,7 +124,7 @@ class MinimapIntegration {
   openwow::game::MinimapSystem& minimap_content_;
   openwow::game::WorldEnvironmentState& world_environment_;
   const openwow::game::WorldSceneState* world_scene_state_{nullptr};
-  const openwow::world::WorldMap* world_map_{nullptr};
+  openwow::world::WorldMap* world_map_{nullptr};
   Minimap minimap_;
   bool initialized_{false};
 

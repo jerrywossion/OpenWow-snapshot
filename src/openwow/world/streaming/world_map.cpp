@@ -1769,9 +1769,9 @@ AreaEnvironmentContext WorldMap::ResolveAreaEnvironmentContextAtPosition(
                                          AreaEnvironmentProbe::kUnitSurface);
 }
 
-WmoMinimapSource WorldMap::BuildWmoMinimapSource(
+WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     const float x, const float y, const float z,
-    const float visible_radius) const {
+    const float visible_radius) {
   WmoMinimapSource source;
   const AreaEnvironmentContext environment =
       ResolveAreaEnvironmentAtPosition(x, y, z,
@@ -1873,14 +1873,14 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
   }
 
   const auto group_bounds = [&cached](const std::size_t group_index) {
-    const auto& header = cached.groups[group_index].header;
+    const auto& info = cached.root.groupInfos[group_index];
     return Bounds{
-        std::min(header.boundingBox1[0], header.boundingBox2[0]),
-        std::min(header.boundingBox1[1], header.boundingBox2[1]),
-        std::min(header.boundingBox1[2], header.boundingBox2[2]),
-        std::max(header.boundingBox1[0], header.boundingBox2[0]),
-        std::max(header.boundingBox1[1], header.boundingBox2[1]),
-        std::max(header.boundingBox1[2], header.boundingBox2[2]),
+        std::min(info.boundingBox1[0], info.boundingBox2[0]),
+        std::min(info.boundingBox1[1], info.boundingBox2[1]),
+        std::min(info.boundingBox1[2], info.boundingBox2[2]),
+        std::max(info.boundingBox1[0], info.boundingBox2[0]),
+        std::max(info.boundingBox1[1], info.boundingBox2[1]),
+        std::max(info.boundingBox1[2], info.boundingBox2[2]),
     };
   };
   const auto horizontal_bounds_intersect = [](const Bounds& lhs,
@@ -1919,6 +1919,36 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
       256.0f * kWmoMinimapUnitsPerPixel;
   constexpr float kWmoMinimapEdgePad = kWmoMinimapUnitsPerPixel * 2.0f;
   constexpr std::size_t kWmoMinimapTileLimit = 256u;
+  const std::uint32_t active_flags = cached.groups[active_group].header.flags;
+  const bool active_exterior =
+      (active_flags & data::wmo::kMogpExterior) != 0u;
+  const std::uint32_t expected_family =
+      active_exterior
+          ? data::wmo::kMogpExterior
+          : (cached.root.groupInfos[active_group].flags &
+             data::wmo::kMogpExteriorLit);
+  std::size_t pending_group_count = 0u;
+  const std::size_t candidate_group_count = std::min(
+      {cached.root.groupInfos.size(), cached.group_residency.size(),
+       instance.group_world_bounds.size()});
+  for (std::size_t group_index = 0u; group_index < candidate_group_count;
+       ++group_index) {
+    if (!horizontal_bounds_intersect(group_bounds(group_index), query_bounds) ||
+        cached.group_residency[group_index] == WmoGroupResidency::kResident) {
+      continue;
+    }
+    ++pending_group_count;
+    QueueWmoGroupLoad(
+        instance.wmo_path, static_cast<std::uint32_t>(group_index),
+        BoundsDistanceSquared3D(instance.group_world_bounds[group_index], x, y,
+                                z));
+  }
+  if (pending_group_count != 0u) {
+    source.detail = std::to_string(pending_group_count) +
+                    " intersecting WMO minimap groups pending";
+    return source;
+  }
+
   const auto next_texture_span = [=](const float extent) {
     const auto required_pixels = static_cast<std::uint32_t>(
         std::max(1.0f, std::ceil(extent / kWmoMinimapUnitsPerPixel)));
@@ -1981,14 +2011,6 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
     }
   };
 
-  const std::uint32_t active_flags = cached.groups[active_group].header.flags;
-  const bool active_exterior =
-      (active_flags & data::wmo::kMogpExterior) != 0u;
-  const std::uint32_t expected_family =
-      active_exterior
-          ? data::wmo::kMogpExterior
-          : (cached.root.groupInfos[active_group].flags &
-             data::wmo::kMogpExteriorLit);
   std::vector<bool> visited(cached.groups.size(), false);
   const auto visit_group = [&](const auto& self,
                                const std::size_t group_index) -> void {
