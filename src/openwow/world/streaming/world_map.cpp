@@ -1883,10 +1883,10 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
         std::max(header.boundingBox1[2], header.boundingBox2[2]),
     };
   };
-  const auto bounds_intersect = [](const Bounds& lhs, const Bounds& rhs) {
-    return lhs[0] <= rhs[3] && lhs[3] >= rhs[0] &&
-           lhs[1] <= rhs[4] && lhs[4] >= rhs[1] &&
-           lhs[2] <= rhs[5] && lhs[5] >= rhs[2];
+  const auto horizontal_bounds_intersect = [](const Bounds& lhs,
+                                               const Bounds& rhs) {
+    return rhs[0] <= lhs[3] && lhs[0] < rhs[3] &&
+           rhs[1] <= lhs[4] && lhs[1] < rhs[4];
   };
   const auto portal_intersects = [&cached, &query_bounds](
                                      const data::wmo::WmoPortalRef& ref) {
@@ -1914,7 +1914,9 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
     return common_outcode == 0u;
   };
 
-  constexpr float kWmoMinimapUnitsPerPixel = 533.333333f / 256.0f;
+  constexpr float kWmoMinimapUnitsPerPixel = 0.5f;
+  constexpr float kWmoMinimapTileWorldSpan =
+      256.0f * kWmoMinimapUnitsPerPixel;
   constexpr float kWmoMinimapEdgePad = kWmoMinimapUnitsPerPixel * 2.0f;
   constexpr std::size_t kWmoMinimapTileLimit = 256u;
   const auto next_texture_span = [=](const float extent) {
@@ -1925,7 +1927,8 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
   const auto emit_group = [&](const std::size_t group_index,
                               const bool force_active_group) {
     const Bounds bounds = group_bounds(group_index);
-    if (!force_active_group && !bounds_intersect(bounds, query_bounds)) {
+    if (!force_active_group &&
+        !horizontal_bounds_intersect(bounds, query_bounds)) {
       return;
     }
     const float extent_x = bounds[3] - bounds[0];
@@ -1938,9 +1941,9 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
     const float span_y = static_cast<float>(next_texture_span(extent_y)) *
                          kWmoMinimapUnitsPerPixel;
     const std::uint32_t count_x = static_cast<std::uint32_t>(
-        std::max(1.0f, std::ceil(extent_x / span_x)));
+        std::max(1.0f, std::ceil(extent_x / kWmoMinimapTileWorldSpan)));
     const std::uint32_t count_y = static_cast<std::uint32_t>(
-        std::max(1.0f, std::ceil(extent_y / span_y)));
+        std::max(1.0f, std::ceil(extent_y / kWmoMinimapTileWorldSpan)));
     for (std::uint32_t tile_y = 0u; tile_y < count_y; ++tile_y) {
       for (std::uint32_t tile_x = 0u; tile_x < count_x; ++tile_x) {
         if (source.tiles.size() >= kWmoMinimapTileLimit) {
@@ -1966,7 +1969,7 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
         if (tile_y + 1u == count_y) {
           tile_bounds[4] += kWmoMinimapEdgePad;
         }
-        if (bounds_intersect(tile_bounds, query_bounds)) {
+        if (horizontal_bounds_intersect(tile_bounds, query_bounds)) {
           source.tiles.push_back({
               .group_index = static_cast<std::uint32_t>(group_index),
               .tile_x = tile_x,
@@ -2002,7 +2005,8 @@ WmoMinimapSource WorldMap::BuildWmoMinimapSource(
                                     expected_family;
     const bool is_active_group = group_index == active_group;
     if ((!accepted ||
-         !bounds_intersect(group_bounds(group_index), query_bounds)) &&
+         !horizontal_bounds_intersect(group_bounds(group_index),
+                                      query_bounds)) &&
         !is_active_group) {
       return;
     }
