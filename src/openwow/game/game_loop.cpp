@@ -4362,7 +4362,8 @@ void GameLoop::TickInWorld(float dt) {
 
     if (new_mouseover != prev_mouseover_guid_) {
       prev_mouseover_guid_ = new_mouseover;
-      if (game_ui_.is_initialized()) {
+      if (game_ui_.is_initialized() &&
+          world_session()->objects().GetUnit(mouseover_guid) != nullptr) {
         game_ui_.frame_events().dispatcher().FireEvent(
             openwow::ui::game::events::UPDATE_MOUSEOVER_UNIT);
       }
