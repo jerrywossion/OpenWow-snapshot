@@ -5,6 +5,7 @@
 #include "openwow/data/formats/dbc/dbc_table_registry.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/inventory/items/item_icon_resolver.h"
+#include "openwow/game/localization.h"
 #include "openwow/game/spell_text_formatter.h"
 
 extern "C" {
@@ -29,7 +30,7 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 7;
+constexpr std::uint32_t kSchemaVersion = 8;
 constexpr std::uint32_t kRandomDungeonType = 6;
 
 struct JournalSupplementSpell final {
@@ -516,7 +517,9 @@ int LuaGetDifficultyByIndex(lua_State* state) {
     return 3;
   }
   lua_pushinteger(state, map_difficulty->max_players);
-  PushString(state, map_difficulty->difficulty_string);
+  const auto difficulty_key = std::string(map_difficulty->difficulty_string);
+  PushString(state, openwow::game::Localization::Get().GetString(
+                        difficulty_key, difficulty_key));
   return 3;
 }
 

@@ -2004,6 +2004,11 @@ function EncounterJournal_Loot_OnUpdate(self)
 end
 
 function EncounterJournal_Loot_OnClick(self)
+	-- Instance-wide loot entries are deliberately not navigation controls. A
+	-- normal click must not silently select a boss and narrow the visible list.
+	if not EncounterJournal.encounterID then
+		return;
+	end
 	if (EncounterJournal.encounterID ~= self.encounterID) then
 		PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN);
 		EncounterJournal_DisplayEncounter(self.encounterID);

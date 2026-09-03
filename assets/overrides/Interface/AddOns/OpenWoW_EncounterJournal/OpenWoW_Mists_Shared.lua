@@ -467,7 +467,13 @@ function OpenWoWJournal_SetTabEnabled(frame, id, enabled)
     if not tab then
         error("OpenWoW Encounter Journal: missing content tab " .. tostring(id))
     end
-    tab.isDisabled = enabled and nil or true
+    if enabled then
+        tab.isDisabled = nil
+        tab:SetDisabledFontObject(GameFontHighlightSmall)
+        tab:Enable()
+    else
+        tab.isDisabled = true
+    end
     UpdateJournalTabs(frame)
 end
 
@@ -530,7 +536,15 @@ function OpenWoWAtlasTextureMixin:SetAtlas(atlas)
 end
 
 OpenWoWMaskTextureMixin = {}
-function OpenWoWMaskTextureMixin:SetMask()
+function OpenWoWMaskTextureMixin:SetMask(mask)
+    self.__openWoWMask = mask
+end
+function OpenWoWMaskTextureMixin:SetTexture(texture)
+    if self.__openWoWMask and type(texture) == "string" and texture ~= "" then
+        SetPortraitToTexture(self, texture)
+        return
+    end
+    error("OpenWoW Encounter Journal: masked texture requires a texture path")
 end
 
 OpenWoWEncounterModelMixin = {}

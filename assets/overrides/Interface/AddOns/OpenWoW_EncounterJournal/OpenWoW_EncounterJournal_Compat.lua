@@ -4,7 +4,7 @@
 -- C_OpenWoWJournal.
 
 local API = C_OpenWoWJournal
-local REQUIRED_SCHEMA = 7
+local REQUIRED_SCHEMA = 8
 local PRESENTATION = OpenWoW_EncounterJournal_Presentation
 
 if type(API) ~= "table" or type(API.GetSchemaVersion) ~= "function" then
@@ -584,15 +584,12 @@ function EJ_SelectInstance(instanceID)
     if instance and EncounterJournal and EncounterJournal.encounter and
         EncounterJournal.encounter.info and
         EncounterJournal.encounter.info.difficulty then
-        local size = 5
-        if instance.isRaid then
-            size = (state.difficulty == 2 or state.difficulty == 4) and 25 or 10
+        local _, maxPlayers, difficultyName =
+            OpenWoWEncounterJournal_GetDifficultyInfo(state.difficulty)
+        if maxPlayers and IsNonEmpty(difficultyName) then
+            EncounterJournal.encounter.info.difficulty:SetFormattedText(
+                ENCOUNTER_JOURNAL_DIFF_TEXT, maxPlayers, difficultyName)
         end
-        local difficultyName = (state.difficulty >= 3 or
-            (not instance.isRaid and state.difficulty == 2)) and
-            PLAYER_DIFFICULTY2 or PLAYER_DIFFICULTY1
-        EncounterJournal.encounter.info.difficulty:SetFormattedText(
-            ENCOUNTER_JOURNAL_DIFF_TEXT, size, difficultyName)
     end
 end
 
@@ -602,7 +599,7 @@ function EJ_GetInstanceInfo(instanceID)
         return nil
     end
     return instance.name, instance.description, instance.background,
-        nil, instance.loreImage, instance.buttonImage, instance.worldMapAreaID,
+        nil, instance.loreImage, instance.buttonSmallImage, instance.worldMapAreaID,
         nil, instance.link, true, instance.isRaid
 end
 
