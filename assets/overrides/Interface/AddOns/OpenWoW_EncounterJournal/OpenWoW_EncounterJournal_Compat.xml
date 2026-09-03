@@ -6,6 +6,21 @@
         <FontHeight><AbsValue val="24"/></FontHeight>
         <Color r="1" g=".82" b="0"/>
     </Font>
+    <Font name="GameFontNormalMed3" font="Fonts\FRIZQT__.TTF" virtual="true">
+        <FontHeight><AbsValue val="14"/></FontHeight>
+        <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
+        <Color r="1" g=".82" b="0"/>
+    </Font>
+    <Font name="GameFontNormalLarge2" font="Fonts\FRIZQT__.TTF" virtual="true">
+        <FontHeight><AbsValue val="16"/></FontHeight>
+        <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
+        <Color r="1" g=".82" b="0"/>
+    </Font>
+    <Font name="QuestTitleFontBlackShadow" font="Fonts\MORPHEUS.ttf" virtual="true">
+        <FontHeight><AbsValue val="18"/></FontHeight>
+        <Shadow><Offset><AbsDimension x="1" y="-1"/></Offset><Color r="0" g="0" b="0"/></Shadow>
+        <Color r="1" g=".82" b="0"/>
+    </Font>
 
     <Texture name="UI-Frame-Portrait" file="Interface\FrameGeneral\UI-Frame" virtual="true">
         <Size x="78" y="78"/>
@@ -98,7 +113,7 @@
         <TexCoords left="0" right="1" top="0.67187500" bottom="0.96093750"/>
     </Texture>
 
-    <Frame name="PortraitFrameTemplate" virtual="true">
+    <Frame name="PortraitFrameTemplate" virtual="true" mixin="OpenWoWPortraitFrameMixin">
         <Size x="338" y="424"/>
         <Layers>
             <Layer level="BACKGROUND" textureSubLevel="-6">

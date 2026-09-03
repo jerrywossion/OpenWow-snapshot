@@ -38,6 +38,7 @@ struct UiAnchor {
   std::string point;
   std::string relative_to;
   bool relative_to_explicit{false};
+  std::string relative_key;
   std::string relative_point;
   float x{0.0f};
   float y{0.0f};
@@ -246,6 +247,7 @@ struct UiFrame {
     ButtonText,
     EditBoxText,
     MessageFontDefinition,
+    SimpleHtmlFontDefinition,
 
     EditBoxCaret,
     EditBoxHighlight,

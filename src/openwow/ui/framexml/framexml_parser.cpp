@@ -237,6 +237,7 @@ std::vector<UiAnchor> ParseAnchors(const XmlNode& node,
     anchor.point = openwow::ui::FramePointToString(point_value);
     anchor.relative_to = Attr(*anchor_node, "relativeTo");
     anchor.relative_to_explicit = !Trim(anchor.relative_to).empty();
+    anchor.relative_key = Trim(Attr(*anchor_node, "relativeKey"));
     const std::string raw_relative_point = Attr(*anchor_node, "relativePoint");
     if (raw_relative_point.empty()) {
       anchor.relative_point = anchor.point;
@@ -1140,7 +1141,7 @@ void FinalizeWidget(ParserContext* ctx, const XmlNode& node, std::size_t index) 
   if (!anchors.empty()) {
     frame.anchors = anchors;
     for (auto& anchor : frame.anchors) {
-      if (anchor.relative_to.empty()) {
+      if (anchor.relative_to.empty() && anchor.relative_key.empty()) {
         if (!frame.parent.empty()) {
           anchor.relative_to = frame.parent;
         }
@@ -1425,6 +1426,9 @@ std::size_t BeginWidget(ParserContext* ctx, const XmlNode& node) {
                 ToLowerAscii(parent_kind) == "scrollingmessageframe") &&
                ctx->layer_stack.empty()) {
       frame.region_role = UiFrame::RegionRole::MessageFontDefinition;
+    } else if (ToLowerAscii(parent_kind) == "simplehtml" &&
+               ctx->layer_stack.empty()) {
+      frame.region_role = UiFrame::RegionRole::SimpleHtmlFontDefinition;
     }
     frame.font_style = frame.inherits;
     frame.justify_h = Attr(node, "justifyH");
@@ -1562,7 +1566,8 @@ std::size_t BeginWidget(ParserContext* ctx, const XmlNode& node) {
   }
   frame.movable = OptionalBoolAttr(node, "movable");
   frame.resizable = OptionalBoolAttr(node, "resizable");
-  if (ToLowerAscii(frame.kind) == "fontstring" && ToLowerAscii(parent_kind) == "simplehtml") {
+  if (ToLowerAscii(frame.kind) == "fontstring" &&
+      ToLowerAscii(parent_kind) == "simplehtml") {
     frame.visible = false;
     frame.visibility_explicit = true;
   }

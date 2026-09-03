@@ -1,7 +1,7 @@
--- Compatibility boundary for Blizzard_EncounterJournal 4.3.4.
--- The presentation files remain the original Cataclysm Lua/XML; this file
--- supplies the later FrameXML helpers and EJ_* query contract from build
--- 12340 data exposed by C_OpenWoWJournal.
+-- Compatibility boundary for the MoP Classic Encounter Journal.
+-- The presentation files remain Blizzard's MoP Classic Lua/XML; this file
+-- supplies their EJ_* query contract from build 12340 data exposed by
+-- C_OpenWoWJournal.
 
 local API = C_OpenWoWJournal
 local REQUIRED_SCHEMA = 7
@@ -98,6 +98,7 @@ local state = {
     difficulty = 1,
     tier = 3,
     classFilter = 0,
+    slotFilter = 0,
     searchCatalog = nil,
     searchResults = {},
 }
@@ -135,12 +136,15 @@ end
 
 local function ExpandPresentationText(value, mapID, encounterID, sectionID, difficulty)
     if not IsNonEmpty(value) then
-        return ""
+        return "", true
     end
     value = ResolveJournalDifficultyText(value, difficulty or state.difficulty)
-    local expanded = API.ExpandPresentationText(value, mapID or 0,
+    local bulletToken = "<<OPENWOW_EJ_BULLET>>"
+    value = string.gsub(value, "%$bullet;", bulletToken)
+    local expanded, resolved = API.ExpandPresentationText(value, mapID or 0,
         encounterID or 0, sectionID or 0)
-    return expanded or value
+    expanded = string.gsub(expanded or value, bulletToken, "$bullet;")
+    return expanded, resolved ~= false
 end
 
 local function FindPresentationEncounter(instance, name, orderIndex)
@@ -211,18 +215,24 @@ local function GetInstance(instanceID)
     return state.instancesByID[instanceID or (state.selectedInstance and state.selectedInstance.id)]
 end
 
-local function RawDifficulty(uiDifficulty)
-    if not uiDifficulty or uiDifficulty < 1 or uiDifficulty > 4 then
+local dungeonDifficultyToRaw = { [1] = 0, [2] = 1 }
+local raidDifficultyToRaw = { [3] = 0, [100] = 1, [4] = 2, [101] = 3 }
+local rawToDungeonDifficulty = { [0] = 1, [1] = 2 }
+local rawToRaidDifficulty = { [0] = 3, [1] = 100, [2] = 4, [3] = 101 }
+
+local function RawDifficulty(uiDifficulty, instance)
+    instance = instance or state.selectedInstance
+    if not instance then
         return nil
     end
-    return uiDifficulty - 1
+    return (instance.isRaid and raidDifficultyToRaw or dungeonDifficultyToRaw)[uiDifficulty]
 end
 
 local function IsDifficultyAvailable(instance, uiDifficulty)
     if not instance then
         return false
     end
-    local expected = RawDifficulty(uiDifficulty)
+    local expected = RawDifficulty(uiDifficulty, instance)
     if expected == nil then
         return false
     end
@@ -241,21 +251,113 @@ local function FirstDifficulty(instance)
         return 1
     end
     local raw = API.GetDifficultyByIndex(instance.id, 1)
-    if raw and raw >= 0 and raw <= 3 then
-        return raw + 1
-    end
-    return 1
+    local mapping = instance.isRaid and rawToRaidDifficulty or rawToDungeonDifficulty
+    return mapping[raw] or (instance.isRaid and 3 or 1)
 end
 
 local function EncounterKey(instanceID, rawDifficulty)
     return tostring(instanceID) .. ":" .. tostring(rawDifficulty)
 end
 
+local function InstallPresentationSections(instance, encounter,
+        presentationEncounter, uiDifficulty)
+    -- MoP's Classic dungeon records describe the post-Cataclysm revamps, not
+    -- their build-12340 versions. Their art is still useful, but their combat
+    -- text must not replace the target client's verified spell data.
+    if instance.tier == 1 and not instance.isRaid then
+        return false
+    end
+
+    local donorToSection = {}
+    for donorIndex, donor in ipairs(presentationEncounter.sections or {}) do
+        donorToSection[donor.id] = 10000000 + encounter.id * 4096 + donorIndex
+    end
+
+    local sections = {}
+    for _, donor in ipairs(presentationEncounter.sections or {}) do
+        local sectionID = donorToSection[donor.id]
+        local description, resolved = ExpandPresentationText(donor.body, instance.id,
+            encounter.id, donor.id, uiDifficulty)
+        if not resolved then
+            return false
+        end
+        local section = {
+            id = sectionID,
+            donorID = donor.id,
+            spellID = donor.spell or 0,
+            title = donor.title or "",
+            description = description,
+            icon = IsNonEmpty(donor.icon) and donor.icon or UNKNOWN_ICON,
+            displayInfo = 0,
+            siblingID = donorToSection[donor.sibling],
+            childID = donorToSection[donor.child],
+            parentID = donorToSection[donor.parent],
+            sectionType = donor.type or 0,
+            flags = donor.flags or 0,
+            iconFlags = donor.iconFlags or 0,
+            difficultyMask = donor.difficultyMask,
+            encounterID = encounter.id,
+            instanceID = instance.id,
+            difficulty = uiDifficulty,
+            source = instance.presentation.source,
+            sourceBuild = instance.presentation.build,
+        }
+        section.link = JournalLink(3, sectionID, uiDifficulty, section.title)
+        table.insert(sections, section)
+    end
+
+    local rootSectionID = donorToSection[presentationEncounter.firstSection]
+    if not rootSectionID then
+        return false
+    end
+    for _, section in ipairs(sections) do
+        state.sectionsByID[section.id] = section
+    end
+    encounter.rootSectionID = rootSectionID
+    encounter.description = presentationEncounter.description or ""
+    return true
+end
+
+local function InstallTargetSections(instance, encounter, uiDifficulty)
+    local previousSection
+    local abilityCount = API.GetNumAbilities(encounter.id)
+    for abilityIndex = 1, abilityCount do
+        local spellID, abilityName, description, tooltip, abilityIcon, verifiedBuild =
+            API.GetAbilityByIndex(encounter.id, abilityIndex)
+        if spellID then
+            local sectionID = 1000000 + encounter.id * 16 + abilityIndex
+            local section = {
+                id = sectionID,
+                spellID = spellID,
+                title = abilityName or "",
+                description = IsNonEmpty(description) and description or (tooltip or ""),
+                icon = abilityIcon,
+                displayInfo = 0,
+                siblingID = nil,
+                childID = nil,
+                encounterID = encounter.id,
+                instanceID = instance.id,
+                difficulty = uiDifficulty,
+                verifiedBuild = verifiedBuild,
+                iconFlags = 0,
+            }
+            section.link = JournalLink(3, sectionID, uiDifficulty, section.title)
+            state.sectionsByID[sectionID] = section
+            if previousSection then
+                previousSection.siblingID = sectionID
+            else
+                encounter.rootSectionID = sectionID
+            end
+            previousSection = section
+        end
+    end
+end
+
 local function BuildEncounters(instance, uiDifficulty)
     if not instance then
         return {}
     end
-    local raw = RawDifficulty(uiDifficulty)
+    local raw = RawDifficulty(uiDifficulty, instance)
     if raw == nil then
         return {}
     end
@@ -287,73 +389,9 @@ local function BuildEncounters(instance, uiDifficulty)
 
             local presentationEncounter = FindPresentationEncounter(
                 instance, encounter.name, encounter.orderIndex)
-            if presentationEncounter then
-                encounter.description = presentationEncounter.description or ""
-                local donorToSection = {}
-                for donorIndex, donor in ipairs(presentationEncounter.sections or {}) do
-                    donorToSection[donor.id] = 10000000 + encounterID * 4096 + donorIndex
-                end
-                for _, donor in ipairs(presentationEncounter.sections or {}) do
-                    local sectionID = donorToSection[donor.id]
-                    local section = {
-                        id = sectionID,
-                        donorID = donor.id,
-                        spellID = donor.spell or 0,
-                        title = donor.title or "",
-                        description = ExpandPresentationText(donor.body, instance.id,
-                            encounterID, donor.id, uiDifficulty),
-                        icon = IsNonEmpty(donor.icon) and donor.icon or UNKNOWN_ICON,
-                        displayInfo = 0,
-                        siblingID = donorToSection[donor.sibling],
-                        childID = donorToSection[donor.child],
-                        parentID = donorToSection[donor.parent],
-                        sectionType = donor.type or 0,
-                        flags = donor.flags or 0,
-                        iconFlags = donor.iconFlags or 0,
-                        difficultyMask = donor.difficultyMask,
-                        encounterID = encounterID,
-                        instanceID = instance.id,
-                        difficulty = uiDifficulty,
-                        source = instance.presentation.source,
-                        sourceBuild = instance.presentation.build,
-                    }
-                    section.link = JournalLink(3, sectionID, uiDifficulty, section.title)
-                    state.sectionsByID[sectionID] = section
-                end
-                encounter.rootSectionID = donorToSection[presentationEncounter.firstSection]
-            else
-                local previousSection
-                local abilityCount = API.GetNumAbilities(encounterID)
-                for abilityIndex = 1, abilityCount do
-                    local spellID, abilityName, description, tooltip, abilityIcon, verifiedBuild =
-                        API.GetAbilityByIndex(encounterID, abilityIndex)
-                    if spellID then
-                        local sectionID = 1000000 + encounterID * 16 + abilityIndex
-                        local section = {
-                            id = sectionID,
-                            spellID = spellID,
-                            title = abilityName or "",
-                            description = IsNonEmpty(description) and description or (tooltip or ""),
-                            icon = abilityIcon,
-                            displayInfo = 0,
-                            siblingID = nil,
-                            childID = nil,
-                            encounterID = encounterID,
-                            instanceID = instance.id,
-                            difficulty = uiDifficulty,
-                            verifiedBuild = verifiedBuild,
-                            iconFlags = 0,
-                        }
-                        section.link = JournalLink(3, sectionID, uiDifficulty, section.title)
-                        state.sectionsByID[sectionID] = section
-                        if previousSection then
-                            previousSection.siblingID = sectionID
-                        else
-                            encounter.rootSectionID = sectionID
-                        end
-                        previousSection = section
-                    end
-                end
+            if not presentationEncounter or not InstallPresentationSections(
+                    instance, encounter, presentationEncounter, uiDifficulty) then
+                InstallTargetSections(instance, encounter, uiDifficulty)
             end
 
             table.insert(encounters, encounter)
@@ -396,6 +434,13 @@ local inventorySlots = {
     [26] = "远程", [28] = "圣物",
 }
 
+local inventoryTypeToFilter = {
+    [1] = 1, [2] = 2, [3] = 3, [16] = 4, [5] = 5, [20] = 5,
+    [9] = 6, [10] = 7, [6] = 8, [7] = 9, [8] = 10,
+    [13] = 11, [21] = 11, [14] = 12, [22] = 12, [23] = 12,
+    [11] = 13, [12] = 14,
+}
+
 local itemQualityColors = {
     [0] = "ff9d9d9d", [1] = "ffffffff", [2] = "ff1eff00", [3] = "ff0070dd",
     [4] = "ffa335ee", [5] = "ffff8000", [6] = "ffe6cc80", [7] = "ff00ccff",
@@ -405,7 +450,8 @@ local function BuildLootForEncounter(encounter, uiDifficulty)
     if not encounter then
         return {}
     end
-    local raw = RawDifficulty(uiDifficulty)
+    local instance = state.instancesByID[encounter.instanceID]
+    local raw = RawDifficulty(uiDifficulty, instance)
     if raw == nil then
         return {}
     end
@@ -433,6 +479,7 @@ local function BuildLootForEncounter(encounter, uiDifficulty)
                 allowableClass = allowableClass or -1,
                 slot = inventorySlots[inventoryType] or "",
                 armorType = IsNonEmpty(armorType) and armorType or "",
+                filterType = inventoryTypeToFilter[inventoryType] or 15,
                 encounterID = encounter.id,
                 instanceID = encounter.instanceID,
                 difficulty = uiDifficulty,
@@ -462,11 +509,28 @@ local function CurrentLoot()
             local classID = state.classFilter
             if classID == 0 or mask == -1 or
                 (mask > 0 and math.floor(mask / (2 ^ (classID - 1))) % 2 == 1) then
-                table.insert(loot, item)
+                if state.slotFilter == 0 or item.filterType == state.slotFilter then
+                    table.insert(loot, item)
+                end
             end
         end
     end
     return loot
+end
+
+local function CurrentLootGroups()
+    local groups = {}
+    local groupByItemID = {}
+    for _, item in ipairs(CurrentLoot()) do
+        local group = groupByItemID[item.id]
+        if not group then
+            group = {}
+            groupByItemID[item.id] = group
+            table.insert(groups, group)
+        end
+        table.insert(group, item)
+    end
+    return groups
 end
 
 function EJ_GetInstanceByIndex(index, isRaid)
@@ -538,7 +602,7 @@ function EJ_GetInstanceInfo(instanceID)
     end
     return instance.name, instance.description, instance.background,
         instance.buttonImage, instance.loreImage, instance.worldMapAreaID,
-        instance.link, true, nil, instance.id
+        instance.link, true, nil, instance.id, instance.isRaid
 end
 
 function EJ_GetCurrentInstance()
@@ -561,6 +625,22 @@ end
 
 function EJ_GetDifficulty()
     return state.difficulty
+end
+
+function OpenWoWEncounterJournal_GetDifficultyInfo(uiDifficulty)
+    local instance = state.selectedInstance
+    local raw = RawDifficulty(uiDifficulty, instance)
+    if not instance or raw == nil then
+        return nil
+    end
+    local count = API.GetNumDifficulties(instance.id)
+    for index = 1, count do
+        local candidate, maxPlayers, name = API.GetDifficultyByIndex(instance.id, index)
+        if candidate == raw then
+            return uiDifficulty, maxPlayers, name
+        end
+    end
+    return nil
 end
 
 function EJ_IsValidInstanceDifficulty(difficulty)
@@ -624,9 +704,9 @@ function EJ_GetSectionInfo(sectionID)
     if not section then
         return nil
     end
-    return section.title, section.description, 0, section.icon,
+    return section.title, section.description, section.sectionType or 0, section.icon,
         section.displayInfo, section.siblingID, section.childID, false,
-        section.link, false
+        section.link, false, section.spellID or 0, section.uiModelSceneID
 end
 
 function EJ_GetSectionIconFlags(sectionID)
@@ -642,7 +722,15 @@ function EJ_GetSectionPath(sectionID)
 end
 
 function EJ_GetNumLoot()
-    return #CurrentLoot()
+    return #CurrentLootGroups()
+end
+
+function EJ_GetSlotFilter()
+    return state.slotFilter
+end
+
+function EJ_SetSlotFilter(filterType)
+    state.slotFilter = tonumber(filterType) or 0
 end
 
 local function LootReturn(item)
@@ -650,11 +738,17 @@ local function LootReturn(item)
         return nil
     end
     return item.name, item.icon, item.slot, item.armorType, item.id,
-        item.link, item.encounterID
+        item.link, item.encounterID, item.filterType
 end
 
-function EJ_GetLootInfoByIndex(index)
-    return LootReturn(CurrentLoot()[index])
+function EJ_GetLootInfoByIndex(index, occurrence)
+    local group = CurrentLootGroups()[index]
+    return LootReturn(group and group[tonumber(occurrence) or 1])
+end
+
+function EJ_GetNumEncountersForLootByIndex(index)
+    local group = CurrentLootGroups()[index]
+    return group and #group or 0
 end
 
 local function BuildSearchCatalog()

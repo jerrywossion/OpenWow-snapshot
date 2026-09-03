@@ -2,6 +2,7 @@
 
 #include "openwow/render/resources/fonts/text_layout.h"
 #include "openwow/ui/font_string_layout.h"
+#include "openwow/ui/game/framescript/core/frame_font_runtime.h"
 #include "openwow/ui/game/framescript/core/frame_script_object_runtime.h"
 #include "openwow/ui/game/lua_frame_mutation_policy.h"
 #include "openwow/ui/game/framescript/core/lua_script_object_access.h"
@@ -299,9 +300,6 @@ static LuaRegionKind ReadLuaRegionKind(lua_State *L, const int index,
   lua_pop(L, 1);
   return kind;
 }
-std::optional<openwow::render::text::TextLayout>
-MeasureLuaFontStringMetrics(lua_State *L, int font_string_index);
-
 static constexpr const char kRootFrameName[] = "UIParent";
 
 lua_Number ReadStoredFrameScaleField(lua_State* L, int frame_index) {

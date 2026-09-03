@@ -589,6 +589,10 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
     const bool is_fontstring =
         frame.runtime_kind ==
         openwow::ui::framexml::UiFrame::RuntimeKind::FontString;
+    const bool is_simple_html =
+        frame.runtime_kind ==
+        openwow::ui::framexml::UiFrame::RuntimeKind::SimpleHtml;
+    const bool is_text_widget = is_fontstring || is_simple_html;
     const bool is_quest_poi =
         frame.runtime_kind ==
         openwow::ui::framexml::UiFrame::RuntimeKind::QuestPoiFrame;
@@ -705,7 +709,7 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
       lua_rawgeti(lua_, LUA_REGISTRYINDEX, entry.lua_ref);
       if (lua_istable(lua_, -1)) {
         alpha_byte =
-            is_fontstring
+            is_text_widget
                 ? GetLuaFontStringAlphaByteOrDefault(lua_, -1, alpha_byte)
                 : GetLuaFrameAlphaByteOrDefault(lua_, -1, alpha_byte);
       }
@@ -1483,7 +1487,7 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
       continue;
     }
 
-    if (is_fontstring && text_cache_) {
+    if (is_text_widget && text_cache_) {
 
       openwow::render::BgfxTextKey& text_key = text_key_scratch_;
       std::string& text = text_key.text;

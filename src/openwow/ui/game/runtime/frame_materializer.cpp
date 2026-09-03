@@ -629,7 +629,9 @@ int FrameMaterializer::InstantiateFrameTree(UiFrame root,
       }
     }
     if (plan.frames[i].region_role ==
-        UiFrame::RegionRole::MessageFontDefinition) {
+            UiFrame::RegionRole::MessageFontDefinition ||
+        plan.frames[i].region_role ==
+            UiFrame::RegionRole::SimpleHtmlFontDefinition) {
       const auto parent = plan.parents[i];
       if (parent < refs.size() && refs[parent] != LUA_NOREF) {
         const int top = lua_gettop(lua_);

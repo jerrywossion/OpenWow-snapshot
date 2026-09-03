@@ -8,7 +8,10 @@
 
 OpenWoW_EncounterJournal_Presentation.lua
 OpenWoW_EncounterJournal_Compat.lua
+OpenWoW_Mists_Shared.lua
 OpenWoW_EncounterJournal_Compat.xml
+OpenWoW_Mists_Shared.xml
 HybridScrollFrame.lua
 NavigationBar.xml
+Blizzard_EncounterJournal.lua
 Blizzard_EncounterJournal.xml
