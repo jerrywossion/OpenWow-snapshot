@@ -592,8 +592,10 @@ function EncounterJournal_OnShow(self)
 	--automatically navigate to the current dungeon if you are in one;
 	local instanceID = AdventureGuideUtil.GetCurrentJournalInstance();
 	local _, instanceType, difficultyID = GetInstanceInfo();
+	local navigatedToCurrentInstance = false;
 	if ( instanceID and EncounterJournal_HasChangedContext(instanceID, instanceType, difficultyID) ) then
 		EncounterJournal_ResetDisplay(instanceID, instanceType, difficultyID);
+		navigatedToCurrentInstance = instanceType ~= "none";
 		EncounterJournal.queuedPortraitUpdate = nil;
 	elseif ( self.encounter.overviewFrame:IsShown() and EncounterJournal.overviewDefaultRole and not EncounterJournal.encounter.overviewFrame.linkSection ) then
 		local spec, role;
@@ -626,7 +628,9 @@ function EncounterJournal_OnShow(self)
 	RequestRaidInfo();
 	if not opened then
 		opened = true;
-		EncounterJournal_OpenJournal();
+		if not navigatedToCurrentInstance then
+			EncounterJournal_OpenJournal();
+		end
 	end
 
 	EncounterJournal_SetupExpansionDropdown(self);
