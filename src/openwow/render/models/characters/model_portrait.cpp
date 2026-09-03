@@ -62,9 +62,9 @@ void BuildSimpleModelOrthographicViewProjection(
                             lighting.ambient_rgb[2], 0.0f};
   uniforms.light_count = {1.0f, 0.0f, 0.0f, 0.0f};
   uniforms.light_pos_range[0] = {
-      lighting.normalized_light_direction[0],
-      lighting.normalized_light_direction[1],
-      lighting.normalized_light_direction[2], 0.0f};
+      -lighting.normalized_light_direction[0],
+      -lighting.normalized_light_direction[1],
+      -lighting.normalized_light_direction[2], 0.0f};
   uniforms.light_color[0] = {lighting.projected_diffuse_rgb[0],
                              lighting.projected_diffuse_rgb[1],
                              lighting.projected_diffuse_rgb[2], 0.0f};
