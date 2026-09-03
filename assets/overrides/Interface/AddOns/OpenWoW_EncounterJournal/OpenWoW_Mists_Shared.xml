@@ -92,7 +92,8 @@
                 </Texture>
             </Layer>
             <Layer level="OVERLAY">
-                <FontString parentKey="Text" inherits="GameFontHighlightSmall" justifyH="LEFT">
+                <FontString parentKey="Text" inherits="GameFontHighlightSmall" wordwrap="false" justifyH="RIGHT">
+                    <Size x="0" y="10"/>
                     <Anchors>
                         <Anchor point="TOPLEFT" x="9" y="-7"/>
                         <Anchor point="TOPRIGHT" x="-24" y="-7"/>
