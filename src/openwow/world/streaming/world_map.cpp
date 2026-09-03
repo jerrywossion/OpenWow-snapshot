@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1766,6 +1767,280 @@ AreaEnvironmentContext WorldMap::ResolveAreaEnvironmentContextAtPosition(
     const float x, const float y, const float z) const {
   return ResolveAreaEnvironmentAtPosition(x, y, z,
                                          AreaEnvironmentProbe::kUnitSurface);
+}
+
+WmoMinimapSource WorldMap::BuildWmoMinimapSource(
+    const float x, const float y, const float z,
+    const float visible_radius) const {
+  WmoMinimapSource source;
+  const AreaEnvironmentContext environment =
+      ResolveAreaEnvironmentAtPosition(x, y, z,
+                                       AreaEnvironmentProbe::kUnitSurface);
+  if (!environment.has_wmo_context) {
+    return source;
+  }
+
+  source.status = WmoMinimapSourceStatus::kPending;
+  if (!last_area_environment_resolution_.containing_group.has_value()) {
+    source.detail = "WMO environment has no containing group";
+    return source;
+  }
+
+  const WmoAreaGroupRef active_ref =
+      *last_area_environment_resolution_.containing_group;
+  const auto instance_it = wmo_instances_.find(active_ref.placement);
+  if (instance_it == wmo_instances_.end()) {
+    source.status = WmoMinimapSourceStatus::kFailed;
+    source.detail = "active WMO placement is unavailable";
+    return source;
+  }
+  const WmoInstance& instance = instance_it->second;
+  source.placement_stable_id = instance.placement_stable_id;
+  source.active_group_index = active_ref.group_index;
+  source.model_matrix = instance.model_matrix;
+  source.player_local =
+      TransformPoint(instance.inverse_model_matrix, {x, y, z});
+
+  source.root_path = instance.wmo_path;
+  std::replace(source.root_path.begin(), source.root_path.end(), '/', '\\');
+  const auto starts_with_no_case = [](const std::string_view value,
+                                      const std::string_view prefix) {
+    if (value.size() < prefix.size()) {
+      return false;
+    }
+    for (std::size_t index = 0; index < prefix.size(); ++index) {
+      if (std::tolower(static_cast<unsigned char>(value[index])) !=
+          std::tolower(static_cast<unsigned char>(prefix[index]))) {
+        return false;
+      }
+    }
+    return true;
+  };
+  if (starts_with_no_case(source.root_path, "World\\")) {
+    source.root_path.erase(0u, 6u);
+  }
+  if (source.root_path.size() >= 4u &&
+      starts_with_no_case(
+          std::string_view(source.root_path).substr(source.root_path.size() - 4u),
+          ".wmo")) {
+    source.root_path.resize(source.root_path.size() - 4u);
+  }
+
+  const auto cache_it = wmo_cache_.find(instance.wmo_path);
+  if (cache_it == wmo_cache_.end()) {
+    source.detail = "active WMO root is pending";
+    return source;
+  }
+  const CachedWmo& cached = cache_it->second;
+  const std::size_t active_group = active_ref.group_index;
+  if (active_group >= cached.groups.size() ||
+      active_group >= cached.group_residency.size() ||
+      active_group >= cached.root.groupInfos.size()) {
+    source.status = WmoMinimapSourceStatus::kFailed;
+    source.detail = "active WMO group index is out of range";
+    return source;
+  }
+  if (cached.group_residency[active_group] != WmoGroupResidency::kResident) {
+    source.detail = "active WMO group is pending";
+    return source;
+  }
+  if (visible_radius <= 0.0f || !std::isfinite(visible_radius)) {
+    source.status = WmoMinimapSourceStatus::kFailed;
+    source.detail = "WMO minimap radius is invalid";
+    return source;
+  }
+
+  Bounds query_bounds{
+      std::numeric_limits<float>::infinity(),
+      std::numeric_limits<float>::infinity(),
+      std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+  };
+  for (const float world_x : {x - visible_radius, x + visible_radius}) {
+    for (const float world_y : {y - visible_radius, y + visible_radius}) {
+      for (const float world_z : {z - visible_radius * 0.5f, z}) {
+        const Vec3 local = TransformPoint(instance.inverse_model_matrix,
+                                          {world_x, world_y, world_z});
+        for (std::size_t axis = 0u; axis < 3u; ++axis) {
+          query_bounds[axis] = std::min(query_bounds[axis], local[axis]);
+          query_bounds[axis + 3u] =
+              std::max(query_bounds[axis + 3u], local[axis]);
+        }
+      }
+    }
+  }
+
+  const auto group_bounds = [&cached](const std::size_t group_index) {
+    const auto& header = cached.groups[group_index].header;
+    return Bounds{
+        std::min(header.boundingBox1[0], header.boundingBox2[0]),
+        std::min(header.boundingBox1[1], header.boundingBox2[1]),
+        std::min(header.boundingBox1[2], header.boundingBox2[2]),
+        std::max(header.boundingBox1[0], header.boundingBox2[0]),
+        std::max(header.boundingBox1[1], header.boundingBox2[1]),
+        std::max(header.boundingBox1[2], header.boundingBox2[2]),
+    };
+  };
+  const auto bounds_intersect = [](const Bounds& lhs, const Bounds& rhs) {
+    return lhs[0] <= rhs[3] && lhs[3] >= rhs[0] &&
+           lhs[1] <= rhs[4] && lhs[4] >= rhs[1] &&
+           lhs[2] <= rhs[5] && lhs[5] >= rhs[2];
+  };
+  const auto portal_intersects = [&cached, &query_bounds](
+                                     const data::wmo::WmoPortalRef& ref) {
+    if (ref.portalIndex >= cached.root.portals.size()) {
+      return false;
+    }
+    const auto& portal = cached.root.portals[ref.portalIndex];
+    const std::size_t begin = portal.startVertex;
+    if (portal.nVertices == 0u || begin > cached.root.portalVertices.size() ||
+        portal.nVertices > cached.root.portalVertices.size() - begin) {
+      return false;
+    }
+    std::uint8_t common_outcode = 0x3fu;
+    for (std::size_t index = 0u; index < portal.nVertices; ++index) {
+      const auto& vertex = cached.root.portalVertices[begin + index];
+      std::uint8_t outcode = 0u;
+      outcode |= vertex.x < query_bounds[0] ? 0x01u : 0u;
+      outcode |= vertex.x > query_bounds[3] ? 0x02u : 0u;
+      outcode |= vertex.y < query_bounds[1] ? 0x04u : 0u;
+      outcode |= vertex.y > query_bounds[4] ? 0x08u : 0u;
+      outcode |= vertex.z < query_bounds[2] ? 0x10u : 0u;
+      outcode |= vertex.z > query_bounds[5] ? 0x20u : 0u;
+      common_outcode &= outcode;
+    }
+    return common_outcode == 0u;
+  };
+
+  constexpr float kWmoMinimapUnitsPerPixel = 533.333333f / 256.0f;
+  constexpr float kWmoMinimapEdgePad = kWmoMinimapUnitsPerPixel * 2.0f;
+  constexpr std::size_t kWmoMinimapTileLimit = 256u;
+  const auto next_texture_span = [=](const float extent) {
+    const auto required_pixels = static_cast<std::uint32_t>(
+        std::max(1.0f, std::ceil(extent / kWmoMinimapUnitsPerPixel)));
+    return std::clamp(std::bit_ceil(required_pixels), 32u, 256u);
+  };
+  const auto emit_group = [&](const std::size_t group_index) {
+    const Bounds bounds = group_bounds(group_index);
+    if (!bounds_intersect(bounds, query_bounds)) {
+      return;
+    }
+    const float extent_x = bounds[3] - bounds[0];
+    const float extent_y = bounds[4] - bounds[1];
+    if (extent_x <= 0.0f || extent_y <= 0.0f) {
+      return;
+    }
+    const float span_x = static_cast<float>(next_texture_span(extent_x)) *
+                         kWmoMinimapUnitsPerPixel;
+    const float span_y = static_cast<float>(next_texture_span(extent_y)) *
+                         kWmoMinimapUnitsPerPixel;
+    const std::uint32_t count_x = static_cast<std::uint32_t>(
+        std::max(1.0f, std::ceil(extent_x / span_x)));
+    const std::uint32_t count_y = static_cast<std::uint32_t>(
+        std::max(1.0f, std::ceil(extent_y / span_y)));
+    for (std::uint32_t tile_y = 0u; tile_y < count_y; ++tile_y) {
+      for (std::uint32_t tile_x = 0u; tile_x < count_x; ++tile_x) {
+        if (source.tiles.size() >= kWmoMinimapTileLimit) {
+          return;
+        }
+        Bounds tile_bounds{
+            bounds[0] + static_cast<float>(tile_x) * span_x,
+            bounds[1] + static_cast<float>(tile_y) * span_y,
+            (bounds[2] + bounds[5]) * 0.5f,
+            bounds[0] + static_cast<float>(tile_x + 1u) * span_x,
+            bounds[1] + static_cast<float>(tile_y + 1u) * span_y,
+            (bounds[2] + bounds[5]) * 0.5f,
+        };
+        if (tile_x == 0u) {
+          tile_bounds[0] -= kWmoMinimapEdgePad;
+        }
+        if (tile_y == 0u) {
+          tile_bounds[1] -= kWmoMinimapEdgePad;
+        }
+        if (tile_x + 1u == count_x) {
+          tile_bounds[3] += kWmoMinimapEdgePad;
+        }
+        if (tile_y + 1u == count_y) {
+          tile_bounds[4] += kWmoMinimapEdgePad;
+        }
+        if (bounds_intersect(tile_bounds, query_bounds)) {
+          source.tiles.push_back({
+              .group_index = static_cast<std::uint32_t>(group_index),
+              .tile_x = tile_x,
+              .tile_y = tile_y,
+              .local_bounds = tile_bounds,
+          });
+        }
+      }
+    }
+  };
+
+  const std::uint32_t active_flags = cached.groups[active_group].header.flags;
+  const bool active_exterior =
+      (active_flags & data::wmo::kMogpExterior) != 0u;
+  const std::uint32_t expected_family =
+      active_exterior
+          ? data::wmo::kMogpExterior
+          : (cached.root.groupInfos[active_group].flags &
+             data::wmo::kMogpExteriorLit);
+  std::vector<bool> visited(cached.groups.size(), false);
+  const auto visit_group = [&](const auto& self,
+                               const std::size_t group_index) -> void {
+    if (group_index >= visited.size() || visited[group_index] ||
+        group_index >= cached.group_residency.size() ||
+        cached.group_residency[group_index] != WmoGroupResidency::kResident) {
+      return;
+    }
+    const std::uint32_t flags = cached.groups[group_index].header.flags;
+    const bool accepted = active_exterior
+                              ? (flags & data::wmo::kMogpExterior) != 0u
+                              : (flags & (data::wmo::kMogpExterior |
+                                          data::wmo::kMogpExteriorLit)) ==
+                                    expected_family;
+    if (!accepted || !bounds_intersect(group_bounds(group_index), query_bounds)) {
+      return;
+    }
+
+    visited[group_index] = true;
+    emit_group(group_index);
+    if ((instance.placement_flags & 0x18u) != 0u) {
+      return;
+    }
+    const ResolvedWmoAreaRows rows = ResolveWmoAreaRowsForGroup(
+        WmoAreaGroupRef{active_ref.placement,
+                        static_cast<std::uint32_t>(group_index)});
+    if (rows.group != nullptr &&
+        (rows.group->id == 0x59e7u || rows.group->id == 0x59e8u)) {
+      return;
+    }
+
+    const auto& group = cached.groups[group_index];
+    const std::size_t portal_begin = group.header.portalStart;
+    const std::size_t portal_end = std::min(
+        cached.root.portalRefs.size(),
+        portal_begin + static_cast<std::size_t>(group.header.portalCount));
+    for (std::size_t portal_index = portal_begin; portal_index < portal_end;
+         ++portal_index) {
+      const auto& portal_ref = cached.root.portalRefs[portal_index];
+      if (portal_ref.groupIndex == 0xffffu ||
+          portal_ref.groupIndex == group_index ||
+          !portal_intersects(portal_ref)) {
+        continue;
+      }
+      self(self, portal_ref.groupIndex);
+    }
+  };
+  visit_group(visit_group, active_group);
+
+  if (source.tiles.empty()) {
+    source.status = WmoMinimapSourceStatus::kFailed;
+    source.detail = "active WMO produced no minimap tile records";
+    return source;
+  }
+  source.status = WmoMinimapSourceStatus::kReady;
+  return source;
 }
 
 WorldMap::ResolvedWmoAreaRows WorldMap::ResolveWmoAreaRowsForGroup(

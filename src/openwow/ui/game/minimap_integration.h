@@ -23,6 +23,10 @@ namespace openwow::render {
 class TextureManager;
 }
 
+namespace openwow::world {
+class WorldMap;
+}
+
 namespace openwow::ui {
 class MinimapSystem;
 }
@@ -47,6 +51,9 @@ class MinimapIntegration {
   void SetFileLoader(FileLoader loader);
   void BindWorldSceneState(const openwow::game::WorldSceneState* scene_state) {
     world_scene_state_ = scene_state;
+  }
+  void BindWorldMap(const openwow::world::WorldMap* world_map) {
+    world_map_ = world_map;
   }
 
   void Shutdown();
@@ -97,7 +104,8 @@ class MinimapIntegration {
 
   void LoadTerrainTranslations();
 
-  void UpdateVisibleTerrainTiles(float player_x, float player_y);
+  void UpdateVisibleTerrainTiles(float player_x, float player_y,
+                                 float player_z);
 
   void RebuildMinimapContent(openwow::game::WorldSession& session,
                              const openwow::game::ObjectManager* obj_mgr,
@@ -116,6 +124,7 @@ class MinimapIntegration {
   openwow::game::MinimapSystem& minimap_content_;
   openwow::game::WorldEnvironmentState& world_environment_;
   const openwow::game::WorldSceneState* world_scene_state_{nullptr};
+  const openwow::world::WorldMap* world_map_{nullptr};
   Minimap minimap_;
   bool initialized_{false};
 
@@ -125,6 +134,9 @@ class MinimapIntegration {
   std::array<openwow::game::MinimapChunkWindowSlot, 4> terrain_chunk_window_{};
   std::array<openwow::render::TextureLease, 4> terrain_chunk_leases_{};
   std::array<std::string, 4> terrain_chunk_lease_paths_{};
+  std::unordered_map<std::string, openwow::render::TextureLease>
+      wmo_tile_leases_;
+  std::string last_wmo_diagnostic_;
   bool terrain_translations_loaded_{false};
   FileLoader file_loader_;
   std::vector<openwow::game::ObjectGuid> visible_object_candidates_;

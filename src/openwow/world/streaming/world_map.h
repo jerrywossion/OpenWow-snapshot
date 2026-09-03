@@ -145,6 +145,31 @@ struct AreaEnvironmentContext {
   float depth{0.0f};
 };
 
+enum class WmoMinimapSourceStatus : std::uint8_t {
+  kOutdoor,
+  kPending,
+  kReady,
+  kFailed,
+};
+
+struct WmoMinimapTileRecord {
+  std::uint32_t group_index{0u};
+  std::uint32_t tile_x{0u};
+  std::uint32_t tile_y{0u};
+  Bounds local_bounds{};
+};
+
+struct WmoMinimapSource {
+  WmoMinimapSourceStatus status{WmoMinimapSourceStatus::kOutdoor};
+  std::string root_path;
+  std::uint64_t placement_stable_id{0u};
+  std::uint32_t active_group_index{0u};
+  Matrix4 model_matrix{kIdentityMatrix};
+  Vec3 player_local{};
+  std::vector<WmoMinimapTileRecord> tiles;
+  std::string detail;
+};
+
 struct WmoAreaSoundTerms {
 
   std::uint32_t wmo_area_id{0u};
@@ -386,6 +411,8 @@ public:
   [[nodiscard]] std::uint32_t ResolveTerrainGroundTypeAtPosition(float x, float y) const;
   [[nodiscard]] AreaEnvironmentContext ResolveAreaEnvironmentContextAtPosition(
       float x, float y, float z) const;
+  [[nodiscard]] WmoMinimapSource BuildWmoMinimapSource(
+      float x, float y, float z, float visible_radius) const;
 
   [[nodiscard]] MoverWmoSoundContext ResolveWmoSoundContextAtPosition(
       float x, float y, float z) const;

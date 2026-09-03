@@ -18,11 +18,14 @@
 #include "openwow/ui/game/framescript/widgets/minimap_texture_uv.h"
 #include "openwow/ui/game/minimap_system.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/world/coordinates/world_geometry.h"
+#include "openwow/world/streaming/world_map.h"
 
 #include <algorithm>
 #include <cmath>
 #include <exception>
 #include <optional>
+#include <unordered_set>
 
 namespace openwow::ui::game {
 
@@ -175,6 +178,8 @@ void MinimapIntegration::SetFileLoader(FileLoader loader) {
   minimap_.InvalidateTextureLeases();
   terrain_chunk_leases_.fill({});
   terrain_chunk_lease_paths_.fill({});
+  wmo_tile_leases_.clear();
+  last_wmo_diagnostic_.clear();
   terrain_translations_loaded_ = false;
   LoadTerrainTranslations();
 }
@@ -238,6 +243,8 @@ void MinimapIntegration::Shutdown() {
   terrain_chunk_window_.fill({});
   terrain_chunk_leases_.fill({});
   terrain_chunk_lease_paths_.fill({});
+  wmo_tile_leases_.clear();
+  last_wmo_diagnostic_.clear();
   visible_object_candidates_.clear();
   marker_labels_.clear();
   minimap_state_.ClearMarkerPresentation();
@@ -270,8 +277,13 @@ void MinimapIntegration::Update(float player_x, float player_y,
   minimap_.SetRotating(rotate_minimap);
 
   auto& minimap_state = minimap_state_;
+  const bool has_wmo_minimap_source =
+      world_map_ != nullptr &&
+      world_map_->ResolveAreaEnvironmentContextAtPosition(
+                    player_x, player_y, player_z)
+          .has_wmo_context;
   minimap_state.SetIndoorMinimapActive(
-      world_environment_.IsIndoors());
+      world_environment_.IsIndoors() || has_wmo_minimap_source);
   const float visible_radius = minimap_state.GetVisibleRadius();
   minimap_state.SetPlayerPosition(player_x, player_y, facing);
   minimap_state.SetMode(rotate_minimap ? openwow::ui::MinimapSystem::Mode::Rotate
@@ -306,7 +318,7 @@ void MinimapIntegration::Update(float player_x, float player_y,
                                   visible_radius);
 
   (void)minimap_state.ConsumeExplorationOverlayDirty();
-  UpdateVisibleTerrainTiles(player_x, player_y);
+  UpdateVisibleTerrainTiles(player_x, player_y, player_z);
 
   RebuildMinimapContent(session, obj_mgr, local_guid, player_x, player_y, player_z,
                         facing, visible_radius);
@@ -340,6 +352,8 @@ void MinimapIntegration::OnMapChanged(std::uint32_t map_id,
   terrain_chunk_window_.fill({});
   terrain_chunk_leases_.fill({});
   terrain_chunk_lease_paths_.fill({});
+  wmo_tile_leases_.clear();
+  last_wmo_diagnostic_.clear();
   visible_object_candidates_.clear();
   marker_labels_.clear();
   minimap_state_.ClearMarkerPresentation();
@@ -460,8 +474,9 @@ bool MinimapIntegration::HandleClick(float screen_x, float screen_y,
   return minimap_.HandleClick(screen_x, screen_y, out_world_x, out_world_y);
 }
 
-void MinimapIntegration::UpdateVisibleTerrainTiles(float player_x,
-                                                   float player_y) {
+void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
+                                                   const float player_y,
+                                                   const float player_z) {
   minimap_.ClearBackgroundTiles();
   if (current_map_name_.empty()) {
     return;
@@ -476,6 +491,145 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(float player_x,
       world_scene_state_ != nullptr
           ? world_scene_state_->GetPackedFogColorArgb()
           : 0xFF99B3D9u);
+  if (world_map_ != nullptr) {
+    const openwow::world::WmoMinimapSource wmo_source =
+        world_map_->BuildWmoMinimapSource(
+            player_x, player_y, player_z, minimap_state_.GetVisibleRadius());
+    if (wmo_source.status !=
+        openwow::world::WmoMinimapSourceStatus::kOutdoor) {
+      terrain_chunk_window_map_name_.clear();
+      terrain_chunk_window_.fill({});
+      terrain_chunk_leases_.fill({});
+      terrain_chunk_lease_paths_.fill({});
+
+      const auto report_diagnostic = [this](const std::string& message,
+                                            const bool warning) {
+        if (message == last_wmo_diagnostic_) {
+          return;
+        }
+        last_wmo_diagnostic_ = message;
+        openwow::diagnostics::Log(
+            warning ? openwow::diagnostics::LogLevel::kWarn
+                    : openwow::diagnostics::LogLevel::kInfo,
+            "MinimapIntegration: " + message);
+      };
+      if (wmo_source.status !=
+          openwow::world::WmoMinimapSourceStatus::kReady) {
+        wmo_tile_leases_.clear();
+        report_diagnostic(
+            "WMO minimap unavailable root=" + wmo_source.root_path +
+                " group=" + std::to_string(wmo_source.active_group_index) +
+                " reason=" + wmo_source.detail,
+            wmo_source.status ==
+                openwow::world::WmoMinimapSourceStatus::kFailed);
+        return;
+      }
+
+      std::unordered_set<std::string> visible_paths;
+      std::size_t unresolved_path_count = 0u;
+      std::size_t submitted_tile_count = 0u;
+      for (const auto& record : wmo_source.tiles) {
+        const int tile_key[3] = {
+            static_cast<int>(record.group_index),
+            static_cast<int>(record.tile_x),
+            static_cast<int>(record.tile_y),
+        };
+        char resolved_path[260]{};
+        if (!openwow::game::Minimap_ResolveTerrainTexturePath(
+                tile_key, wmo_source.root_path.c_str(), resolved_path,
+                std::size(resolved_path))) {
+          ++unresolved_path_count;
+          continue;
+        }
+
+        const std::string texture_path = resolved_path;
+        visible_paths.insert(texture_path);
+        auto& texture_lease = wmo_tile_leases_[texture_path];
+        if (!texture_lease.valid()) {
+          texture_lease = texture_manager_.AcquireTextureAsync(
+              texture_path,
+              openwow::render::TextureLoadFailurePolicy::kStrict,
+              openwow::render::TextureLoadPriority::kDemand);
+        }
+        if (!texture_lease.valid()) {
+          continue;
+        }
+        const auto [texture_width, texture_height] =
+            texture_manager_.GetTextureDimensions(texture_path);
+        if (texture_width == 0u || texture_height == 0u) {
+          continue;
+        }
+
+        const float min_x = record.local_bounds[0];
+        const float min_y = record.local_bounds[1];
+        const float z = record.local_bounds[2];
+        const float max_x = record.local_bounds[3];
+        const float max_y = record.local_bounds[4];
+        const std::array<openwow::world::Vec3, 4> local_vertices{{
+            {max_x, max_y, z},
+            {max_x, min_y, z},
+            {min_x, min_y, z},
+            {min_x, max_y, z},
+        }};
+        const std::array<std::array<float, 2>, 4> texture_coords{{
+            {0.0f, 0.0f},
+            {1.0f, 0.0f},
+            {1.0f, 1.0f},
+            {0.0f, 1.0f},
+        }};
+
+        MinimapBackgroundTile tile;
+        tile.texture_path = texture_path;
+        tile.texture_lease = texture_lease;
+        tile.color = terrain_tint;
+        for (std::size_t index = 0u; index < local_vertices.size(); ++index) {
+          const openwow::world::Vec3 world_vertex =
+              openwow::world::TransformPoint(local_vertices[index],
+                                             wmo_source.model_matrix);
+          minimap_.ProjectWorldToScreen(world_vertex[0], world_vertex[1],
+                                        tile.vertices[index].x,
+                                        tile.vertices[index].y);
+          tile.vertices[index].u = ContractNormalizedTextureCoordForHalfTexel(
+              texture_coords[index][0], texture_width);
+          tile.vertices[index].v = ContractNormalizedTextureCoordForHalfTexel(
+              texture_coords[index][1], texture_height);
+        }
+        minimap_.AddBackgroundTile(std::move(tile));
+        ++submitted_tile_count;
+      }
+
+      for (auto lease = wmo_tile_leases_.begin();
+           lease != wmo_tile_leases_.end();) {
+        if (!visible_paths.contains(lease->first)) {
+          lease = wmo_tile_leases_.erase(lease);
+        } else {
+          ++lease;
+        }
+      }
+
+      if (unresolved_path_count != 0u) {
+        report_diagnostic(
+            "WMO minimap texture mapping incomplete root=" +
+                wmo_source.root_path +
+                " group=" + std::to_string(wmo_source.active_group_index) +
+                " unresolved=" + std::to_string(unresolved_path_count) +
+                " records=" + std::to_string(wmo_source.tiles.size()),
+            true);
+      } else if (submitted_tile_count == 0u) {
+        report_diagnostic(
+            "WMO minimap textures pending root=" + wmo_source.root_path +
+                " group=" + std::to_string(wmo_source.active_group_index) +
+                " records=" + std::to_string(wmo_source.tiles.size()),
+            false);
+      } else {
+        last_wmo_diagnostic_.clear();
+      }
+      return;
+    }
+  }
+
+  wmo_tile_leases_.clear();
+  last_wmo_diagnostic_.clear();
   const bool continent_changed =
       terrain_chunk_window_map_name_ != current_map_name_;
   terrain_chunk_window_map_name_ = current_map_name_;

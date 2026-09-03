@@ -1543,6 +1543,7 @@ GameLoop::GameLoop(openwow::ui::display::ProductionDisplaySettingsRuntime *runti
       world_ui_lifecycle_(CreateWorldUiLifecycleOperations(), world_ui_session_commands_,
                           world_ui_entry_settings_) {
   m2_system_.BindTextureManager(&texture_manager_);
+  minimap_.BindWorldMap(&world_scene_.world_map());
   CommentatorState::Get().BindCollision(&world_scene_.collision());
   CurrencySystem::Get().BindItemDefinitions(item_definitions_);
   BattlefieldInfo::Get().BindWorldMapSystem(&game_ui_.world_map());
