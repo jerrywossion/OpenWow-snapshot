@@ -3668,12 +3668,13 @@ void GameLoop::UpdateWorldFrameMouseover(float dt) {
 
   const auto unit_token = game_ui_.input_router().ResolveModifiedMouseoverUnitToken();
   if (!unit_token.has_value()) {
-
+    world_frame.SetExplicitMouseoverGuid({});
     return;
   }
 
   const auto parsed_unit = openwow::game::ParseUnitId(*unit_token);
   if (parsed_unit.kind == openwow::game::UnitIdKind::kUnknown) {
+    world_frame.SetExplicitMouseoverGuid({});
     return;
   }
 
@@ -4350,6 +4351,11 @@ void GameLoop::TickInWorld(float dt) {
           game_object != nullptr) {
         tooltip.SetWorldGameObject(*game_object);
       } else if (tooltip.GetWorldGameObjectGuid().has_value()) {
+        tooltip.Hide();
+      }
+    } else {
+      auto &tooltip = openwow::ui::game::TooltipSystem::Get();
+      if (tooltip.GetWorldGameObjectGuid().has_value()) {
         tooltip.Hide();
       }
     }
