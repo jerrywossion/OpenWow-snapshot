@@ -41,8 +41,11 @@ struct Minimap::RenderState {
   std::uint32_t texture_height{0};
 
   bgfx::ProgramHandle icon_program = BGFX_INVALID_HANDLE;
+  bgfx::ProgramHandle alpha_key_program = BGFX_INVALID_HANDLE;
   bgfx::TextureHandle white_texture = BGFX_INVALID_HANDLE;
   bgfx::UniformHandle s_icon_texture = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle s_alpha_key_mask = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle u_alpha_key_material = BGFX_INVALID_HANDLE;
   bgfx::VertexLayout layout{};
   bgfx::TextureHandle surface_texture = BGFX_INVALID_HANDLE;
   bgfx::FrameBufferHandle surface_framebuffer = BGFX_INVALID_HANDLE;
@@ -166,9 +169,15 @@ bool Minimap::RestoreRendererDeviceResources() {
   {
     render_->icon_program = openwow::render::CreateEmbeddedProgram(
         openwow::render::ShaderProgramId::Ui, type);
+    render_->alpha_key_program = openwow::render::CreateEmbeddedProgram(
+        openwow::render::ShaderProgramId::UiMaterial, type);
   }
   render_->s_icon_texture =
       bgfx::createUniform("s_uiTex", bgfx::UniformType::Sampler);
+  render_->s_alpha_key_mask =
+      bgfx::createUniform("s_uiMask", bgfx::UniformType::Sampler);
+  render_->u_alpha_key_material =
+      bgfx::createUniform("u_uiMaterial", bgfx::UniformType::Vec4);
 
   {
     const std::uint32_t white_pixel = 0xFFFFFFFFu;
@@ -187,8 +196,11 @@ bool Minimap::RestoreRendererDeviceResources() {
   }
 
   if (!bgfx::isValid(render_->icon_program) ||
+      !bgfx::isValid(render_->alpha_key_program) ||
       !bgfx::isValid(render_->white_texture) ||
       !bgfx::isValid(render_->s_icon_texture) ||
+      !bgfx::isValid(render_->s_alpha_key_mask) ||
+      !bgfx::isValid(render_->u_alpha_key_material) ||
       !bgfx::isValid(render_->surface_framebuffer)) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
                        "Minimap: icon shader/texture creation failed");
@@ -238,11 +250,20 @@ void Minimap::ReleaseRendererDeviceResources() {
   if (bgfx::isValid(render_->icon_program)) {
     bgfx::destroy(render_->icon_program);
   }
+  if (bgfx::isValid(render_->alpha_key_program)) {
+    bgfx::destroy(render_->alpha_key_program);
+  }
   if (bgfx::isValid(render_->white_texture)) {
     bgfx::destroy(render_->white_texture);
   }
   if (bgfx::isValid(render_->s_icon_texture)) {
     bgfx::destroy(render_->s_icon_texture);
+  }
+  if (bgfx::isValid(render_->s_alpha_key_mask)) {
+    bgfx::destroy(render_->s_alpha_key_mask);
+  }
+  if (bgfx::isValid(render_->u_alpha_key_material)) {
+    bgfx::destroy(render_->u_alpha_key_material);
   }
 
   render_->texture = BGFX_INVALID_HANDLE;
@@ -250,8 +271,11 @@ void Minimap::ReleaseRendererDeviceResources() {
   render_->texture_width = 0;
   render_->texture_height = 0;
   render_->icon_program = BGFX_INVALID_HANDLE;
+  render_->alpha_key_program = BGFX_INVALID_HANDLE;
   render_->white_texture = BGFX_INVALID_HANDLE;
   render_->s_icon_texture = BGFX_INVALID_HANDLE;
+  render_->s_alpha_key_mask = BGFX_INVALID_HANDLE;
+  render_->u_alpha_key_material = BGFX_INVALID_HANDLE;
   render_->surface_framebuffer = BGFX_INVALID_HANDLE;
   render_->surface_texture = BGFX_INVALID_HANDLE;
 }
@@ -487,9 +511,11 @@ std::array<MinimapBackgroundVertex, 4> Minimap::BuildBackgroundQuad()
 bool Minimap::SubmitQuad(
     std::uint8_t view_id, std::uint16_t texture_index,
     const std::array<MinimapBackgroundVertex, 4>& vertices,
-    std::uint32_t color, std::uint64_t state) const {
+    std::uint32_t color, std::uint64_t state, const bool alpha_key) const {
   const bgfx::TextureHandle texture{texture_index};
-  if (!bgfx::isValid(render_->icon_program) ||
+  const bgfx::ProgramHandle program =
+      alpha_key ? render_->alpha_key_program : render_->icon_program;
+  if (!bgfx::isValid(program) ||
       !bgfx::isValid(render_->s_icon_texture) ||
       !bgfx::isValid(texture)) {
     return false;
@@ -522,7 +548,13 @@ bool Minimap::SubmitQuad(
   bgfx::setIndexBuffer(&tib);
   bgfx::setTexture(0, render_->s_icon_texture, texture,
                    BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
-  bgfx::submit(view_id, render_->icon_program);
+  if (alpha_key) {
+    constexpr float kNativeWmoMinimapAlphaRef = 224.0f / 255.0f;
+    const float material[4] = {kNativeWmoMinimapAlphaRef, 0.0f, 0.0f, 0.0f};
+    bgfx::setUniform(render_->u_alpha_key_material, material);
+    bgfx::setTexture(1, render_->s_alpha_key_mask, render_->white_texture);
+  }
+  bgfx::submit(view_id, program);
   return true;
 }
 
@@ -665,8 +697,11 @@ void Minimap::RenderBackground(std::uint8_t view_id,
       backbuffer_masked
           ? kMaskedTerrainBlendState
           : (BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+  const std::uint64_t wmo_tile_state =
+      backbuffer_masked ? kMaskedTerrainBlendState : BGFX_STATE_WRITE_RGB;
 
-  if (wmo_minimap_active_ && bgfx::isValid(render_->white_texture)) {
+  if (wmo_minimap_active_ && backbuffer_masked &&
+      bgfx::isValid(render_->white_texture)) {
     SubmitQuad(view_id, render_->white_texture.idx,
                BuildScreenQuad(pos_x_ - radius_, pos_y_ - radius_,
                                pos_x_ + radius_, pos_y_ + radius_),
@@ -692,12 +727,13 @@ void Minimap::RenderBackground(std::uint8_t view_id,
       }
 
       if (!SubmitQuad(view_id, tile_texture.idx, tile.vertices, tile.color,
-                      terrain_state)) {
+                      wmo_minimap_active_ ? wmo_tile_state : terrain_state,
+                      wmo_minimap_active_)) {
         break;
       }
       ++last_render_terrain_submission_count_;
     }
-  } else if (bgfx::isValid(render_->texture)) {
+  } else if (!wmo_minimap_active_ && bgfx::isValid(render_->texture)) {
     if (SubmitQuad(view_id, render_->texture.idx, BuildBackgroundQuad(),
                    kWhite, terrain_state)) {
       ++last_render_terrain_submission_count_;
@@ -746,7 +782,9 @@ void Minimap::RenderToTexture(const std::uint8_t view_id) {
   bgfx::setViewFrameBuffer(view_id, render_->surface_framebuffer);
   bgfx::setViewRect(view_id, 0, 0, kRenderTargetExtent,
                     kRenderTargetExtent);
-  bgfx::setViewClear(view_id, BGFX_CLEAR_COLOR, 0x00000000u, 1.0f, 0u);
+  bgfx::setViewClear(view_id, BGFX_CLEAR_COLOR,
+                     wmo_minimap_active_ ? 0x000000FFu : 0x00000000u, 1.0f,
+                     0u);
   bgfx::setViewTransform(view_id, view_mtx, proj_mtx);
   bgfx::setViewMode(view_id, bgfx::ViewMode::Sequential);
   RenderBackground(view_id, false);

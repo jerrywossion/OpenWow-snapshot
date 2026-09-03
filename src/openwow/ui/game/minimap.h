@@ -157,7 +157,8 @@ class Minimap {
   void RenderSubmittedBatches(uint8_t view_id);
   bool SubmitQuad(uint8_t view_id, std::uint16_t texture_index,
                   const std::array<MinimapBackgroundVertex, 4>& vertices,
-                  std::uint32_t color, std::uint64_t state) const;
+                  std::uint32_t color, std::uint64_t state,
+                  bool alpha_key = false) const;
   bool SubmitQuads(
       uint8_t view_id, std::uint16_t texture_index,
       const std::vector<std::array<MinimapBackgroundVertex, 4>>& quads,

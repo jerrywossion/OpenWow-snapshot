@@ -166,7 +166,6 @@ struct WmoMinimapSource {
   std::uint64_t placement_stable_id{0u};
   std::uint32_t active_group_index{0u};
   Matrix4 model_matrix{kIdentityMatrix};
-  Vec3 player_local{};
   std::vector<WmoMinimapTileRecord> tiles;
   std::string detail;
 };

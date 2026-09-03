@@ -102,7 +102,18 @@ class MinimapIntegration {
     bool flight_master{false};
   };
 
+  struct PublishedWmoTile {
+    std::string texture_path;
+    openwow::render::TextureLease texture_lease;
+    std::array<std::array<float, 3>, 4> world_vertices{};
+    std::array<std::array<float, 2>, 4> texture_coords{};
+  };
+
   void LoadTerrainTranslations();
+
+  void PresentPublishedWmoTiles(std::uint64_t placement_stable_id,
+                                std::uint32_t terrain_tint);
+  void ClearPublishedWmoTiles();
 
   void UpdateVisibleTerrainTiles(float player_x, float player_y,
                                  float player_z);
@@ -136,6 +147,9 @@ class MinimapIntegration {
   std::array<std::string, 4> terrain_chunk_lease_paths_{};
   std::unordered_map<std::string, openwow::render::TextureLease>
       wmo_tile_leases_;
+  std::vector<PublishedWmoTile> published_wmo_tiles_;
+  std::uint64_t published_wmo_placement_stable_id_{0u};
+  bool published_wmo_source_valid_{false};
   std::string last_wmo_diagnostic_;
   bool terrain_translations_loaded_{false};
   FileLoader file_loader_;

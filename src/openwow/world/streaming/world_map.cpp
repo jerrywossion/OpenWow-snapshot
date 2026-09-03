@@ -1798,8 +1798,6 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
   source.placement_stable_id = instance.placement_stable_id;
   source.active_group_index = active_ref.group_index;
   source.model_matrix = instance.model_matrix;
-  source.player_local =
-      TransformPoint(instance.inverse_model_matrix, {x, y, z});
 
   source.root_path = instance.wmo_path;
   std::replace(source.root_path.begin(), source.root_path.end(), '/', '\\');
@@ -1850,20 +1848,42 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     return source;
   }
 
-  const float query_min_x =
-      std::floor(source.player_local[0] / visible_radius) * visible_radius;
-  const float query_min_y =
-      std::floor(source.player_local[1] / visible_radius) * visible_radius;
-  const Bounds query_bounds{
-      query_min_x,
-      query_min_y,
-      source.player_local[2] - visible_radius * 0.5f,
-      query_min_x + visible_radius,
-      query_min_y + visible_radius,
-      source.player_local[2],
+  const float query_world_min_x =
+      std::floor(x / visible_radius) * visible_radius;
+  const float query_world_min_y =
+      std::floor(y / visible_radius) * visible_radius;
+  const Bounds world_query_bounds{
+      query_world_min_x,
+      query_world_min_y,
+      z - visible_radius * 0.5f,
+      query_world_min_x + visible_radius,
+      query_world_min_y + visible_radius,
+      z,
   };
+  Bounds query_bounds{
+      std::numeric_limits<float>::infinity(),
+      std::numeric_limits<float>::infinity(),
+      std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+      -std::numeric_limits<float>::infinity(),
+  };
+  for (const float world_x : {world_query_bounds[0], world_query_bounds[3]}) {
+    for (const float world_y : {world_query_bounds[1], world_query_bounds[4]}) {
+      for (const float world_z : {world_query_bounds[2],
+                                  world_query_bounds[5]}) {
+        const Vec3 local = TransformPoint(instance.inverse_model_matrix,
+                                          {world_x, world_y, world_z});
+        for (std::size_t axis = 0u; axis < 3u; ++axis) {
+          query_bounds[axis] = std::min(query_bounds[axis], local[axis]);
+          query_bounds[axis + 3u] =
+              std::max(query_bounds[axis + 3u], local[axis]);
+        }
+      }
+    }
+  }
 
-  const auto group_bounds = [&cached](const std::size_t group_index) {
+  const auto root_group_bounds = [&cached](const std::size_t group_index) {
     const auto& info = cached.root.groupInfos[group_index];
     return Bounds{
         std::min(info.boundingBox1[0], info.boundingBox2[0]),
@@ -1872,6 +1892,17 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
         std::max(info.boundingBox1[0], info.boundingBox2[0]),
         std::max(info.boundingBox1[1], info.boundingBox2[1]),
         std::max(info.boundingBox1[2], info.boundingBox2[2]),
+    };
+  };
+  const auto loaded_group_bounds = [&cached](const std::size_t group_index) {
+    const auto& header = cached.groups[group_index].header;
+    return Bounds{
+        std::min(header.boundingBox1[0], header.boundingBox2[0]),
+        std::min(header.boundingBox1[1], header.boundingBox2[1]),
+        std::min(header.boundingBox1[2], header.boundingBox2[2]),
+        std::max(header.boundingBox1[0], header.boundingBox2[0]),
+        std::max(header.boundingBox1[1], header.boundingBox2[1]),
+        std::max(header.boundingBox1[2], header.boundingBox2[2]),
     };
   };
   const auto horizontal_bounds_intersect = [](const Bounds& lhs,
@@ -1924,7 +1955,8 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
        instance.group_world_bounds.size()});
   for (std::size_t group_index = 0u; group_index < candidate_group_count;
        ++group_index) {
-    if (!horizontal_bounds_intersect(group_bounds(group_index), query_bounds) ||
+    if (!horizontal_bounds_intersect(root_group_bounds(group_index),
+                                     query_bounds) ||
         cached.group_residency[group_index] == WmoGroupResidency::kResident) {
       continue;
     }
@@ -1945,13 +1977,8 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
         std::max(1.0f, std::ceil(extent / kWmoMinimapUnitsPerPixel)));
     return std::clamp(std::bit_ceil(required_pixels), 32u, 256u);
   };
-  const auto emit_group = [&](const std::size_t group_index,
-                              const bool force_active_group) {
-    const Bounds bounds = group_bounds(group_index);
-    if (!force_active_group &&
-        !horizontal_bounds_intersect(bounds, query_bounds)) {
-      return;
-    }
+  const auto emit_group = [&](const std::size_t group_index) {
+    const Bounds bounds = loaded_group_bounds(group_index);
     const float extent_x = bounds[3] - bounds[0];
     const float extent_y = bounds[4] - bounds[1];
     if (extent_x <= 0.0f || extent_y <= 0.0f) {
@@ -2004,7 +2031,8 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
 
   std::vector<bool> visited(cached.groups.size(), false);
   const auto visit_group = [&](const auto& self,
-                               const std::size_t group_index) -> void {
+                               const std::size_t group_index,
+                               const std::size_t previous_group) -> void {
     if (group_index >= visited.size() || visited[group_index] ||
         group_index >= cached.group_residency.size() ||
         cached.group_residency[group_index] != WmoGroupResidency::kResident) {
@@ -2016,19 +2044,16 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
                               : (flags & (data::wmo::kMogpExterior |
                                           data::wmo::kMogpExteriorLit)) ==
                                     expected_family;
-    const bool is_active_group = group_index == active_group;
-    if ((!accepted ||
-         !horizontal_bounds_intersect(group_bounds(group_index),
-                                      query_bounds)) &&
-        !is_active_group) {
+    if (!accepted) {
       return;
     }
 
     visited[group_index] = true;
-    emit_group(group_index, is_active_group);
-    if ((instance.placement_flags & 0x18u) != 0u) {
+    if (!horizontal_bounds_intersect(loaded_group_bounds(group_index),
+                                     query_bounds)) {
       return;
     }
+    emit_group(group_index);
     const ResolvedWmoAreaRows rows = ResolveWmoAreaRowsForGroup(
         WmoAreaGroupRef{active_ref.placement,
                         static_cast<std::uint32_t>(group_index)});
@@ -2046,20 +2071,37 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
          ++portal_index) {
       const auto& portal_ref = cached.root.portalRefs[portal_index];
       if (portal_ref.groupIndex == 0xffffu ||
-          portal_ref.groupIndex == group_index ||
+          portal_ref.groupIndex == previous_group ||
           !portal_intersects(portal_ref)) {
         continue;
       }
-      self(self, portal_ref.groupIndex);
+      const std::size_t candidate_group = portal_ref.groupIndex;
+      if (candidate_group < cached.group_residency.size() &&
+          cached.group_residency[candidate_group] ==
+              WmoGroupResidency::kResident) {
+        const ResolvedWmoAreaRows candidate_rows = ResolveWmoAreaRowsForGroup(
+            WmoAreaGroupRef{active_ref.placement,
+                            static_cast<std::uint32_t>(candidate_group)});
+        if (candidate_rows.group != nullptr &&
+            (candidate_rows.group->id == 0x59e7u ||
+             candidate_rows.group->id == 0x59e8u)) {
+          continue;
+        }
+      }
+      self(self, candidate_group, group_index);
     }
   };
-  visit_group(visit_group, active_group);
 
-  if (source.tiles.empty()) {
-    source.status = WmoMinimapSourceStatus::kFailed;
-    source.detail = "active WMO produced no minimap tile records";
-    return source;
+  const bool active_group_only =
+      (instance.placement_flags & 0x18u) != 0u &&
+      (cached.root.groupInfos[active_group].flags &
+       (data::wmo::kMogpExterior | data::wmo::kMogpExteriorLit)) != 0u;
+  if (active_group_only) {
+    emit_group(active_group);
+  } else {
+    visit_group(visit_group, active_group, active_group);
   }
+
   source.status = WmoMinimapSourceStatus::kReady;
   return source;
 }
