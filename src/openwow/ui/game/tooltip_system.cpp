@@ -12,6 +12,7 @@
 #include "openwow/game/hyperlink.h"
 #include "openwow/game/inventory/player_inventory_replica.h"
 #include "openwow/game/inventory/items/item_definitions.h"
+#include "openwow/game/inventory/items/item_link_parser.h"
 #include "openwow/game/localization.h"
 #include "openwow/game/commerce/merchants/merchant_requirements.h"
 #include "openwow/game/object_manager.h"
@@ -759,10 +760,12 @@ void AppendBuilderLine(openwow::ui::game::TooltipSystem &tooltip,
     const float right_b = ParseColorChannel(line.right_color, 6);
     tooltip.AddDoubleLine(line.text, line.right_text, left_r, left_g, left_b, right_r, right_g,
                           right_b);
-    return;
+  } else {
+    tooltip.AddLine(line.text, left_r, left_g, left_b, line.wrap);
   }
-
-  tooltip.AddLine(line.text, left_r, left_g, left_b, line.wrap);
+  if (!line.texture_path.empty()) {
+    tooltip.AddTexture(line.texture_path, nullptr, 0xFFFFFFFFu);
+  }
 }
 
 const openwow::game::VendorItem *FindVendorItemByItemId(const openwow::game::WorldSession &session,
@@ -1741,25 +1744,20 @@ void TooltipSystem::SetItemById(std::uint32_t itemId) {
 }
 
 void TooltipSystem::SetItemByLink(const std::string &link) {
-  openwow::game::HyperlinkInfo info;
-  if (openwow::game::HyperlinkParser::Parse(link, info) && info.type == "item" && info.id != 0) {
-    std::int32_t random_property_id = 0;
-    std::uint32_t suffix_factor = 0;
-    std::uint32_t player_level = 0;
-    if (info.params.size() >= 7) {
-      random_property_id = std::atoi(info.params[5].c_str());
-      suffix_factor = static_cast<std::uint32_t>(std::strtoul(info.params[6].c_str(), nullptr, 10));
-    }
-    if (info.params.size() >= 8) {
-      player_level = static_cast<std::uint32_t>(
-          std::strtoul(info.params[7].c_str(), nullptr, 10));
-    }
-    SetItemFromLoot(info.id, random_property_id, suffix_factor, player_level);
-    if (!info.display_text.empty()) {
-      item_name_ = info.display_text;
+  if (const auto parsed = openwow::game::ItemLinkParser::Parse(link);
+      parsed.has_value()) {
+    openwow::ui::TooltipItemInstanceData instance_data;
+    instance_data.permanent_enchant_id = parsed->enchantId;
+    instance_data.socket_enchant_ids = parsed->gemIds;
+    (void)SetItemWithInstanceData(
+        parsed->itemId, parsed->randomPropertyId,
+        static_cast<std::uint32_t>(parsed->suffixFactor), instance_data,
+        parsed->linkLevel);
+    if (!parsed->name.empty()) {
+      item_name_ = parsed->name;
       item_link_ = link;
       if (!pending_item_template_refresh_.has_value() && !lines_.empty()) {
-        lines_.front().left_text = info.display_text;
+        lines_.front().left_text = parsed->name;
       }
     }
     return;
@@ -1831,6 +1829,49 @@ bool TooltipSystem::SetItemInternal(std::uint32_t itemId, std::int32_t randomPro
       }
     }
   }
+  std::optional<openwow::game::ItemTemplate> item_snapshot;
+  if (item != nullptr) {
+    item_snapshot = *item;
+    item = &*item_snapshot;
+  }
+
+  openwow::ui::TooltipItemInstanceData effective_instance_data;
+  const openwow::ui::TooltipItemInstanceData* effective_instance = nullptr;
+  if (instance_data != nullptr) {
+    effective_instance_data = *instance_data;
+    effective_instance = &effective_instance_data;
+    for (std::size_t index = 0;
+         index < effective_instance_data.socket_enchant_ids.size(); ++index) {
+      const auto enchantment_id =
+          effective_instance_data.socket_enchant_ids[index];
+      if (enchantment_id != 0u && dbc_ != nullptr) {
+        if (const auto* const enchantment =
+                dbc_->spell_item_enchantment().LookupEntry(enchantment_id);
+            enchantment != nullptr && enchantment->gem_id != 0u) {
+          effective_instance_data.gem_item_ids[index] = enchantment->gem_id;
+        }
+      }
+
+      const auto gem_item_id = effective_instance_data.gem_item_ids[index];
+      if (gem_item_id == 0u) {
+        continue;
+      }
+      bool gem_requested_async = false;
+      const auto* const gem_item = ResolveTooltipItemTemplate(
+          *item_definitions_, gem_item_id, &request_options,
+          &gem_requested_async, world_session_);
+      requested_async = requested_async || gem_requested_async;
+      if (enchantment_id == 0u && gem_item != nullptr && dbc_ != nullptr &&
+          gem_item->gem_properties != 0u) {
+        if (const auto* const properties =
+                dbc_->gem_properties().LookupEntry(gem_item->gem_properties);
+            properties != nullptr) {
+          effective_instance_data.socket_enchant_ids[index] =
+              properties->enchant_id;
+        }
+      }
+    }
+  }
   item_name_ = detail::ResolveLootItemDisplayName(
       dbc_, item_definitions_ != nullptr
                 ? detail::ResolveLootItemBaseName(*item_definitions_, itemId)
@@ -1863,15 +1904,15 @@ bool TooltipSystem::SetItemInternal(std::uint32_t itemId, std::int32_t randomPro
   }
   item_link_ = detail::BuildLootItemLink(itemId, quality, item_name_, randomPropertyId,
                                          suffixFactor, effective_player_level);
-  if (instance_data != nullptr) {
+  if (effective_instance != nullptr) {
     item_link_ = openwow::game::HyperlinkParser::Build(
         "item", itemId, item_name_,
         openwow::game::HyperlinkParser::GetQualityColor(quality),
         {
-            std::to_string(instance_data->permanent_enchant_id),
-            std::to_string(instance_data->gem_item_ids[0]),
-            std::to_string(instance_data->gem_item_ids[1]),
-            std::to_string(instance_data->gem_item_ids[2]),
+            std::to_string(effective_instance->permanent_enchant_id),
+            std::to_string(effective_instance->socket_enchant_ids[0]),
+            std::to_string(effective_instance->socket_enchant_ids[1]),
+            std::to_string(effective_instance->socket_enchant_ids[2]),
             "0",
             std::to_string(randomPropertyId),
             std::to_string(suffixFactor),
@@ -1902,7 +1943,7 @@ bool TooltipSystem::SetItemInternal(std::uint32_t itemId, std::int32_t randomPro
     auto lines = openwow::ui::TooltipBuilder::BuildItemTooltip(
         *item, *item_definitions_, inventory_, effective_player_level,
         player_class_mask, player_race_mask, dbc_, effective_player_level,
-        instance_data, world_session_);
+        randomPropertyId, suffixFactor, effective_instance, world_session_);
     if (!lines.empty()) {
       lines.front().text = item_name_;
     }
@@ -1919,14 +1960,17 @@ bool TooltipSystem::SetItemInternal(std::uint32_t itemId, std::int32_t randomPro
       QueueMoneyScript(item->sell_price);
     }
   } else if (requested_async) {
-    BeginPendingItemTemplateRefresh(itemId, randomPropertyId, suffixFactor, playerLevel, itemGuid,
-                                    instance_data, display_options,
-                                    callback_cookie);
     AddLine(openwow::game::Localization::Get().GetString("RETRIEVING_ITEM_INFO",
                                                          "RETRIEVING_ITEM_INFO"),
             kPendingItemInfoColor, kPendingItemInfoColor, kPendingItemInfoColor);
   } else {
     AddLine(item_name_, 1.0f, 1.0f, 1.0f);
+  }
+
+  if (requested_async) {
+    BeginPendingItemTemplateRefresh(itemId, randomPropertyId, suffixFactor,
+                                    playerLevel, itemGuid, effective_instance,
+                                    display_options, callback_cookie);
   }
 
   if (!display_options.name_only) {
