@@ -399,6 +399,7 @@ void FrameInputRouter::Reset() noexcept {
   lua_ = nullptr;
   focused_frame_.clear();
   mouseover_frame_.clear();
+  keyboard_captures_.clear();
   mouse_button_captures_ = {};
   button_last_click_time_ms_.clear();
   active_move_sizing_ = {};
@@ -1275,6 +1276,9 @@ void FrameInputRouter::PlaceEditBoxCursorFromClick(
 void FrameInputRouter::SetApplicationActive(const bool active) {
   if (application_active_ == active) return;
   application_active_ = active;
+  if (!application_active_) {
+    keyboard_captures_.clear();
+  }
 
   QueueEditBoxCaretRefresh(focused_frame_);
 }
@@ -1385,6 +1389,13 @@ void FrameInputRouter::AfterFrameIdentityRelease(std::string_view frame_name) {
   }
   if (focused_frame_ == frame_name) {
     focused_frame_.clear();
+  }
+  for (auto &[key, capture] : keyboard_captures_) {
+    static_cast<void>(key);
+    if (capture.frame_name == frame_name) {
+      capture.frame_name.clear();
+      capture.dispatch_key_handlers = false;
+    }
   }
   if (active_move_sizing_.frame_name == frame_name) {
     active_move_sizing_ = {};

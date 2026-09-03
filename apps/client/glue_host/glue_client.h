@@ -192,7 +192,7 @@ class GlueClient {
   void HandleMouseUp(const SDL_Event& event);
   void HandleKeyDown(const SDL_Event& event);
   void UpdateInWorldMouseButtonState(std::uint8_t button, bool pressed);
-  void ReleaseInWorldMouseButtons();
+  void ReleaseInWorldInput();
 
   void DispatchRelativeCursorMotionTick();
 

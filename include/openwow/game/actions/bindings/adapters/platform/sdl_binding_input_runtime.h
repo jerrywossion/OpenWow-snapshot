@@ -7,6 +7,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace openwow::game {
 
@@ -38,6 +39,7 @@ class SdlBindingInputRuntime {
   [[nodiscard]] bool MouseWheel(std::int32_t wheel_delta);
   [[nodiscard]] bool JoystickAxisMotion(std::uint32_t axis_index,
                                         std::int32_t raw_value);
+  void ReleaseAll();
   void Reset();
 
  private:
@@ -45,6 +47,7 @@ class SdlBindingInputRuntime {
     BindingCommand command;
     BindingChord matched_chord;
     std::uint16_t modifier_state{0};
+    std::uint32_t mouse_button_flag{0};
   };
 
   [[nodiscard]] bool DispatchJoystickAxis(std::string_view chord,
@@ -60,6 +63,7 @@ class SdlBindingInputRuntime {
   BindingProfiles& profiles_;
   CommandSink command_sink_;
   ModifierStateSink modifier_state_sink_;
+  std::unordered_set<BindingKey> held_modifiers_;
   std::unordered_map<BindingKey, HeldBinding> held_keys_;
   std::unordered_map<BindingKey, HeldBinding> held_mouse_buttons_;
   std::unordered_map<BindingKey, BindingCommand> held_joystick_axes_;

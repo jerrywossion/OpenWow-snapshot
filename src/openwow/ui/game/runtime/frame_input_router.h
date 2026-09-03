@@ -86,6 +86,11 @@ public:
   void AfterFrameIdentityRelease(std::string_view frame_name);
 
 private:
+  struct KeyboardCaptureState {
+    std::string frame_name;
+    bool dispatch_key_handlers{false};
+  };
+
   struct MouseButtonCaptureState {
     std::string frame_name;
     std::uint32_t button_flag{0};
@@ -139,6 +144,7 @@ private:
 
   std::string focused_frame_;
   std::string mouseover_frame_;
+  std::unordered_map<std::uint32_t, KeyboardCaptureState> keyboard_captures_;
   std::array<MouseButtonCaptureState, 31> mouse_button_captures_{};
   std::unordered_map<std::string, std::uint32_t> button_last_click_time_ms_;
   RetainedLayout::MoveSizingSession active_move_sizing_;

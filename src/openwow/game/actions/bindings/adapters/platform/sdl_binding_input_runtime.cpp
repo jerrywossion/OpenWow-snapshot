@@ -104,6 +104,7 @@ bool SdlBindingInputRuntime::DispatchCommand(
 bool SdlBindingInputRuntime::KeyDown(const std::string_view key_name) {
   if (key_name.empty()) return false;
   if (IsModifierKey(key_name)) {
+    held_modifiers_.insert(BindingKey(BaseKey(key_name)));
     if (modifier_state_sink_) {
       modifier_state_sink_(key_name, true);
     }
@@ -115,7 +116,7 @@ bool SdlBindingInputRuntime::KeyDown(const std::string_view key_name) {
   const auto state = static_cast<std::uint16_t>(SDL_GetModState());
   held_keys_.insert_or_assign(
       BindingKey(BaseKey(key_name)),
-      HeldBinding{resolved->command, resolved->matched_chord, state});
+      HeldBinding{resolved->command, resolved->matched_chord, state, 0u});
   return DispatchCommand(
       resolved->command, true, "",
       WithoutMatchedModifiers(state, resolved->matched_chord.value()));
@@ -124,6 +125,7 @@ bool SdlBindingInputRuntime::KeyDown(const std::string_view key_name) {
 bool SdlBindingInputRuntime::KeyUp(const std::string_view key_name) {
   if (key_name.empty()) return false;
   if (IsModifierKey(key_name)) {
+    held_modifiers_.erase(BindingKey(BaseKey(key_name)));
     if (modifier_state_sink_) {
       modifier_state_sink_(key_name, false);
     }
@@ -159,7 +161,8 @@ bool SdlBindingInputRuntime::MouseButtonDown(
   if (!resolved) return false;
   held_mouse_buttons_.insert_or_assign(
       BindingKey(std::to_string(button_flag)),
-      HeldBinding{resolved->command, resolved->matched_chord, modifier_state});
+      HeldBinding{resolved->command, resolved->matched_chord, modifier_state,
+                  button_flag});
   return DispatchCommand(
       resolved->command, true, "",
       WithoutMatchedModifiers(modifier_state, resolved->matched_chord.value()),
@@ -253,9 +256,46 @@ bool SdlBindingInputRuntime::JoystickAxisMotion(
 }
 
 void SdlBindingInputRuntime::Reset() {
+  held_modifiers_.clear();
   held_keys_.clear();
   held_mouse_buttons_.clear();
   held_joystick_axes_.clear();
+}
+
+void SdlBindingInputRuntime::ReleaseAll() {
+  auto held_keys = std::move(held_keys_);
+  auto held_mouse_buttons = std::move(held_mouse_buttons_);
+  auto held_joystick_axes = std::move(held_joystick_axes_);
+  auto held_modifiers = std::move(held_modifiers_);
+  held_keys_.clear();
+  held_mouse_buttons_.clear();
+  held_joystick_axes_.clear();
+  held_modifiers_.clear();
+
+  for (const auto &[key, held] : held_keys) {
+    static_cast<void>(key);
+    (void)DispatchCommand(
+        held.command, false, "",
+        WithoutMatchedModifiers(held.modifier_state,
+                                held.matched_chord.value()));
+  }
+  for (const auto &[key, held] : held_mouse_buttons) {
+    static_cast<void>(key);
+    (void)DispatchCommand(
+        held.command, false, "",
+        WithoutMatchedModifiers(held.modifier_state,
+                                held.matched_chord.value()),
+        held.mouse_button_flag);
+  }
+  for (const auto &[key, command] : held_joystick_axes) {
+    static_cast<void>(key);
+    (void)profiles_.RunNamedBinding(command, false, 0.0f);
+  }
+  if (modifier_state_sink_) {
+    for (const auto &key : held_modifiers) {
+      modifier_state_sink_(key.value(), false);
+    }
+  }
 }
 
 }

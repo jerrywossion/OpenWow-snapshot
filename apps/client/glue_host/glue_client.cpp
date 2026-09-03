@@ -904,7 +904,7 @@ std::string GlueClient::FindPasswordWidget() const {
 void GlueClient::SetMode(UiMode next_mode) {
   const bool mode_changed = mode_ != next_mode;
   if (mode_ == UiMode::kInWorld && next_mode != UiMode::kInWorld) {
-    ReleaseInWorldMouseButtons();
+    ReleaseInWorldInput();
   }
 
   mode_ = next_mode;
@@ -1365,7 +1365,7 @@ bool GlueClient::EnterOfflineScenarioWorld() {
 }
 
 void GlueClient::ReturnFromWorldToGlue(const char *screen_name, bool disconnect_realm_session) {
-  ReleaseInWorldMouseButtons();
+  ReleaseInWorldInput();
 
   if (!scenario_forward_binding_key_.empty()) {
     (void)game_loop_.binding_input().KeyUp(scenario_forward_binding_key_);
@@ -3151,7 +3151,7 @@ void GlueClient::Shutdown() {
     debug_control_endpoint_path_.clear();
   }
   openwow::ui::glue::LatestAgreementsService::Get().AbortAndReset();
-  ReleaseInWorldMouseButtons();
+  ReleaseInWorldInput();
   pending_window_events_.Clear();
   stock_window_event_state_.Reset();
 

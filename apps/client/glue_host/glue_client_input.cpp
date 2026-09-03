@@ -167,7 +167,7 @@ void GlueClient::UpdateInWorldMouseButtonState(std::uint8_t button, bool pressed
   }
 }
 
-void GlueClient::ReleaseInWorldMouseButtons() {
+void GlueClient::ReleaseInWorldInput() {
   if (game_loop_.game_ui().is_initialized()) {
     openwow::ui::game::detail::CancelWorldMouseInput(
         game_loop_.game_ui().lua_state());
@@ -180,6 +180,7 @@ void GlueClient::ReleaseInWorldMouseButtons() {
   RestoreCursorAnchorToWindow(window_);
   openwow::input::OnMouseButtonClear();
   openwow::platform::WindowManager::Get().ClearCursorAnchor();
+  game_loop_.binding_input().ReleaseAll();
 }
 
 void GlueClient::PumpPendingWindowEvents() {
@@ -260,7 +261,7 @@ void GlueClient::ApplyWindowFocusChange(const bool focused) {
     game_loop_.cursor_manager().ReassertPresentation();
   } else {
     if (mode_ == UiMode::kInWorld) {
-      ReleaseInWorldMouseButtons();
+      ReleaseInWorldInput();
     } else {
       openwow::platform::WindowManager::Get().ResetMouseButtonCapture();
     }
