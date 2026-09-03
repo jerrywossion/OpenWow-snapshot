@@ -84,6 +84,9 @@ void ApplyBaseFrameMethods(lua_State *L) {
   }, 0);
   lua_setfield(L, -2, "Hide");
 
+  lua_pushcfunction(L, LuaRegion_SetShown);
+  lua_setfield(L, -2, "SetShown");
+
   lua_pushcclosure(L, [](lua_State *Ls) -> int {
     const int self = ValidateFrameScriptSelf(Ls);
     lua_getfield(Ls, self, "__ow_visible");
