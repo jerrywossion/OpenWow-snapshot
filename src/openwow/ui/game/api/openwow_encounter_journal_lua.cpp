@@ -29,7 +29,7 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 6;
+constexpr std::uint32_t kSchemaVersion = 7;
 constexpr std::uint32_t kRandomDungeonType = 6;
 
 struct JournalSupplementSpell final {
@@ -682,6 +682,47 @@ int LuaGetSourceSummary(lua_State* state) {
   return 3;
 }
 
+int LuaExpandPresentationText(lua_State* state) {
+  std::size_t source_size = 0;
+  const char* source_data = luaL_checklstring(state, 1, &source_size);
+  const std::string source(source_data, source_size);
+  const std::size_t requested_size =
+      std::max<std::size_t>(65536u, source.size() * 8u + 4096u);
+  const std::size_t output_size = std::min<std::size_t>(requested_size, 1024u * 1024u);
+  std::vector<char> output(output_size, '\0');
+  const char* cursor = source.c_str();
+  const bool resolved = openwow::game::SpellTextFormatter::ExpandTextVariables(
+      nullptr, output.data(), static_cast<std::uint32_t>(output.size()),
+      -1, 0, 1, 0, 0, &cursor, true);
+
+  const std::string_view expanded(output.data());
+  PushString(state, expanded.empty() && !source.empty()
+                        ? std::string_view(source)
+                        : expanded);
+  lua_pushboolean(state, resolved ? 1 : 0);
+
+  if (!resolved) {
+    const auto map_id = static_cast<std::uint32_t>(luaL_optinteger(state, 2, 0));
+    const auto encounter_id =
+        static_cast<std::uint32_t>(luaL_optinteger(state, 3, 0));
+    const auto section_id =
+        static_cast<std::uint32_t>(luaL_optinteger(state, 4, 0));
+    static std::unordered_set<std::uint64_t> logged;
+    const auto key = (static_cast<std::uint64_t>(encounter_id) << 32u) |
+                     static_cast<std::uint64_t>(section_id);
+    if (logged.insert(key).second) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "Encounter journal retained unresolved presentation text: map=" +
+              std::to_string(map_id) + " encounter=" +
+              std::to_string(encounter_id) + " section=" +
+              std::to_string(section_id) +
+              " reason=one or more donor spell variables are unavailable in active build 12340");
+    }
+  }
+  return 2;
+}
+
 void SetFunction(lua_State* state,
                  const char* name,
                  const lua_CFunction function) {
@@ -703,6 +744,7 @@ void InstallEncounterJournal(lua_State* state, void*) {
   SetFunction(state, "GetNumLoot", LuaGetNumLoot);
   SetFunction(state, "GetLootByIndex", LuaGetLootByIndex);
   SetFunction(state, "GetSourceSummary", LuaGetSourceSummary);
+  SetFunction(state, "ExpandPresentationText", LuaExpandPresentationText);
   lua_setglobal(state, kApiTableName.data());
 }
 
