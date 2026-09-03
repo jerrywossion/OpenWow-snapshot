@@ -32,6 +32,22 @@ namespace {
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
 constexpr std::uint32_t kSchemaVersion = 8;
 constexpr std::uint32_t kRandomDungeonType = 6;
+constexpr std::uint32_t kPlayableClassMask = 0x5FFu;
+constexpr std::uint32_t kWeaponItemClass = 2u;
+constexpr std::uint32_t kArmorItemClass = 4u;
+
+// Build 12340 proficiency spells and SkillRaceClassInfo define which classes
+// can equip each weapon and armor subclass. Journal class filtering needs this
+// in addition to item_template.AllowableClass, which is commonly unrestricted.
+constexpr std::array<std::uint32_t, 21> kWeaponSubclassClassMasks{{
+    0x06Fu, 0x067u, 0x00Du, 0x00Du, 0x47Bu, 0x463u, 0x427u,
+    0x1AFu, 0x027u, 0x000u, 0x5D5u, 0x000u, 0x000u, 0x44Du,
+    0x5FFu, 0x5DDu, 0x00Du, 0x000u, 0x00Du, 0x190u, 0x5FFu,
+}};
+constexpr std::array<std::uint32_t, 11> kArmorSubclassClassMasks{{
+    0x5FFu, 0x5FFu, 0x46Fu, 0x067u, 0x023u, 0x000u,
+    0x043u, 0x002u, 0x400u, 0x040u, 0x020u,
+}};
 
 struct JournalSupplementSpell final {
   std::uint32_t spell_id{0};
@@ -86,6 +102,26 @@ struct LootRecord final {
   const JournalLootItem* supplement{nullptr};
   const openwow::data::dbc::ItemEntry* item{nullptr};
 };
+
+std::int32_t ResolveLootUsableClassMask(const LootRecord& loot) {
+  std::uint32_t usable = loot.supplement->allowable_class < 0
+                             ? kPlayableClassMask
+                             : static_cast<std::uint32_t>(
+                                   loot.supplement->allowable_class) &
+                                   kPlayableClassMask;
+  const auto item_class = loot.item->class_id;
+  const auto subclass = loot.item->subclass_id;
+  if (item_class == kWeaponItemClass) {
+    usable &= subclass < kWeaponSubclassClassMasks.size()
+                  ? kWeaponSubclassClassMasks[subclass]
+                  : 0u;
+  } else if (item_class == kArmorItemClass) {
+    usable &= subclass < kArmorSubclassClassMasks.size()
+                  ? kArmorSubclassClassMasks[subclass]
+                  : 0u;
+  }
+  return static_cast<std::int32_t>(usable);
+}
 
 const openwow::data::dbc::DbcLoader* GetDbc() {
   const auto* dbc = openwow::data::GetBoundDbcTableRegistryLoader();
@@ -656,7 +692,7 @@ int LuaGetLootByIndex(lua_State* state) {
   lua_pushinteger(state, item.supplement->item_level);
   lua_pushinteger(state, item.supplement->required_level);
   lua_pushinteger(state, item.item->inventory_type);
-  lua_pushinteger(state, item.supplement->allowable_class);
+  lua_pushinteger(state, ResolveLootUsableClassMask(item));
   std::string_view subclass_name;
   if (const auto* const subclass = dbc->item_sub_class().LookupEntry(
           openwow::data::dbc::ItemSubClassEntry::ComposeKey(

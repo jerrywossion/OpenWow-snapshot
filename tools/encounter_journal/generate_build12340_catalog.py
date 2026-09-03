@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--creature-spells", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--creature-template", required=True, type=pathlib.Path)
+    parser.add_argument("--creature-model", type=pathlib.Path)
     parser.add_argument("--creature-loot", required=True, type=pathlib.Path)
     parser.add_argument("--reference-loot", required=True, type=pathlib.Path)
     parser.add_argument("--item-template", required=True, type=pathlib.Path)
@@ -190,16 +191,43 @@ def parse_creature_templates(path: pathlib.Path) -> dict[int, CreatureTemplate]:
         entry = int(fields[0])
         if entry in result:
             raise ValueError(f"{path}:{line_number}: duplicate creature {entry}")
+        try:
+            display_id = next(
+                (int(value) for value in fields[6:10] if int(value) != 0), 0
+            )
+        except ValueError:
+            # Current AzerothCore keeps model rows in creature_template_model;
+            # older exports stored four display IDs in creature_template.
+            display_id = 0
         result[entry] = CreatureTemplate(
             difficulty_entries=(int(fields[1]), int(fields[2]), int(fields[3])),
-            display_id=next(
-                (int(value) for value in fields[6:10] if int(value) != 0), 0
-            ),
+            display_id=display_id,
             loot_id=int(fields[34]),
         )
     if not result:
         raise ValueError(f"{path}: no creature template rows found")
     return result
+
+
+def apply_creature_models(
+    path: pathlib.Path, creatures: dict[int, CreatureTemplate]
+) -> None:
+    for _, fields in iter_sql_rows(path, 6):
+        creature_id = int(fields[0])
+        model_index = int(fields[1])
+        display_id = int(fields[2])
+        creature = creatures.get(creature_id)
+        if (
+            creature is None
+            or display_id == 0
+            or (creature.display_id != 0 and model_index != 0)
+        ):
+            continue
+        creatures[creature_id] = CreatureTemplate(
+            difficulty_entries=creature.difficulty_entries,
+            display_id=display_id,
+            loot_id=creature.loot_id,
+        )
 
 
 def parse_loot_table(path: pathlib.Path) -> dict[int, list[LootRow]]:
@@ -269,7 +297,7 @@ def expand_reference_items(
     for row in reference_loot.get(reference_id, []):
         if row.quest_required:
             continue
-        if row.item_id:
+        if row.item_id and not row.reference_id:
             result.add(row.item_id)
         if row.reference_id:
             result.update(
@@ -309,7 +337,7 @@ def build_encounter_loot(
             for row in creature_loot.get(creature.loot_id, []):
                 if row.quest_required:
                     continue
-                if row.item_id:
+                if row.item_id and not row.reference_id:
                     item_ids.add(row.item_id)
                 if (
                     row.reference_id
@@ -392,6 +420,8 @@ def main() -> int:
             args.creature_spells, set(encounter_creatures.values())
         )
         creature_templates = parse_creature_templates(args.creature_template)
+        if args.creature_model is not None:
+            apply_creature_models(args.creature_model, creature_templates)
         output = render(encounter_creatures, creature_spells, creature_templates)
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(output, encoding="utf-8")
