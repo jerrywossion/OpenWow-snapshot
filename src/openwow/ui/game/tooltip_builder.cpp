@@ -403,49 +403,24 @@ std::string StatFallbackName(const std::uint32_t stat_type) {
   }
 }
 
-struct FormattedStat {
-  std::string text;
-  bool equip_effect = false;
-};
-
-std::optional<FormattedStat> FormatStat(const std::uint32_t stat_type,
-                                        const std::int32_t value) {
+std::string FormatStat(const std::uint32_t stat_type, const std::int32_t value) {
   std::array<char, 128> key{};
   const char* const resolved_key = openwow::ui::game::GetStatModifierGlobalStringName(
       stat_type + 11u, key.data(), key.size());
   if (resolved_key != nullptr && resolved_key[0] != '\0') {
-    std::string full_key(resolved_key);
-    constexpr std::string_view kShortSuffix = "_SHORT";
-    if (full_key.ends_with(kShortSuffix)) {
-      full_key.resize(full_key.size() - kShortSuffix.size());
-    }
-    auto& localization = openwow::game::Localization::Get();
-    const auto format = localization.GetString(full_key, "");
+    const auto format = openwow::game::Localization::Get().GetString(
+        resolved_key, "");
     if (!format.empty()) {
-      const bool has_sign_placeholder = format.find("%c") != std::string::npos;
-      std::vector<std::string> arguments;
-      if (has_sign_placeholder) {
-        const auto magnitude = value < 0 ? -static_cast<std::int64_t>(value)
-                                         : static_cast<std::int64_t>(value);
-        arguments = {value < 0 ? "-" : "+", std::to_string(magnitude)};
-      } else {
-        arguments = {std::to_string(value)};
-      }
-      return FormattedStat{
-          .text = localization.FormatString(format, arguments),
-          .equip_effect = !has_sign_placeholder,
-      };
+      return openwow::game::Localization::Get().FormatString(
+          format, {std::to_string(value)});
     }
   }
 
   const auto name = StatFallbackName(stat_type);
   if (name.empty()) {
-    return std::nullopt;
+    return {};
   }
-  return FormattedStat{
-      .text = (value >= 0 ? "+" : "") + std::to_string(value) + " " + name,
-      .equip_effect = stat_type > 7u,
-  };
+  return (value >= 0 ? "+" : "") + std::to_string(value) + " " + name;
 }
 
 struct ScaledTooltipStatLine {
@@ -602,18 +577,12 @@ void AddArmorAndBlock(std::vector<TooltipLine>& lines,
 
 void AddBaseStats(std::vector<TooltipLine>& lines,
                   const openwow::game::ItemTemplate& item) {
-  const auto equip_prefix =
-      Localized("ITEM_SPELL_TRIGGER_ONEQUIP", "Equip: ");
   for (const auto& stat : item.stats) {
     if (stat.value == 0) {
       continue;
     }
-    if (auto formatted = FormatStat(stat.type, stat.value); formatted.has_value()) {
-      if (formatted->equip_effect) {
-        formatted->text.insert(0, equip_prefix);
-      }
-      lines.push_back(MakeLine(std::move(formatted->text),
-                               formatted->equip_effect ? kGreen : kWhite));
+    if (auto text = FormatStat(stat.type, stat.value); !text.empty()) {
+      lines.push_back(MakeLine(std::move(text)));
     }
   }
 
@@ -641,20 +610,13 @@ void AddScaledStats(std::vector<TooltipLine>& lines,
   const auto equip_prefix =
       Localized("ITEM_SPELL_TRIGGER_ONEQUIP", "Equip: ");
   for (const auto& stat : data.stats) {
-    if (auto formatted = FormatStat(stat.stat_type, stat.value);
-        formatted.has_value()) {
-      if (formatted->equip_effect) {
-        formatted->text.insert(0, equip_prefix);
-      }
-      lines.push_back(MakeLine(std::move(formatted->text),
-                               formatted->equip_effect ? kGreen : kWhite));
+    if (auto text = FormatStat(stat.stat_type, stat.value); !text.empty()) {
+      lines.push_back(MakeLine(equip_prefix + text, kGreen));
     }
   }
   if (data.spell_power != 0) {
-    if (auto formatted = FormatStat(45u, data.spell_power);
-        formatted.has_value()) {
-      formatted->text.insert(0, equip_prefix);
-      lines.push_back(MakeLine(std::move(formatted->text), kGreen));
+    if (auto text = FormatStat(45u, data.spell_power); !text.empty()) {
+      lines.push_back(MakeLine(equip_prefix + text, kGreen));
     }
   }
 }
