@@ -760,12 +760,13 @@ end
 
 C_EncounterJournal = C_EncounterJournal or {}
 function C_EncounterJournal.GetLootInfoByIndex(index, occurrence)
-    local name, icon, slot, armorType, itemID, link, encounterID, filterType =
+    local name, icon, slot, armorType, itemID, link, encounterID, filterType,
+        journalQuality =
         EJ_GetLootInfoByIndex(index, occurrence)
     if not itemID then
         return nil
     end
-    local quality = select(3, GetItemInfo(itemID)) or 1
+    local quality = tonumber(journalQuality) or select(3, GetItemInfo(itemID)) or 1
     return {
         name = name, icon = icon, slot = slot, armorType = armorType,
         itemID = itemID, link = link, encounterID = encounterID,
@@ -774,12 +775,14 @@ function C_EncounterJournal.GetLootInfoByIndex(index, occurrence)
     }
 end
 function C_EncounterJournal.GetLootInfo(itemID)
-    local name, icon, slot, armorType, resolvedID, link, encounterID, filterType =
+    local name, icon, slot, armorType, resolvedID, link, encounterID, filterType,
+        journalQuality =
         EJ_GetLootInfo(itemID)
     if not resolvedID then
         return nil
     end
-    local quality = select(3, GetItemInfo(resolvedID)) or 1
+    local quality = tonumber(journalQuality) or
+        select(3, GetItemInfo(resolvedID)) or 1
     return {
         name = name, icon = icon, slot = slot, armorType = armorType,
         itemID = resolvedID, link = link, encounterID = encounterID,

@@ -737,7 +737,7 @@ local function LootReturn(item)
         return nil
     end
     return item.name, item.icon, item.slot, item.armorType, item.id,
-        item.link, item.encounterID, item.filterType
+        item.link, item.encounterID, item.filterType, item.quality
 end
 
 function EJ_GetLootInfoByIndex(index, occurrence)

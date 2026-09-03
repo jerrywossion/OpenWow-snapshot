@@ -1603,6 +1603,7 @@
 								</Anchors>
 							</Slider>
 							<Frame name="$parentDifficulty" parentKey="difficulty" inherits="WowStyle1DropdownTemplate" frameLevel="10">
+								<Size x="90" y="24"/>
 								<Anchors>
 									<Anchor point="TOPRIGHT" x="-19" y="-13"/>
 								</Anchors>
