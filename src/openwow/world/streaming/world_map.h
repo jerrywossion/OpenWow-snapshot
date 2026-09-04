@@ -544,6 +544,10 @@ private:
                              const WmoInstance& instance,
                              const world::Frustum& frustum, float camera_x,
                              float camera_y, float camera_z);
+  void QueueLowDetailWmoGroups(const std::string& wmo_path,
+                               const WmoInstance& instance,
+                               const world::Frustum& frustum, float camera_x,
+                               float camera_y, float camera_z);
 
   void PumpWorldStaging(std::size_t tile_budget, std::size_t wmo_budget);
   void DrainWorldStagingMailbox();

@@ -40,6 +40,7 @@ constexpr float kMinutesPerDay = 1440.0f;
 constexpr float kSecondsToMilliseconds = 1000.0f;
 constexpr float kCriticalSpawnSurfaceRadius = 96.0f;
 constexpr float kWmoHighPriorityRadius = 384.0f;
+constexpr float kRetailLowDetailNearOverlap = 50.0f;
 
 constexpr float kWmoRoomQueryDepth = 1000.0f;
 constexpr float kWmoRoomQueryStartLift = 0.1f;
@@ -3157,6 +3158,22 @@ WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
   std::optional<ZoneSkyboxEntry> camera_wmo_skybox;
   const auto view_projection = Multiply(camera.view, camera.projection);
   frustum_.ExtractFromViewProj(std::span<const float, 16>{view_projection});
+  const float low_detail_near_clip =
+      camera.far_clip - kRetailLowDetailNearOverlap;
+  Matrix4 low_detail_projection = camera.projection;
+  const float low_detail_depth_range =
+      camera.low_detail_far_clip - low_detail_near_clip;
+  low_detail_projection[10] =
+      (low_detail_near_clip + camera.low_detail_far_clip) /
+      low_detail_depth_range;
+  low_detail_projection[14] =
+      (-2.0f * low_detail_near_clip * camera.low_detail_far_clip) /
+      low_detail_depth_range;
+  const Matrix4 low_detail_view_projection =
+      Multiply(camera.view, low_detail_projection);
+  world::Frustum low_detail_frustum{};
+  low_detail_frustum.ExtractFromViewProj(
+      std::span<const float, 16>{low_detail_view_projection});
   camera.map_generation = world_staging_generation_;
   for (std::size_t plane = 0; plane < frustum_.planes.size(); ++plane) {
     std::copy_n(frustum_.planes[plane].begin(), 4u,
@@ -3343,6 +3360,8 @@ WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
     (void)placement;
     QueueVisibleWmoGroups(instance.wmo_path, instance, frustum_, camera_x,
                           camera_y, camera_z);
+    QueueLowDetailWmoGroups(instance.wmo_path, instance,
+                            low_detail_frustum, camera_x, camera_y, camera_z);
   }
   return snapshot;
 }
@@ -4094,6 +4113,43 @@ void WorldMap::QueueVisibleWmoGroups(
     }
     candidates.emplace_back(distance,
                             static_cast<std::uint32_t>(group_index));
+  }
+  std::stable_sort(candidates.begin(), candidates.end());
+  for (const auto& [distance_squared, group_index] : candidates) {
+    QueueWmoGroupLoad(wmo_path, group_index, distance_squared);
+  }
+}
+
+void WorldMap::QueueLowDetailWmoGroups(
+    const std::string& wmo_path, const WmoInstance& instance,
+    const world::Frustum& frustum, const float camera_x,
+    const float camera_y, const float camera_z) {
+  auto cached = wmo_cache_.find(wmo_path);
+  if (cached == wmo_cache_.end()) {
+    return;
+  }
+  auto& candidates = wmo_group_priority_scratch_;
+  candidates.clear();
+  const std::size_t group_count =
+      std::min({cached->second.group_residency.size(),
+                cached->second.root.groupInfos.size(),
+                instance.group_world_bounds.size()});
+  candidates.reserve(group_count);
+  for (std::size_t group_index = 0; group_index < group_count; ++group_index) {
+    if (cached->second.group_residency[group_index] !=
+            WmoGroupResidency::kUnrequested ||
+        (cached->second.root.groupInfos[group_index].flags &
+         data::wmo::kMogpExterior) == 0u) {
+      continue;
+    }
+    const auto& bounds = instance.group_world_bounds[group_index];
+    if (!frustum.TestAABB(bounds[0], bounds[1], bounds[2], bounds[3],
+                          bounds[4], bounds[5])) {
+      continue;
+    }
+    candidates.emplace_back(
+        BoundsDistanceSquared3D(bounds, camera_x, camera_y, camera_z),
+        static_cast<std::uint32_t>(group_index));
   }
   std::stable_sort(candidates.begin(), candidates.end());
   for (const auto& [distance_squared, group_index] : candidates) {
