@@ -6,6 +6,7 @@
 ## LoadOnDemand: 1
 ## X-OpenWoW-Source-Baseline: Blizzard_EncounterJournal MoP Classic 5.5.4.68159
 
+OpenWoW_EncounterJournal_Maps.lua
 OpenWoW_EncounterJournal_Presentation.lua
 OpenWoW_EncounterJournal_Compat.lua
 OpenWoW_Mists_Shared.lua

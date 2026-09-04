@@ -923,7 +923,7 @@ function EncounterJournal_DisplayInstance(instanceID, noButton)
 	end
 
 	self.info.instanceTitle:SetText(instanceName);
-	self.instance.mapButton:SetShown(dungeonAreaMapID and dungeonAreaMapID > 0);
+	self.instance.mapButton:SetShown(OpenWoW_EncounterJournal_CanOpenMap(dungeonAreaMapID));
 
 	local loreScrollingFont = self.instance.LoreScrollingFont;
 	loreScrollingFont:SetText(description);

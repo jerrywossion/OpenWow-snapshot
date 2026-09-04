@@ -1371,9 +1371,7 @@
 								<Scripts>
 									<OnClick>
 										local _, _, _, _, _, _, mapID = EJ_GetInstanceInfo();
-										if mapID and mapID > 0 then
-											OpenWorldMap(mapID);
-										end
+										OpenWoW_EncounterJournal_OpenMap(mapID);
 									</OnClick>
 									<OnMouseDown>
 										self.texture:SetTexCoord(0.125, 0.875, 0.5, 1.0);

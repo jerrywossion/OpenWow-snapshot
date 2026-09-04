@@ -5,6 +5,7 @@
 
 local API = C_OpenWoWJournal
 local REQUIRED_SCHEMA = 9
+local MAPS = OpenWoW_EncounterJournal_Maps
 local PRESENTATION = OpenWoW_EncounterJournal_Presentation
 
 if type(API) ~= "table" or type(API.GetSchemaVersion) ~= "function" then
@@ -16,6 +17,10 @@ end
 if type(PRESENTATION) ~= "table" or PRESENTATION.schema ~= 1 or
     PRESENTATION.targetBuild ~= 12340 or PRESENTATION.locale ~= "zhCN" then
     error("OpenWoW Encounter Journal: presentation supplement is unavailable or incompatible")
+end
+if type(MAPS) ~= "table" or MAPS.schema ~= 1 or
+    MAPS.targetBuild ~= 12340 or MAPS.locale ~= "zhCN" or type(MAPS.maps) ~= "table" then
+    error("OpenWoW Encounter Journal: map supplement is unavailable or incompatible")
 end
 
 local DEFAULT_BACKGROUND = "Interface\\EncounterJournal\\UI-EJ-BACKGROUND-Default"
@@ -254,6 +259,223 @@ end
 local function GetInstance(instanceID)
     BuildInstances()
     return state.instancesByID[instanceID or (state.selectedInstance and state.selectedInstance.id)]
+end
+
+local mapFrame
+
+local function ReportJournalMapFailure(mapID, reason)
+    local message = "|cffff5050地下城手册地图打开失败|r：MapID=" ..
+        tostring(mapID) .. "，" .. tostring(reason)
+    if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
+        DEFAULT_CHAT_FRAME:AddMessage(message)
+    end
+    if UIErrorsFrame and UIErrorsFrame.AddMessage then
+        UIErrorsFrame:AddMessage("地下城手册地图打开失败", 1.0, 0.2, 0.2, 1.0)
+    end
+end
+
+local function SetJournalMapFloor(frame, floorIndex)
+    local entry = frame.mapEntry
+    local floors = entry and entry.floors
+    if type(floors) ~= "table" or #floors == 0 then
+        ReportJournalMapFailure(frame.mapID, "地图楼层元数据为空")
+        return false
+    end
+
+    floorIndex = math.max(1, math.min(#floors, tonumber(floorIndex) or 1))
+    local floor = floors[floorIndex]
+    frame.floorIndex = floorIndex
+
+    frame.singleTexture:Hide()
+    for _, texture in ipairs(frame.tiles) do
+        texture:Hide()
+    end
+
+    if type(floor.tiles) == "table" and #floor.tiles == 12 then
+        for index, texturePath in ipairs(floor.tiles) do
+            if type(texturePath) ~= "string" or texturePath == "" then
+                ReportJournalMapFailure(frame.mapID,
+                    "地图切片路径无效：楼层=" .. floorIndex .. "，切片=" .. index)
+                return false
+            end
+            local texture = frame.tiles[index]
+            if not texture:SetTexture(texturePath) then
+                ReportJournalMapFailure(frame.mapID,
+                    "地图切片不可用：楼层=" .. floorIndex .. "，切片=" .. index ..
+                    "，路径=" .. texturePath)
+                return false
+            end
+        end
+        for _, texture in ipairs(frame.tiles) do
+            texture:Show()
+        end
+    elseif type(floor.texture) == "string" and floor.texture ~= "" then
+        if not frame.singleTexture:SetTexture(floor.texture) then
+            ReportJournalMapFailure(frame.mapID,
+                "地图贴图不可用：楼层=" .. floorIndex .. "，路径=" .. floor.texture)
+            return false
+        end
+        frame.singleTexture:Show()
+    else
+        ReportJournalMapFailure(frame.mapID, "地图楼层贴图元数据无效")
+        return false
+    end
+
+    if #floors > 1 then
+        frame.floorText:SetText((floor.name or "地图") .. "  " .. floorIndex .. "/" .. #floors)
+        frame.previousButton:Show()
+        frame.nextButton:Show()
+        if floorIndex > 1 then frame.previousButton:Enable() else frame.previousButton:Disable() end
+        if floorIndex < #floors then frame.nextButton:Enable() else frame.nextButton:Disable() end
+    else
+        frame.floorText:SetText(floor.name or "地图")
+        frame.previousButton:Hide()
+        frame.nextButton:Hide()
+    end
+    return true
+end
+
+local function ChangeJournalMapFloor(frame, floorIndex)
+    if SetJournalMapFloor(frame, floorIndex) then
+        return true
+    end
+    frame:Hide()
+    return false
+end
+
+local function CreateJournalMapFrame()
+    if mapFrame then
+        return mapFrame
+    end
+
+    local frame = CreateFrame("Frame", "OpenWoWEncounterJournalMapFrame", UIParent)
+    frame:SetFrameStrata("DIALOG")
+    frame:SetSize(760, 620)
+    frame:SetPoint("CENTER")
+    frame:EnableMouse(true)
+    frame:EnableMouseWheel(true)
+    frame:Hide()
+
+    local background = frame:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints(frame)
+    background:SetTexture(0.025, 0.025, 0.025, 0.98)
+
+    local mapBackground = frame:CreateTexture(nil, "BACKGROUND")
+    mapBackground:SetSize(708, 532)
+    mapBackground:SetPoint("TOP", frame, "TOP", 0, -48)
+    mapBackground:SetTexture(0, 0, 0, 1)
+
+    local function AddBorder(width, height, point, relativePoint, x, y)
+        local texture = frame:CreateTexture(nil, "BORDER")
+        texture:SetSize(width, height)
+        texture:SetPoint(point, frame, relativePoint, x, y)
+        texture:SetTexture(0.75, 0.55, 0.18, 1)
+    end
+    AddBorder(760, 2, "TOP", "TOP", 0, 0)
+    AddBorder(760, 2, "BOTTOM", "BOTTOM", 0, 0)
+    AddBorder(2, 620, "LEFT", "LEFT", 0, 0)
+    AddBorder(2, 620, "RIGHT", "RIGHT", 0, 0)
+
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    frame.title:SetPoint("TOP", frame, "TOP", 0, -17)
+    frame.title:SetText("")
+
+    frame.sourceText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.sourceText:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 22, 15)
+    frame.sourceText:SetText("")
+
+    frame.floorText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    frame.floorText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 15)
+    frame.floorText:SetText("")
+
+    frame.closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+    frame.closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
+    frame.closeButton:SetScript("OnClick", function() frame:Hide() end)
+
+    frame.previousButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.previousButton:SetSize(72, 22)
+    frame.previousButton:SetPoint("BOTTOM", frame, "BOTTOM", -112, 9)
+    frame.previousButton:SetText("上一层")
+    frame.previousButton:SetScript("OnClick", function(self)
+        local parent = self:GetParent()
+        ChangeJournalMapFloor(parent, parent.floorIndex - 1)
+    end)
+
+    frame.nextButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.nextButton:SetSize(72, 22)
+    frame.nextButton:SetPoint("BOTTOM", frame, "BOTTOM", 112, 9)
+    frame.nextButton:SetText("下一层")
+    frame.nextButton:SetScript("OnClick", function(self)
+        local parent = self:GetParent()
+        ChangeJournalMapFloor(parent, parent.floorIndex + 1)
+    end)
+
+    frame.tiles = {}
+    for index = 1, 12 do
+        local row = math.floor((index - 1) / 4)
+        local column = (index - 1) % 4
+        local texture = frame:CreateTexture(nil, "ARTWORK")
+        texture:SetSize(176, 176)
+        texture:SetPoint("TOPLEFT", frame, "TOPLEFT", 28 + column * 176, -50 - row * 176)
+        texture:SetTexCoord(0, 1, 0, 1)
+        texture:Hide()
+        frame.tiles[index] = texture
+    end
+
+    frame.singleTexture = frame:CreateTexture(nil, "ARTWORK")
+    frame.singleTexture:SetSize(528, 528)
+    frame.singleTexture:SetPoint("TOP", frame, "TOP", 0, -50)
+    frame.singleTexture:SetTexCoord(0, 1, 0, 1)
+    frame.singleTexture:Hide()
+
+    frame:SetScript("OnMouseWheel", function(self, delta)
+        if not self.mapEntry or #self.mapEntry.floors <= 1 then
+            return
+        end
+        ChangeJournalMapFloor(self, self.floorIndex + (delta > 0 and -1 or 1))
+    end)
+
+    -- Keep the journal's current instance selection alive behind the overlay.
+    -- Closing the journal itself must also dismiss the overlay so it cannot
+    -- unexpectedly reappear with the next journal open.
+    if EncounterJournal and EncounterJournal.HookScript then
+        EncounterJournal:HookScript("OnHide", function() frame:Hide() end)
+    end
+
+    if type(UISpecialFrames) == "table" then
+        table.insert(UISpecialFrames, frame:GetName())
+    end
+    mapFrame = frame
+    return frame
+end
+
+function OpenWoW_EncounterJournal_CanOpenMap(worldMapAreaID)
+    local instance = GetInstance()
+    if instance and MAPS.maps[instance.id] then
+        return true
+    end
+    local id = tonumber(worldMapAreaID)
+    return id ~= nil and id > 0
+end
+
+function OpenWoW_EncounterJournal_OpenMap(worldMapAreaID)
+    local instance = GetInstance()
+    local entry = instance and MAPS.maps[instance.id]
+    if not entry then
+        return OpenWorldMap(worldMapAreaID)
+    end
+
+    local frame = CreateJournalMapFrame()
+    frame.mapID = instance.id
+    frame.mapEntry = entry
+    frame.title:SetText(entry.name or instance.name or "地下城地图")
+    frame.sourceText:SetText("地图素材：" .. (entry.sourceLabel or "未知来源"))
+    if not ChangeJournalMapFloor(frame, 1) then
+        return false
+    end
+
+    frame:Show()
+    return true
 end
 
 local dungeonDifficultyToRaw = { [1] = 0, [2] = 1 }
