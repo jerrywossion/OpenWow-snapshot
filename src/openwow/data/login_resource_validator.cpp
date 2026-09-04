@@ -28,6 +28,10 @@ constexpr const char* kDefaultStartupLocale = "enUS";
 
 constexpr const char* kSplitLayoutLocaleToken = "----";
 
+#if defined(OPENWOW_PLATFORM_IOS)
+constexpr char kLowerHexDigits[] = "0123456789abcdef";
+#endif
+
 std::optional<std::filesystem::path> ResolveExistingRelativePathCaseInsensitive(
     const std::filesystem::path& root,
     const std::string_view relative_path) {
@@ -178,6 +182,10 @@ openwow::vfs::VirtualFileSystem BuildLoginVfs(const std::string& game_data_root,
             .id = "ios-derived-textures-" + std::to_string(shard),
             .kind = openwow::vfs::MountKind::kMpqArchive,
             .source_root = archive,
+            .lookup_path_prefix =
+                std::string("/OpenWoWDerived/iOS/Textures/") +
+                kLowerHexDigits[shard],
+            .prewarm = false,
             .priority = kLooseDataDirectoryPriority + 5,
             .enabled = true,
         });

@@ -7,7 +7,6 @@ local state = {
     logicalHeight = 390,
     actionButtons = {},
     hiddenButtons = {},
-    refreshElapsed = 0,
 }
 
 local locale = GetLocale and GetLocale() or "enUS"
@@ -232,45 +231,81 @@ joystickKnobTexture:SetVertexColor(0.92, 0.76, 0.34, 0.92)
 
 local function UpdateActionVisual(button, actionIndex)
     button.actionIndex = actionIndex
-    if button.slotLabel then
+    if button.slotLabel and button.visualActionIndex ~= actionIndex then
         button.slotLabel:SetText(actionIndex)
     end
+    button.visualActionIndex = actionIndex
+
     local page = GetActionBarPage() or 1
     local slot = (page - 1) * 12 + actionIndex
     local texture = GetActionTexture(slot)
-    if texture then
-        button.icon:SetTexture(texture)
-        button.icon:SetVertexColor(1, 1, 1, 1)
-    else
-        button.icon:SetTexture(0.035, 0.045, 0.065, 1)
+    if not button.visualTextureInitialized or button.visualTexture ~= texture then
+        if texture then
+            button.icon:SetTexture(texture)
+        else
+            button.icon:SetTexture(0.035, 0.045, 0.065, 1)
+        end
+        button.visualTexture = texture
+        button.visualTextureInitialized = true
     end
 
     local count = GetActionCount(slot) or 0
-    if button.count then
-        button.count:SetText(count > 1 and count or "")
+    local countText = count > 1 and count or ""
+    if button.count and button.visualCount ~= countText then
+        button.count:SetText(countText)
+        button.visualCount = countText
     end
 
     local start, duration, enable = GetActionCooldown(slot)
-    if enable and enable ~= 0 and duration and duration > 0 then
-        button.cooldown:SetCooldown(start or 0, duration)
-        button.cooldown:Show()
-    else
-        button.cooldown:SetCooldown(0, 0)
-        button.cooldown:Hide()
+    local cooldownActive =
+        (enable and enable ~= 0 and duration and duration > 0) and true or false
+    start = cooldownActive and (start or 0) or 0
+    duration = cooldownActive and duration or 0
+    if button.visualCooldownStart ~= start or
+            button.visualCooldownDuration ~= duration then
+        button.cooldown:SetCooldown(start, duration)
+        button.visualCooldownStart = start
+        button.visualCooldownDuration = duration
+    end
+    if button.visualCooldownActive ~= cooldownActive then
+        if cooldownActive then
+            button.cooldown:Show()
+        else
+            button.cooldown:Hide()
+        end
+        button.visualCooldownActive = cooldownActive
     end
 
     local usable, noMana = IsUsableAction(slot)
+    local iconColor
     if texture and not usable then
         if noMana then
-            button.icon:SetVertexColor(0.45, 0.45, 1.0, 1)
+            iconColor = "mana"
         else
-            button.icon:SetVertexColor(0.45, 0.45, 0.45, 1)
+            iconColor = "disabled"
         end
-    end
-    if IsCurrentAction(slot) then
-        button.border:SetVertexColor(1.0, 0.78, 0.2, 1)
     else
-        button.border:SetVertexColor(1, 1, 1, 1)
+        iconColor = "normal"
+    end
+    if button.visualIconColor ~= iconColor then
+        if iconColor == "mana" then
+            button.icon:SetVertexColor(0.45, 0.45, 1.0, 1)
+        elseif iconColor == "disabled" then
+            button.icon:SetVertexColor(0.45, 0.45, 0.45, 1)
+        else
+            button.icon:SetVertexColor(1, 1, 1, 1)
+        end
+        button.visualIconColor = iconColor
+    end
+
+    local current = IsCurrentAction(slot) and true or false
+    if button.visualCurrent ~= current then
+        if current then
+            button.border:SetVertexColor(1.0, 0.78, 0.2, 1)
+        else
+            button.border:SetVertexColor(1, 1, 1, 1)
+        end
+        button.visualCurrent = current
     end
 end
 
@@ -440,13 +475,11 @@ root:RegisterEvent("ACTIONBAR_UPDATE_STATE")
 root:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
 root:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 root:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
-root:SetScript("OnEvent", function()
-    OpenWoWMobile_RefreshActions()
-end)
-root:SetScript("OnUpdate", function(self, elapsed)
-    state.refreshElapsed = state.refreshElapsed + elapsed
-    if state.refreshElapsed >= 0.10 then
-        state.refreshElapsed = 0
+root:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_TARGET_CHANGED" then
+        local target = UnitName("target")
+        targetName:SetText(target or "")
+    else
         OpenWoWMobile_RefreshActions()
     end
 end)
