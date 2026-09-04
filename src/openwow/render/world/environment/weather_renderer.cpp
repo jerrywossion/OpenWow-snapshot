@@ -15,8 +15,16 @@ namespace openwow::render {
 namespace {
 
 constexpr std::size_t kMaximumPrimaryParticles = 6144;
+constexpr std::size_t kMaximumRainSplashes = 6144;
 
-constexpr float kPrimaryBillboardHalfSize = 1.0f / 12.0f;
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kPointFallbackHalfSize = 1.0f / 12.0f;
+constexpr float kRainDropHalfWidth = 0.05f;
+constexpr float kRainDropTrailLength = 2.0f;
+constexpr float kRainSplashLifetime = 0.25f;
+constexpr float kSnowTerminalFade = 0.25f;
+constexpr float kPlayerVelocitySpawnOffset = 1.75f;
+constexpr float kMaximumParticleDistance = 200.0f;
 
 struct PrimaryHalfExtent {
   float x;
@@ -40,19 +48,21 @@ const PrimaryHalfExtent& HalfExtentFor(const world::WeatherKind kind) {
   }
 }
 
-constexpr float kPrimaryFallSpeedRain = -25.0f;
-constexpr float kPrimaryFallSpeedSnow = -3.0f;
-constexpr float kPrimaryLifetimeRain = 3.0f;
-constexpr float kPrimaryLifetimeSnow = 10.0f;
-constexpr float kPrimaryLifetimeSand = 4.0f;
-
-constexpr float kMistHalfExtentXY = 44.0f;
-constexpr float kMistHalfExtentZ = 25.0f;
+constexpr float kMistExtentXY = 44.0f;
+constexpr float kMistExtentZ = 25.0f;
 constexpr float kMistBillboardSize = 12.0f;
 constexpr float kMistBillboardHalfSize = kMistBillboardSize * 0.5f;
 constexpr std::size_t kMistCapacity = 128u;
 
 constexpr float kMistFadeDuration = 0.4f;
+constexpr float kMistDirection = -1.57f;
+constexpr float kMistDirectionRange = 0.34906584f;
+constexpr float kMistVerticalSpeed = 1.0f / 3.0f;
+constexpr float kMistVerticalSpeedRange = 1.0f / 30.0f;
+constexpr float kMistSourceBackTime = 1.5f;
+constexpr float kMistLifetime = 2.7f;
+constexpr float kMistLifetimeRange = 0.3f;
+constexpr float kMistAccelerationRange = 10.0f / 3.0f;
 
 float ClampedRatio(const float numerator, const float denominator) {
   if (!(denominator > 0.0f)) {
@@ -78,6 +88,33 @@ float SpawnRate(const world::WeatherState& weather,
   return maximum * std::max(0.0f, particle_density_scale) * intensity;
 }
 
+float MistSpawnRate(const world::WeatherState& weather,
+                    const float particle_density_scale,
+                    const bool use_weather_shaders) {
+  if (weather.indoors || weather.kind == world::WeatherKind::kNone) {
+    return 0.0f;
+  }
+  const float density =
+      std::clamp((weather.density - 0.25f) / 0.75f, 0.0f, 1.0f);
+  float rate = 0.0f;
+  switch (weather.kind) {
+    case world::WeatherKind::kRain:
+      rate = (use_weather_shaders ? 38.0f : 18.0f) *
+             std::max(0.0f, (density - 0.5f) * 2.0f);
+      break;
+    case world::WeatherKind::kSnow:
+      rate = (use_weather_shaders ? 48.0f : 24.0f) *
+             std::max(0.0f, (density - 0.5f) * 2.0f);
+      break;
+    case world::WeatherKind::kSandstorm:
+      rate = (use_weather_shaders ? 64.0f : 32.0f) * density;
+      break;
+    case world::WeatherKind::kNone:
+      break;
+  }
+  return rate * std::max(0.0f, particle_density_scale);
+}
+
 constexpr float kNearFadeBias = 1.5f;
 constexpr float kNearFadeInverseRange = 1.0f / 12.0f;
 
@@ -98,6 +135,53 @@ struct WeatherVertex {
   std::uint32_t color{};
   std::array<float, 2> uv{};
 };
+
+RenderVec3 Add(const RenderVec3& first, const RenderVec3& second) {
+  return {first[0] + second[0], first[1] + second[1],
+          first[2] + second[2]};
+}
+
+RenderVec3 Subtract(const RenderVec3& first, const RenderVec3& second) {
+  return {first[0] - second[0], first[1] - second[1],
+          first[2] - second[2]};
+}
+
+RenderVec3 Scale(const RenderVec3& value, const float scalar) {
+  return {value[0] * scalar, value[1] * scalar, value[2] * scalar};
+}
+
+float Dot(const RenderVec3& first, const RenderVec3& second) {
+  return first[0] * second[0] + first[1] * second[1] +
+         first[2] * second[2];
+}
+
+RenderVec3 Cross(const RenderVec3& first, const RenderVec3& second) {
+  return {first[1] * second[2] - first[2] * second[1],
+          first[2] * second[0] - first[0] * second[2],
+          first[0] * second[1] - first[1] * second[0]};
+}
+
+float Length(const RenderVec3& value) {
+  return std::sqrt(Dot(value, value));
+}
+
+RenderVec3 NormalizeOr(const RenderVec3& value, const RenderVec3& fallback) {
+  const float length = Length(value);
+  return length > 1.0e-6f ? Scale(value, 1.0f / length) : fallback;
+}
+
+RenderVec3 RotateHorizontal(const RenderVec3& value, const float facing) {
+  const float cosine = std::cos(facing);
+  const float sine = std::sin(facing);
+  return {value[0] * cosine - value[1] * sine,
+          value[0] * sine + value[1] * cosine, value[2]};
+}
+
+std::uint32_t ScaleAlpha(const std::uint32_t color, const float scale) {
+  const auto alpha = static_cast<std::uint32_t>(std::clamp(
+      static_cast<float>((color >> 24u) & 0xffu) * scale, 0.0f, 255.0f));
+  return (color & 0x00ffffffu) | (alpha << 24u);
+}
 
 float NearFadeAlpha(const RenderVec3& corner, const RenderVec3& camera) {
   const float dx = corner[0] - camera[0];
@@ -141,6 +225,42 @@ void AppendBillboard(const RenderVec3& center, const RenderVec3& right,
   }
 }
 
+void AppendRainDrop(const RenderVec3& center, const RenderVec3& velocity,
+                    const RenderVec3& camera, const RenderVec3& fallback_right,
+                    const std::uint32_t color,
+                    std::vector<WeatherVertex>& vertices) {
+  const RenderVec3 trail = Scale(
+      NormalizeOr(velocity, {0.0f, 0.0f, -1.0f}), -1.0f);
+  const RenderVec3 to_camera =
+      NormalizeOr(Subtract(camera, center), {0.0f, 0.0f, 1.0f});
+  const RenderVec3 side = NormalizeOr(Cross(to_camera, trail), fallback_right);
+  vertices.push_back(
+      {Add(center, Scale(side, -kRainDropHalfWidth)), color, {0.0f, 1.0f}});
+  vertices.push_back(
+      {Add(center, Scale(side, kRainDropHalfWidth)), color, {1.0f, 1.0f}});
+  vertices.push_back(
+      {Add(center, Scale(trail, kRainDropTrailLength)), color, {0.5f, 0.0f}});
+}
+
+void AppendRainSplash(const RenderVec3& center, const RenderVec3& raw_normal,
+                      const RenderVec3& right, const RenderVec3& up,
+                      const float age, const std::uint32_t color,
+                      std::vector<WeatherVertex>& vertices) {
+  const RenderVec3 normal = NormalizeOr(raw_normal, {0.0f, 0.0f, 1.0f});
+  const RenderVec3 tangent = NormalizeOr(
+      Subtract(right, Scale(normal, Dot(right, normal))),
+      NormalizeOr(Cross(normal, up), right));
+  const RenderVec3 bitangent = NormalizeOr(Cross(normal, tangent), up);
+  const float frame = std::min(3.0f, std::floor(age * 16.0f));
+  const float uv_u = frame * 0.25f;
+  vertices.push_back({Add(center, Scale(tangent, -1.0f / 12.0f)), color,
+                      {uv_u, 0.25f}});
+  vertices.push_back({Add(center, Scale(bitangent, 1.0f / 6.0f)), color,
+                      {uv_u + 0.125f, 0.04296875f}});
+  vertices.push_back({Add(center, Scale(tangent, 1.0f / 12.0f)), color,
+                      {uv_u + 0.25f, 0.25f}});
+}
+
 }
 
 WeatherRenderer::WeatherRenderer(TextureManager& texture_manager)
@@ -152,6 +272,10 @@ WeatherRenderer::~WeatherRenderer() {
 
 void WeatherRenderer::SetGroundHeightSampler(GroundHeightSampler sampler) {
   ground_height_sampler_ = std::move(sampler);
+}
+
+void WeatherRenderer::SetCollisionSampler(CollisionSampler sampler) {
+  collision_sampler_ = std::move(sampler);
 }
 
 bool WeatherRenderer::Initialize() {
@@ -171,11 +295,17 @@ bool WeatherRenderer::Initialize() {
       static_cast<std::uint32_t>(kMaximumPrimaryParticles * 6u), layout_,
       BGFX_BUFFER_ALLOW_RESIZE);
 
+  rain_splash_vertices_ = bgfx::createDynamicVertexBuffer(
+      static_cast<std::uint32_t>(kMaximumRainSplashes * 3u), layout_,
+      BGFX_BUFFER_ALLOW_RESIZE);
+
   mist_vertices_ = bgfx::createDynamicVertexBuffer(
       static_cast<std::uint32_t>(kMistCapacity * 6u), layout_,
       BGFX_BUFFER_ALLOW_RESIZE);
   initialized_ = bgfx::isValid(program_) && bgfx::isValid(sampler_) &&
-                 bgfx::isValid(primary_vertices_) && bgfx::isValid(mist_vertices_);
+                 bgfx::isValid(primary_vertices_) &&
+                 bgfx::isValid(rain_splash_vertices_) &&
+                 bgfx::isValid(mist_vertices_);
   if (!initialized_) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
                               "Weather renderer initialization failed");
@@ -225,12 +355,36 @@ void WeatherRenderer::RefreshMistTexture(const world::WeatherKind kind) {
   mist_texture_lease_ = texture_manager_.AcquireCachedTextureStrict(path);
 }
 
+void WeatherRenderer::RefreshRainSplashTexture(
+    const world::WeatherKind kind) {
+  if (kind != world::WeatherKind::kRain) {
+    rain_splash_texture_lease_ = {};
+    return;
+  }
+  constexpr const char* kRainSplashTexture =
+      "textures\\Weather\\RainDropSplash01.blp";
+  if (!rain_splash_texture_lease_.valid()) {
+    rain_splash_texture_lease_ =
+        texture_manager_.AcquireCachedTextureStrict(kRainSplashTexture);
+  }
+  if (!rain_splash_texture_lease_.valid()) {
+    static_cast<void>(texture_manager_.QueueTextureLoad(
+        kRainSplashTexture, TextureLoadFailurePolicy::kStrict,
+        TextureLoadPriority::kDemand));
+  }
+}
+
 void WeatherRenderer::SpawnPrimary(const float dt, const RenderVec3& camera,
                                    const world::WeatherState& weather,
                                    const float particle_density_scale,
                                    const bool use_weather_shaders) {
-  primary_spawn_credit_ += SpawnRate(weather, particle_density_scale,
-                                     use_weather_shaders) * dt;
+  const float rate =
+      SpawnRate(weather, particle_density_scale, use_weather_shaders);
+  primary_spawn_credit_ =
+      rate > 0.0f
+          ? std::min(static_cast<float>(kMaximumPrimaryParticles),
+                     primary_spawn_credit_ + rate * dt)
+          : 0.0f;
   const auto count = std::min<std::size_t>(
       static_cast<std::size_t>(primary_spawn_credit_),
       kMaximumPrimaryParticles - std::min(kMaximumPrimaryParticles, primary_particles_.size()));
@@ -240,27 +394,94 @@ void WeatherRenderer::SpawnPrimary(const float dt, const RenderVec3& camera,
   }
 
   const auto& half_extent = HalfExtentFor(weather.kind);
-  std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+  const float density =
+      std::clamp((weather.density - 0.25f) / 0.75f, 0.0f, 1.0f);
+  std::uniform_real_distribution<float> unit(0.0f, 1.0f);
   primary_particles_.reserve(
       std::min(kMaximumPrimaryParticles, primary_particles_.size() + count));
   for (std::size_t index = 0; index < count; ++index) {
     PrimaryParticle particle{};
-    particle.position = {camera[0] + unit(random_) * half_extent.x,
-                         camera[1] + unit(random_) * half_extent.y,
-                         camera[2] + unit(random_) * half_extent.z};
+    RenderVec3 local{};
+    float fallback_lifetime = 0.0f;
     if (weather.kind == world::WeatherKind::kRain) {
-      particle.velocity = {weather.velocity[0], weather.velocity[1], kPrimaryFallSpeedRain};
-      particle.lifetime = kPrimaryLifetimeRain;
+      local = {(unit(random_) - 0.5f) * half_extent.x * 2.0f,
+               (unit(random_) - 0.5f) * half_extent.y * 2.0f,
+               half_extent.z};
+      const float angle =
+          weather.facing + (unit(random_) - 0.5f) *
+                               (density * 0.20943952f + 0.05235988f);
+      const float horizontal_speed =
+          density * 9.49f + 0.01f +
+          (unit(random_) - 0.5f) * density * 2.0f;
+      particle.velocity = {std::cos(angle) * horizontal_speed,
+                           std::sin(angle) * horizontal_speed,
+                           -28.0f - density * 4.0f -
+                               unit(random_) * density * 2.0f};
+      fallback_lifetime =
+          (half_extent.z * 2.0f) / -particle.velocity[2];
     } else if (weather.kind == world::WeatherKind::kSnow) {
-      particle.velocity = {weather.velocity[0] * 0.1f + unit(random_),
-                           weather.velocity[1] * 0.1f + unit(random_), kPrimaryFallSpeedSnow};
-      particle.lifetime = kPrimaryLifetimeSnow;
+      local = {(unit(random_) - 0.5f) * half_extent.x * 2.0f,
+               (unit(random_) - 0.5f) * half_extent.y * 2.0f,
+               half_extent.z};
+      const float angle =
+          weather.facing + (unit(random_) - 0.5f) *
+                               (2.0f * kPi - density * 5.9341197f);
+      const float horizontal_speed =
+          density * 5.985f + 0.015f +
+          (unit(random_) - 0.5f) * density;
+      particle.velocity = {std::cos(angle) * horizontal_speed,
+                           std::sin(angle) * horizontal_speed,
+                           -2.0f - density * 3.5f -
+                               unit(random_) * density};
+      fallback_lifetime =
+          (half_extent.z * 2.0f) / -particle.velocity[2];
     } else {
-      particle.velocity = {weather.velocity[0] + 12.0f,
-                           weather.velocity[1] + unit(random_) * 2.0f,
-                           unit(random_)};
-      particle.lifetime = kPrimaryLifetimeSand;
+      local = {half_extent.x * 2.0f * (0.85f + unit(random_) * 0.15f),
+               (unit(random_) - 0.5f) * half_extent.y * 2.0f,
+               (unit(random_) - 0.5f) * half_extent.z * 2.0f};
+      const float angle =
+          weather.facing + kPi +
+          (unit(random_) - 0.5f) * 0.34906584f;
+      const float horizontal_speed =
+          18.666666f + (unit(random_) - 0.5f) * 0.6666667f;
+      particle.velocity = {std::cos(angle) * horizontal_speed,
+                           std::sin(angle) * horizontal_speed,
+                           0.8333333f +
+                               (unit(random_) - 0.5f) * 0.16666667f};
+      fallback_lifetime = 3.2f + (unit(random_) - 0.5f) * 0.3f;
     }
+
+    local = RotateHorizontal(local, weather.facing);
+    const RenderVec3 motion_offset{
+        weather.velocity[0] * kPlayerVelocitySpawnOffset,
+        weather.velocity[1] * kPlayerVelocitySpawnOffset,
+        weather.velocity[2] * kPlayerVelocitySpawnOffset};
+    const RenderVec3 origin = Add(Add(camera, local), motion_offset);
+    const float speed = Length(particle.velocity);
+    particle.motion_lifetime = fallback_lifetime;
+    if (collision_sampler_ && speed > 1.0e-6f) {
+      const RenderVec3 direction = Scale(particle.velocity, 1.0f / speed);
+      if (const auto collision = collision_sampler_(
+              origin, direction, kMaximumParticleDistance)) {
+        particle.motion_lifetime = collision->distance / speed;
+        particle.collision_position = collision->position;
+        particle.collision_normal = collision->normal;
+        particle.has_collision = true;
+      }
+    }
+    if (!particle.has_collision) {
+      particle.collision_position =
+          Add(origin, Scale(particle.velocity, particle.motion_lifetime));
+    }
+    const float pre_age = unit(random_) * dt;
+    if (!(particle.motion_lifetime > pre_age)) {
+      continue;
+    }
+    particle.age = pre_age;
+    particle.lifetime =
+        particle.motion_lifetime +
+        (weather.kind == world::WeatherKind::kSnow ? kSnowTerminalFade : 0.0f);
+    particle.position = Add(origin, Scale(particle.velocity, pre_age));
     primary_particles_.push_back(particle);
   }
 }
@@ -269,10 +490,13 @@ void WeatherRenderer::SpawnMist(const float dt, const RenderVec3& camera,
                                 const world::WeatherState& weather,
                                 const float particle_density_scale,
                                 const bool use_weather_shaders) {
-
-  constexpr float kMistSpawnRateScale = 1.0f / 200.0f;
-  mist_spawn_credit_ += SpawnRate(weather, particle_density_scale, use_weather_shaders) *
-                       kMistSpawnRateScale * dt;
+  const float rate =
+      MistSpawnRate(weather, particle_density_scale, use_weather_shaders);
+  mist_spawn_credit_ =
+      rate > 0.0f
+          ? std::min(static_cast<float>(kMistCapacity),
+                     mist_spawn_credit_ + rate * dt)
+          : 0.0f;
   const auto count = std::min<std::size_t>(
       static_cast<std::size_t>(mist_spawn_credit_),
       kMistCapacity - std::min(kMistCapacity, mist_particles_.size()));
@@ -281,17 +505,70 @@ void WeatherRenderer::SpawnMist(const float dt, const RenderVec3& camera,
     return;
   }
 
-  std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+  std::uniform_real_distribution<float> unit(0.0f, 1.0f);
   mist_particles_.reserve(std::min(kMistCapacity, mist_particles_.size() + count));
   for (std::size_t index = 0; index < count; ++index) {
     MistParticle particle{};
-    particle.position = {camera[0] + unit(random_) * kMistHalfExtentXY,
-                         camera[1] + unit(random_) * kMistHalfExtentXY,
-                         camera[2] - kMistHalfExtentZ + unit(random_) * (kMistHalfExtentZ * 0.25f)};
+    float speed = 0.0f;
+    float speed_range = 0.0f;
+    switch (weather.kind) {
+      case world::WeatherKind::kRain:
+        speed = 5.0f;
+        speed_range = 1.2f;
+        break;
+      case world::WeatherKind::kSnow:
+        speed = 9.0f;
+        speed_range = 3.0f;
+        break;
+      case world::WeatherKind::kSandstorm:
+        speed = 15.0f;
+        speed_range = 4.5f;
+        break;
+      case world::WeatherKind::kNone:
+        continue;
+    }
+    const float angle = weather.facing + kMistDirection +
+                        (unit(random_) - 0.5f) * kMistDirectionRange;
+    speed += (unit(random_) - 0.5f) * speed_range;
+    particle.velocity = {
+        std::cos(angle) * speed, std::sin(angle) * speed,
+        kMistVerticalSpeed +
+            (unit(random_) - 0.5f) * kMistVerticalSpeedRange};
 
-    particle.velocity = {weather.velocity[0] * 0.3f, weather.velocity[1] * 0.3f, -0.2f};
-
-    particle.lifetime = kMistFadeDuration * 12.0f;
+    RenderVec3 local =
+        RotateHorizontal({(unit(random_) - 0.5f) * kMistExtentXY,
+                          (unit(random_) - 0.5f) * kMistExtentXY,
+                          (unit(random_) - 0.5f) * kMistExtentZ},
+                         weather.facing);
+    particle.position = Add(Add(camera, local),
+                            Scale(particle.velocity, -kMistSourceBackTime));
+    if (ground_height_sampler_) {
+      const auto ground = ground_height_sampler_(
+          particle.position[0], particle.position[1],
+          particle.position[2] + 100.0f);
+      if (!ground) {
+        continue;
+      }
+      particle.position[2] =
+          std::max(particle.position[2], *ground) + kMistBillboardHalfSize;
+    } else {
+      particle.position[2] += kMistBillboardHalfSize;
+    }
+    particle.acceleration =
+        (unit(random_) - 0.5f) * kMistAccelerationRange;
+    particle.lifetime =
+        kMistLifetime + (unit(random_) - 0.5f) * kMistLifetimeRange;
+    const float pre_age = unit(random_) * dt;
+    if (!(particle.lifetime > pre_age)) {
+      continue;
+    }
+    particle.age = pre_age;
+    const float acceleration_term =
+        0.5f * particle.acceleration * pre_age * pre_age;
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+      particle.position[axis] +=
+          particle.velocity[axis] * pre_age + acceleration_term;
+    }
     if (!BuildGroundProfile(particle)) {
       continue;
     }
@@ -382,6 +659,49 @@ float WeatherRenderer::SampleGroundProfile(const MistParticle& particle) const {
          (particle.ground_profile[high] - particle.ground_profile[low]) * fraction;
 }
 
+void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera,
+                                     const world::WeatherState& weather) {
+  std::size_t retained = 0u;
+  for (PrimaryParticle particle : primary_particles_) {
+    const float previous_age = particle.age;
+    particle.age += dt;
+    const float motion_step =
+        std::max(0.0f, std::min(particle.age, particle.motion_lifetime) -
+                           std::min(previous_age, particle.motion_lifetime));
+    particle.position = Add(particle.position,
+                            Scale(particle.velocity, motion_step));
+    if (weather.kind == world::WeatherKind::kRain &&
+        previous_age < particle.motion_lifetime &&
+        particle.age >= particle.motion_lifetime && particle.has_collision &&
+        rain_splash_particles_.size() < kMaximumRainSplashes) {
+      rain_splash_particles_.push_back({
+          .position = Add(
+              particle.collision_position,
+              Scale(NormalizeOr(particle.collision_normal,
+                                {0.0f, 0.0f, 1.0f}),
+                    0.015f)),
+          .normal = particle.collision_normal,
+          .age = 0.0f});
+    }
+    if (particle.age >= particle.lifetime ||
+        Length(Subtract(particle.position, camera)) >
+            kMaximumParticleDistance) {
+      continue;
+    }
+    primary_particles_[retained++] = particle;
+  }
+  primary_particles_.resize(retained);
+
+  for (auto& splash : rain_splash_particles_) {
+    splash.age += dt;
+  }
+  std::erase_if(rain_splash_particles_, [&](const RainSplashParticle& splash) {
+    return splash.age >= kRainSplashLifetime ||
+           Length(Subtract(splash.position, camera)) >
+               kMaximumParticleDistance;
+  });
+}
+
 void WeatherRenderer::Update(const float dt, const RenderVec3& camera,
                              const world::WeatherState& weather,
                              const float particle_density_scale,
@@ -392,18 +712,10 @@ void WeatherRenderer::Update(const float dt, const RenderVec3& camera,
   }
   RefreshPrimaryTexture(weather);
   RefreshMistTexture(weather.kind);
+  RefreshRainSplashTexture(weather.kind);
 
   const float step = std::max(0.0f, dt);
-
-  for (auto& particle : primary_particles_) {
-    for (std::size_t axis = 0; axis < 3; ++axis) {
-      particle.position[axis] += particle.velocity[axis] * step;
-    }
-    particle.age += step;
-  }
-  std::erase_if(primary_particles_, [](const PrimaryParticle& particle) {
-    return particle.age >= particle.lifetime;
-  });
+  AdvancePrimary(step, camera, weather);
   SpawnPrimary(step, camera, weather, particle_density_scale, use_weather_shaders);
 
   const float half_step_squared = 0.5f * step * step;
@@ -456,9 +768,25 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     output.reserve(primary_particles_.size() * 6u);
 
     for (const auto& particle : primary_particles_) {
-      const std::uint32_t color = weather.color_abgr;
-      AppendBillboard(particle.position, right, up, camera, kPrimaryBillboardHalfSize,
-                      color, false, output);
+      if (weather.kind == world::WeatherKind::kRain) {
+        AppendRainDrop(particle.position, particle.velocity, camera, right,
+                       ScaleAlpha(weather.color_abgr, 0.5f), output);
+      } else {
+        float opacity = 1.0f;
+        if (weather.kind == world::WeatherKind::kSnow) {
+          opacity = std::clamp(particle.age, 0.0f, 1.0f) *
+                    std::clamp((particle.lifetime - particle.age) * 4.0f,
+                               0.0f, 1.0f);
+        } else {
+          opacity = std::clamp(particle.age * 5.0f, 0.0f, 1.0f) *
+                    std::clamp((particle.lifetime - particle.age) * 5.0f,
+                               0.0f, 1.0f);
+        }
+        AppendBillboard(particle.position, right, up, camera,
+                        kPointFallbackHalfSize,
+                        ScaleAlpha(weather.color_abgr, opacity), false,
+                        output);
+      }
     }
     bgfx::update(primary_vertices_, 0,
                 bgfx::copy(output.data(), static_cast<std::uint32_t>(
@@ -467,6 +795,35 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     draw.setVertexBuffer(0, primary_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
     draw.setTexture(0, sampler_, primary_texture);
+    draw.setState(
+        BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+        BGFX_STATE_DEPTH_TEST_LESS |
+        BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA,
+                              BGFX_STATE_BLEND_INV_SRC_ALPHA) |
+        BGFX_STATE_MSAA);
+    draw.submit(view_id, program_);
+  }
+
+  const bgfx::TextureHandle rain_splash_texture =
+      rain_splash_texture_lease_.valid()
+          ? BgfxTextureLeaseAccess::Get(rain_splash_texture_lease_)
+          : bgfx::TextureHandle{bgfx::kInvalidHandle};
+  if (!rain_splash_particles_.empty() &&
+      bgfx::isValid(rain_splash_texture)) {
+    std::vector<WeatherVertex> output;
+    output.reserve(rain_splash_particles_.size() * 3u);
+    for (const auto& splash : rain_splash_particles_) {
+      const float opacity =
+          0.5f * (1.0f - splash.age / kRainSplashLifetime);
+      AppendRainSplash(splash.position, splash.normal, right, up, splash.age,
+                       ScaleAlpha(weather.color_abgr, opacity), output);
+    }
+    bgfx::update(rain_splash_vertices_, 0,
+                 bgfx::copy(output.data(), static_cast<std::uint32_t>(
+                                               output.size() * sizeof(WeatherVertex))));
+    draw.setVertexBuffer(0, rain_splash_vertices_, 0,
+                         static_cast<std::uint32_t>(output.size()));
+    draw.setTexture(0, sampler_, rain_splash_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
         BGFX_STATE_DEPTH_TEST_LESS |
@@ -519,6 +876,7 @@ void WeatherRenderer::Reset() {
   kind_ = world::WeatherKind::kNone;
   primary_spawn_credit_ = 0.0f;
   primary_particles_.clear();
+  rain_splash_particles_.clear();
   mist_spawn_credit_ = 0.0f;
   mist_particles_.clear();
 }
@@ -527,10 +885,14 @@ void WeatherRenderer::Shutdown() {
   Reset();
   primary_texture_lease_ = {};
   primary_bound_texture_path_.clear();
+  rain_splash_texture_lease_ = {};
   mist_texture_lease_ = {};
   mist_bound_kind_ = world::WeatherKind::kNone;
   if (bgfx::isValid(primary_vertices_)) {
     bgfx::destroy(primary_vertices_);
+  }
+  if (bgfx::isValid(rain_splash_vertices_)) {
+    bgfx::destroy(rain_splash_vertices_);
   }
   if (bgfx::isValid(mist_vertices_)) {
     bgfx::destroy(mist_vertices_);
@@ -542,6 +904,7 @@ void WeatherRenderer::Shutdown() {
     bgfx::destroy(program_);
   }
   primary_vertices_ = BGFX_INVALID_HANDLE;
+  rain_splash_vertices_ = BGFX_INVALID_HANDLE;
   mist_vertices_ = BGFX_INVALID_HANDLE;
   sampler_ = BGFX_INVALID_HANDLE;
   program_ = BGFX_INVALID_HANDLE;

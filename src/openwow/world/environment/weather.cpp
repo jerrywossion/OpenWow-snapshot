@@ -89,6 +89,12 @@ void UpdateWeather(WeatherState& state, const WeatherUpdate& update) {
   state.position = update.position;
   state.previous_motion_tick = update.now;
   state.indoors = update.indoors;
+  const float horizontal_speed =
+      std::sqrt(state.velocity[0] * state.velocity[0] +
+                state.velocity[1] * state.velocity[1]);
+  state.facing = horizontal_speed >= 1.0f
+                     ? std::atan2(state.velocity[1], state.velocity[0])
+                     : update.facing;
 
   if (!state.smooth_transition) {
     return;

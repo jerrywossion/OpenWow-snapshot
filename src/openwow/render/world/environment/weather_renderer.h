@@ -21,9 +21,11 @@ class TextureManager;
 
 class WeatherRenderer {
  public:
-
   using GroundHeightSampler =
       std::function<std::optional<float>(float x, float y, float z)>;
+  using CollisionSampler = std::function<std::optional<world::WeatherCollisionHit>(
+      const RenderVec3& origin, const RenderVec3& direction,
+      float maximum_distance)>;
 
   explicit WeatherRenderer(TextureManager& texture_manager);
   ~WeatherRenderer();
@@ -31,6 +33,7 @@ class WeatherRenderer {
   bool Initialize();
 
   void SetGroundHeightSampler(GroundHeightSampler sampler);
+  void SetCollisionSampler(CollisionSampler sampler);
   void Update(float dt, const RenderVec3& camera_position,
               const world::WeatherState& weather,
               float particle_density_scale,
@@ -62,8 +65,18 @@ class WeatherRenderer {
   struct PrimaryParticle {
     RenderVec3 position{};
     RenderVec3 velocity{};
+    RenderVec3 collision_position{};
+    RenderVec3 collision_normal{0.0f, 0.0f, 1.0f};
     float age{};
+    float motion_lifetime{};
     float lifetime{};
+    bool has_collision{};
+  };
+
+  struct RainSplashParticle {
+    RenderVec3 position{};
+    RenderVec3 normal{0.0f, 0.0f, 1.0f};
+    float age{};
   };
 
   void SpawnPrimary(float dt, const RenderVec3& camera_position,
@@ -75,6 +88,9 @@ class WeatherRenderer {
                 float particle_density_scale,
                 bool use_weather_shaders);
 
+  void AdvancePrimary(float dt, const RenderVec3& camera_position,
+                      const world::WeatherState& weather);
+
   [[nodiscard]] bool BuildGroundProfile(MistParticle& particle) const;
 
   [[nodiscard]] float SampleGroundProfile(const MistParticle& particle) const;
@@ -83,8 +99,11 @@ class WeatherRenderer {
 
   void RefreshMistTexture(world::WeatherKind kind);
 
+  void RefreshRainSplashTexture(world::WeatherKind kind);
+
   TextureManager& texture_manager_;
   GroundHeightSampler ground_height_sampler_;
+  CollisionSampler collision_sampler_;
   world::WeatherKind kind_{world::WeatherKind::kNone};
   std::mt19937 random_{0x335a1234u};
 
@@ -93,6 +112,10 @@ class WeatherRenderer {
   bgfx::DynamicVertexBufferHandle primary_vertices_ = BGFX_INVALID_HANDLE;
   std::string primary_bound_texture_path_;
   TextureLease primary_texture_lease_;
+
+  std::vector<RainSplashParticle> rain_splash_particles_;
+  bgfx::DynamicVertexBufferHandle rain_splash_vertices_ = BGFX_INVALID_HANDLE;
+  TextureLease rain_splash_texture_lease_;
 
   float mist_spawn_credit_{};
   std::vector<MistParticle> mist_particles_;

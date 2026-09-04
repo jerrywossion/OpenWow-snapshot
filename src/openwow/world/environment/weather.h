@@ -17,6 +17,12 @@ enum class WeatherKind : std::uint8_t {
   kSandstorm,
 };
 
+struct WeatherCollisionHit {
+  std::array<float, 3> position{};
+  std::array<float, 3> normal{};
+  float distance{};
+};
+
 struct WeatherState {
   WeatherKind kind{WeatherKind::kNone};
   float target_density{};
@@ -30,6 +36,7 @@ struct WeatherState {
   std::string texture;
   std::array<float, 3> position{};
   std::array<float, 3> velocity{};
+  float facing{};
   std::uint32_t transition_started_at{};
   std::uint32_t previous_motion_tick{};
   bool smooth_transition{};

@@ -58,7 +58,7 @@ class WorldPresentationScene final {
       world::WorldPresentationCommandBatch batch);
   void Update(float dt, const RenderVec3& camera_position,
               float environment_detail, float weather_particle_density,
-              bool use_weather_shaders, bool indoors);
+              bool use_weather_shaders, bool indoors, float facing);
 
   void Render(const world::WorldPresentationSnapshot& snapshot,
               const WorldRenderViews& views,
@@ -73,6 +73,9 @@ class WorldPresentationScene final {
 
   void SetWeatherGroundHeightSampler(
       std::function<std::optional<float>(float x, float y, float z)> sampler);
+  void SetWeatherCollisionSampler(std::function<std::optional<world::WeatherCollisionHit>(
+      const RenderVec3& origin, const RenderVec3& direction,
+      float maximum_distance)> sampler);
   void SetFileLoader(LoadFileCallback callback);
 
   void SetPrefixFileLoader(m2::M2StreamPrefixFileLoader callback);

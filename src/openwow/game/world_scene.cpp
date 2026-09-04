@@ -950,6 +950,22 @@ bool WorldScene::RestoreRenderDeviceResources() {
       [this](const float x, const float y, const float z) {
         return collision_.GetGroundHeight(x, y, z);
       });
+  world_presentation_scene_.SetWeatherCollisionSampler(
+      [this](const render::RenderVec3& origin,
+             const render::RenderVec3& direction,
+             const float maximum_distance)
+          -> std::optional<world::WeatherCollisionHit> {
+        const auto hit = collision_.Raycast(
+            origin[0], origin[1], origin[2], direction[0], direction[1],
+            direction[2], maximum_distance);
+        if (!hit) {
+          return std::nullopt;
+        }
+        return world::WeatherCollisionHit{
+            .position = {hit->x, hit->y, hit->z},
+            .normal = {hit->normal[0], hit->normal[1], hit->normal[2]},
+            .distance = hit->distance};
+      });
 
   if (!particles_.Initialize()) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
@@ -1141,7 +1157,8 @@ void WorldScene::Update(const float dt, const float cam_x,
   world_presentation_scene_.Update(
       dt, {cam_x, cam_y, cam_z}, environment_detail,
       weather_particle_density, use_weather_shaders,
-      !world_map_.IsOutdoorsAtPosition(cam_x, cam_y, cam_z));
+      !world_map_.IsOutdoorsAtPosition(cam_x, cam_y, cam_z),
+      camera_.reference_facing());
   NameplateDamageFlashState::Get().Update(dt);
 
   water_particulates_.Update(

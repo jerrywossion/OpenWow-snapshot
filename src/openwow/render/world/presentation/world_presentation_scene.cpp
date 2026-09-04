@@ -611,18 +611,27 @@ void WorldPresentationScene::SetWeatherGroundHeightSampler(
   }
 }
 
+void WorldPresentationScene::SetWeatherCollisionSampler(
+    WeatherRenderer::CollisionSampler sampler) {
+  if (weather_renderer_) {
+    weather_renderer_->SetCollisionSampler(std::move(sampler));
+  }
+}
+
 void WorldPresentationScene::Update(const float dt,
                                     const RenderVec3& position,
                                     const float environment_detail,
                                     const float weather_particle_density,
                                     const bool use_weather_shaders,
-                                    const bool indoors) {
+                                    const bool indoors,
+                                    const float facing) {
   if (!initialized_) return;
   SetEnvironmentDetail(environment_detail);
   weather_clock_ += static_cast<std::uint32_t>(std::max(0.0f, dt) * 1000.0f);
   world::UpdateWeather(
       weather_, {.now = weather_clock_,
                   .position = position,
+                  .facing = facing,
                   .movement_speed = 0.0f,
                   .indoors = indoors});
   weather_renderer_->Update(dt, position, weather_,
