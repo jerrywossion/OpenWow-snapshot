@@ -1769,6 +1769,21 @@ AreaEnvironmentContext WorldMap::ResolveAreaEnvironmentContextAtPosition(
                                          AreaEnvironmentProbe::kUnitSurface);
 }
 
+AreaEnvironmentContext WorldMap::ResolveZoneUiAreaContextAtPosition(
+    const float x, const float y, const float z) const {
+  AreaEnvironmentContext result =
+      ResolveAreaEnvironmentContextAtPosition(x, y, z);
+  if (!wdt_.has_global_wmo || dbc_ == nullptr) {
+    return result;
+  }
+
+  const auto *const map = dbc_->map().LookupEntry(map_id_);
+  if (map != nullptr && map->linked_zone != 0u) {
+    result.area_id = map->linked_zone;
+  }
+  return result;
+}
+
 bool WorldMap::UsesWmoMinimapSource(
     const ResolvedWmoAreaRows &rows) noexcept {
   if (!rows.resolved || !rows.group_resident) {
