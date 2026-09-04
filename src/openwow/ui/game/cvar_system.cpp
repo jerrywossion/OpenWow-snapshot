@@ -2432,7 +2432,7 @@ void CVarSystem::RegisterDefaults() {
   RegisterCVar("nameplateShowFriendlyGuardians", "1", F::Character, "");
   RegisterCVar("nameplateShowFriendlyTotems", "1", F::Character, "");
   RegisterCVar(
-      "nameplateAllowOverlap", "1", F::Character,
+      "nameplateAllowOverlap", "0", F::Character,
       "switches between overlapping nameplates or the (old) never overlapping version");
   RegisterCVar("unitHighlights", "1", F::Account,
                "Whether the highlight circle around units should be displayed");

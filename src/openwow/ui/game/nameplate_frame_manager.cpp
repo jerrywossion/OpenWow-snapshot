@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace openwow::ui::game {
@@ -261,6 +262,8 @@ void NameplateFrameManager::BindLuaState(lua_State* const state) {
   ReleasePlates();
   lua_ = state;
   world_frame_missing_logged_ = false;
+  lua_stack_failure_logged_ = false;
+  plate_failure_reports_remaining_ = 8u;
 }
 
 void NameplateFrameManager::ReleasePlates() {
@@ -291,7 +294,7 @@ bool NameplateFrameManager::CreatePlate(PlateState& plate) {
   root.has_frame_level = true;
   root.frame_level = kPlateDefaultFrameLevel;
 
-  root.frame_strata = "BACKGROUND";
+  root.frame_strata = "WORLD";
 
   const char* const parent = root_name.c_str();
   std::vector<UiFrame> children;
@@ -600,7 +603,7 @@ void NameplateFrameManager::ApplyGeometry(
 void NameplateFrameManager::ApplyPlacement(
     PlateState& plate, const int plate_index,
     const NameplateScreenPlacement& placement,
-    const NameplateScreenLayout& layout) {
+    const NameplateScreenLayout& layout, const float world_frame_depth) {
   const auto& info = placement.info;
   const float scale = layout.ui_pixel_scale > 0.0f ? layout.ui_pixel_scale : 1.0f;
 
@@ -612,6 +615,11 @@ void NameplateFrameManager::ApplyPlacement(
       .Number(-placement.screen_y / scale)
       .Invoke();
 
+  const float depth = placement.projected_depth - world_frame_depth;
+  if (std::isfinite(depth) && std::fabs(plate.depth - depth) > 1e-4f) {
+    plate.depth = depth;
+    (void)MethodCall(lua_, plate_index, "SetDepth").Number(depth).Invoke();
+  }
   if (plate.frame_level != static_cast<int>(placement.frame_level)) {
     plate.frame_level = static_cast<int>(placement.frame_level);
     (void)MethodCall(lua_, plate_index, "SetFrameLevel")
@@ -868,33 +876,106 @@ void NameplateFrameManager::Update() {
     NameplateFrameChannel::Get().RecordWidgetUpdate(evidence);
     return;
   }
+  world_frame_missing_logged_ = false;
+  const auto* const world_frame = frames_.FindFrame(kWorldFrameKey);
+  const float world_frame_depth =
+      world_frame != nullptr ? world_frame->depth : 0.0f;
 
   constexpr int kPlateUpdateStackHeadroom = 24;
   if (lua_checkstack(lua_, kPlateUpdateStackHeadroom) == 0) {
+    if (!lua_stack_failure_logged_) {
+      lua_stack_failure_logged_ = true;
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "NameplateFrameManager: Lua stack cannot reserve update headroom=" +
+              std::to_string(kPlateUpdateStackHeadroom) +
+              " requested_plates=" + std::to_string(layout.plates.size()));
+    }
     NameplateFrameChannel::Get().RecordWidgetUpdate(evidence);
     return;
   }
+  lua_stack_failure_logged_ = false;
   const int base = lua_gettop(lua_);
-  std::size_t applied = 0;
-  for (std::size_t index = 0; index < layout.plates.size(); ++index) {
-    if (!EnsurePlate(index)) {
-      break;
+  std::vector<bool> assigned(plates_.size(), false);
+  std::unordered_map<std::uint64_t, std::size_t> active_by_guid;
+  active_by_guid.reserve(plates_.size());
+  std::vector<std::size_t> reusable_slots;
+  reusable_slots.reserve(plates_.size());
+  for (std::size_t index = 0; index < plates_.size(); ++index) {
+    if (plates_[index].shown && plates_[index].guid != 0u) {
+      active_by_guid.emplace(plates_[index].guid, index);
+    } else {
+      reusable_slots.push_back(index);
     }
-    auto& plate = plates_[index];
+  }
+  std::size_t next_reusable = 0u;
+  std::size_t applied = 0;
+  for (const auto& placement : layout.plates) {
+    std::size_t slot = plates_.size();
+    if (const auto existing = active_by_guid.find(placement.info.guid);
+        existing != active_by_guid.end() && !assigned[existing->second]) {
+      slot = existing->second;
+    }
+    if (slot == plates_.size()) {
+      while (next_reusable < reusable_slots.size() &&
+             assigned[reusable_slots[next_reusable]]) {
+        ++next_reusable;
+      }
+      if (next_reusable < reusable_slots.size()) {
+        slot = reusable_slots[next_reusable++];
+      }
+    }
+    if (!EnsurePlate(slot)) {
+      assigned.resize(plates_.size(), false);
+      assigned[slot] = true;
+      if (plate_failure_reports_remaining_ != 0u) {
+        --plate_failure_reports_remaining_;
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kWarn,
+            "NameplateFrameManager: failed to materialize plate guid=" +
+                std::to_string(placement.info.guid) +
+                " pool_slot=" + std::to_string(slot) +
+                (plate_failure_reports_remaining_ == 0u
+                     ? " (further plate materialization failures suppressed)"
+                     : ""));
+      }
+      continue;
+    }
+    assigned.resize(plates_.size(), false);
+    assigned[slot] = true;
+    auto& plate = plates_[slot];
     lua_rawgeti(lua_, LUA_REGISTRYINDEX, plate.lua_ref);
     const int plate_index = lua_gettop(lua_);
     if (lua_istable(lua_, plate_index) != 0) {
       ApplyGeometry(plate, plate_index, layout);
-      ApplyPlacement(plate, plate_index, layout.plates[index], layout);
+      ApplyPlacement(plate, plate_index, placement, layout,
+                     world_frame_depth);
       ++applied;
-      if (!layout.plates[index].info.name.empty()) {
+      if (!placement.info.name.empty()) {
         ++evidence.named_plates;
       }
+    } else {
+      if (plate_failure_reports_remaining_ != 0u) {
+        --plate_failure_reports_remaining_;
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kWarn,
+            "NameplateFrameManager: plate registry reference is not a frame "
+            "table guid=" +
+                std::to_string(placement.info.guid) +
+                " pool_slot=" + std::to_string(slot) +
+                (plate_failure_reports_remaining_ == 0u
+                     ? " (further plate materialization failures suppressed)"
+                     : ""));
+      }
+      plate.shown = false;
+      plate.guid = 0u;
     }
     lua_settop(lua_, base);
   }
-  for (std::size_t index = applied; index < plates_.size(); ++index) {
-    HidePlate(plates_[index]);
+  for (std::size_t index = 0; index < plates_.size(); ++index) {
+    if (index >= assigned.size() || !assigned[index]) {
+      HidePlate(plates_[index]);
+    }
   }
   lua_settop(lua_, base);
 

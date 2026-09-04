@@ -55,6 +55,7 @@ class NameplateFrameManager final {
     float health_pct{-1.0f};
     float cast_pct{-2.0f};
     float alpha{-1.0f};
+    float depth{-1.0f};
     int frame_level{-1};
     int raid_target_icon_index{-1};
     float raid_icon_alpha{-1.0f};
@@ -74,7 +75,8 @@ class NameplateFrameManager final {
                      const NameplateScreenLayout& layout);
   void ApplyPlacement(PlateState& plate, int plate_index,
                       const NameplateScreenPlacement& placement,
-                      const NameplateScreenLayout& layout);
+                      const NameplateScreenLayout& layout,
+                      float world_frame_depth);
   void HidePlate(PlateState& plate);
 
   runtime::FrameMaterializer& materializer_;
@@ -83,6 +85,8 @@ class NameplateFrameManager final {
   std::vector<PlateState> plates_;
   std::size_t active_plates_{0};
   bool world_frame_missing_logged_{false};
+  bool lua_stack_failure_logged_{false};
+  unsigned plate_failure_reports_remaining_{8u};
 };
 
 }

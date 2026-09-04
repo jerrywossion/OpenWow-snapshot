@@ -480,7 +480,8 @@ void WorldFrame::UpdateNameplateHover(const std::uint64_t target_guid) {
       continue;
     }
 
-    if (best == nullptr || plate.view_depth < best->view_depth) {
+    if (best == nullptr ||
+        plate.projected_depth < best->projected_depth) {
       best = &plate;
     }
   }

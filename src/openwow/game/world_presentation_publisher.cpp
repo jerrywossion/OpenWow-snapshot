@@ -1031,7 +1031,7 @@ NameplatePresentationSnapshot WorldPresentationPublisher::PublishNameplatesFromU
     const float distance_squared = dx * dx + dy * dy + dz * dz;
 
     if (!unit->Nameplate().PassesRange(distance_squared, range_exempt_map) ||
-        !unit->Nameplate().PassesHardEligibility(*unit, *player) ||
+        !unit->Nameplate().PassesHardEligibility(*unit, *player, objects) ||
         !unit->Nameplate().PassesCvarVisibility(*unit, *player, objects)) {
       continue;
     }
@@ -1053,10 +1053,6 @@ NameplatePresentationSnapshot WorldPresentationPublisher::PublishNameplatesFromU
     plate.world_x = anchor.x;
     plate.world_y = anchor.y;
     plate.world_z = anchor.z + kNameplateWorldVerticalOffset;
-    if (object.HasObjectBoundingBox()) {
-      object.GetObjectBoundingBox(plate.world_bounds.data());
-      plate.has_world_bounds = true;
-    }
     plate.name = ResolveName(object, *unit, world_session, creature_template);
     plate.is_player = unit->IsPlayer();
     plate.is_npc = !plate.is_player;
