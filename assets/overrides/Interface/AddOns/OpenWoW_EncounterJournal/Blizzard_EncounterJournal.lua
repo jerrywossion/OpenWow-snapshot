@@ -21,8 +21,6 @@ local EJ_MAX_SECTION_MOVE = 320;
 local EJ_START_DUNGEON_DIFF = 1;
 local EJ_START_RAID_DIFF = 3;
 
-local opened = false;
-
 -- Priority list for *not my spec*
 local overviewPriorities = {
 	[1] = Enum.LFGRole.Damage,
@@ -550,22 +548,11 @@ function EncounterJournal_DisableExpansionDropdown()
 	EncounterJournal.instanceSelect.ExpansionDropdown:Disable();
 	end
 
-function EncounterJournal_HasChangedContext(instanceID, instanceType, difficultyID)
-	if ( instanceType == "none" ) then
-		-- we've gone from a dungeon to the open world
-		return EncounterJournal.lastInstance ~= nil;
-	elseif ( instanceID ~= 0 and (instanceID ~= EncounterJournal.lastInstance or EncounterJournal.lastDifficulty ~= difficultyID) ) then
-		-- dungeon or difficulty has changed
-		return true;
-	end
-	return false;
-end
-
 function EncounterJournal_ResetDisplay(instanceID, instanceType, difficultyID)
-	if ( instanceType == "none" ) then
+	if ( not instanceID or instanceType == "none" ) then
 		EncounterJournal.lastInstance = nil;
 		EncounterJournal.lastDifficulty = nil;
-		MonthlyActivitiesFrame_OpenFrame();
+		EncounterJournal_OpenJournal();
 	else
 		EJ_ContentTab_SelectAppropriateInstanceTab(instanceID);
 
@@ -592,24 +579,11 @@ function EncounterJournal_OnShow(self)
 	--automatically navigate to the current dungeon if you are in one;
 	local instanceID = AdventureGuideUtil.GetCurrentJournalInstance();
 	local _, instanceType, difficultyID = GetInstanceInfo();
-	local navigatedToCurrentInstance = false;
-	if ( instanceID and EncounterJournal_HasChangedContext(instanceID, instanceType, difficultyID) ) then
-		EncounterJournal_ResetDisplay(instanceID, instanceType, difficultyID);
-		navigatedToCurrentInstance = instanceType ~= "none";
+	-- Re-resolve the launch context on every show. A manual browsing selection
+	-- belongs to that visible session and must not become the next launch target.
+	EncounterJournal_ResetDisplay(instanceID, instanceType, difficultyID);
+	if ( instanceID and instanceType ~= "none" ) then
 		EncounterJournal.queuedPortraitUpdate = nil;
-	elseif ( self.encounter.overviewFrame:IsShown() and EncounterJournal.overviewDefaultRole and not EncounterJournal.encounter.overviewFrame.linkSection ) then
-		local spec, role;
-
-		spec = C_SpecializationInfo.GetSpecialization();
-		if (spec) then
-			role = GetSpecializationRoleEnum(spec);
-		else
-			role = Enum.LFGRole.Damage;
-		end
-
-		if ( EncounterJournal.overviewDefaultRole ~= role ) then
-			EncounterJournal_ToggleHeaders(EncounterJournal.encounter.overviewFrame);
-		end
 	end
 
 	if ( EncounterJournal.queuedPortraitUpdate ) then
@@ -626,12 +600,6 @@ function EncounterJournal_OnShow(self)
 
 	-- Request raid locks to show the defeated overlay for bosses the player has killed this week.
 	RequestRaidInfo();
-	if not opened then
-		opened = true;
-		if not navigatedToCurrentInstance then
-			EncounterJournal_OpenJournal();
-		end
-	end
 
 	EncounterJournal_SetupExpansionDropdown(self);
 	EncounterJournal_SetupLootFilterDropdown(self);

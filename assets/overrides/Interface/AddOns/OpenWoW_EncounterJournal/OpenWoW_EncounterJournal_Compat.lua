@@ -4,7 +4,7 @@
 -- C_OpenWoWJournal.
 
 local API = C_OpenWoWJournal
-local REQUIRED_SCHEMA = 8
+local REQUIRED_SCHEMA = 9
 local PRESENTATION = OpenWoW_EncounterJournal_Presentation
 
 if type(API) ~= "table" or type(API.GetSchemaVersion) ~= "function" then
@@ -645,17 +645,15 @@ function EJ_GetInstanceInfo(instanceID)
 end
 
 function EJ_GetCurrentInstance()
-    local currentName = GetInstanceInfo()
-    if not IsNonEmpty(currentName) then
+    -- The journal catalog uses a representative LFG title, which is not
+    -- guaranteed to equal the current Map.dbc display name. Map ID is the
+    -- stable identity shared by the world session and this build-12340 catalog.
+    local currentMapID = tonumber(API.GetCurrentMapID())
+    if not currentMapID then
         return 0
     end
     BuildInstances()
-    for instanceID, instance in pairs(state.instancesByID) do
-        if instance.name == currentName then
-            return instanceID
-        end
-    end
-    return 0
+    return state.instancesByID[currentMapID] and currentMapID or 0
 end
 
 function EJ_InstanceIsRaid()

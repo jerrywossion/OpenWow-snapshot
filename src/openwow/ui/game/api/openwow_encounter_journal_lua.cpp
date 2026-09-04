@@ -7,6 +7,8 @@
 #include "openwow/game/inventory/items/item_icon_resolver.h"
 #include "openwow/game/localization.h"
 #include "openwow/game/spell_text_formatter.h"
+#include "openwow/game/world_session.h"
+#include "openwow/ui/game/runtime/world_ui_runtime_context.h"
 
 extern "C" {
 #include <lua.hpp>
@@ -30,7 +32,7 @@ namespace openwow::ui::game {
 namespace {
 
 constexpr std::string_view kApiTableName = "C_OpenWoWJournal";
-constexpr std::uint32_t kSchemaVersion = 8;
+constexpr std::uint32_t kSchemaVersion = 9;
 constexpr std::uint32_t kRandomDungeonType = 6;
 constexpr std::uint32_t kPlayableClassMask = 0x5FFu;
 constexpr std::uint32_t kWeaponItemClass = 2u;
@@ -470,6 +472,30 @@ int LuaGetSchemaVersion(lua_State* state) {
   return 1;
 }
 
+int LuaGetCurrentMapId(lua_State* state) {
+  const auto* context =
+      openwow::ui::game::runtime::WorldUiRuntimeContext::FromLua(state);
+  const auto* session = context != nullptr ? context->world_session() : nullptr;
+  if (session == nullptr) {
+    lua_pushnil(state);
+    return 1;
+  }
+
+  if (session->has_current_map()) {
+    lua_pushinteger(state, session->current_map_id());
+    return 1;
+  }
+
+  const auto world_state_map_id = session->world_states().map_id();
+  if (world_state_map_id >= 0) {
+    lua_pushinteger(state, world_state_map_id);
+    return 1;
+  }
+
+  lua_pushinteger(state, session->objects().GetMapId());
+  return 1;
+}
+
 int LuaGetNumInstances(lua_State* state) {
   const auto* dbc = GetDbc();
   if (dbc == nullptr) {
@@ -772,6 +798,7 @@ void SetFunction(lua_State* state,
 void InstallEncounterJournal(lua_State* state, void*) {
   lua_newtable(state);
   SetFunction(state, "GetSchemaVersion", LuaGetSchemaVersion);
+  SetFunction(state, "GetCurrentMapID", LuaGetCurrentMapId);
   SetFunction(state, "GetNumInstances", LuaGetNumInstances);
   SetFunction(state, "GetInstanceByIndex", LuaGetInstanceByIndex);
   SetFunction(state, "GetNumDifficulties", LuaGetNumDifficulties);
