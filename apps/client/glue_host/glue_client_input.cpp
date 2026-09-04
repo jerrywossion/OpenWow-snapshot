@@ -1188,6 +1188,7 @@ void GlueClient::HandleKeyDown(const SDL_Event &event) {
             event.key.repeat != 0);
     if (!key_name.empty() &&
         game_loop_.binding_input().KeyDown(key_name)) {
+      UpdateTextInputState();
       return;
     }
   }
