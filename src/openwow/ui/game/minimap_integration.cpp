@@ -10,7 +10,6 @@
 #include "openwow/game/objects/cgunit.h"
 #include "openwow/game/party_stats.h"
 #include "openwow/game/tracking_system.h"
-#include "openwow/game/world_environment_state.h"
 #include "openwow/game/world_scene_state.h"
 #include "openwow/game/world_session.h"
 #include "openwow/render/resources/textures/texture_manager.h"
@@ -161,12 +160,10 @@ void AppendGuidePointOfInterestArrow(Minimap& minimap,
 MinimapIntegration::MinimapIntegration(
     openwow::render::TextureManager& texture_manager,
     openwow::ui::MinimapSystem& minimap_state,
-    openwow::game::MinimapSystem& minimap_content,
-    openwow::game::WorldEnvironmentState& world_environment)
+    openwow::game::MinimapSystem& minimap_content)
     : texture_manager_(texture_manager),
       minimap_state_(minimap_state),
       minimap_content_(minimap_content),
-      world_environment_(world_environment),
       minimap_(texture_manager, minimap_state, minimap_content) {}
 MinimapIntegration::~MinimapIntegration() { Shutdown(); }
 
@@ -281,11 +278,8 @@ void MinimapIntegration::Update(float player_x, float player_y,
   auto& minimap_state = minimap_state_;
   const bool has_wmo_minimap_source =
       world_map_ != nullptr &&
-      world_map_->ResolveAreaEnvironmentContextAtPosition(
-                    player_x, player_y, player_z)
-          .has_wmo_context;
-  minimap_state.SetIndoorMinimapActive(
-      world_environment_.IsIndoors() || has_wmo_minimap_source);
+      world_map_->UsesWmoMinimapSourceAtPosition(player_x, player_y, player_z);
+  minimap_state.SetIndoorMinimapActive(has_wmo_minimap_source);
   const float visible_radius = minimap_state.GetVisibleRadius();
   minimap_state.SetPlayerPosition(player_x, player_y, facing);
   minimap_state.SetMode(rotate_minimap ? openwow::ui::MinimapSystem::Mode::Rotate

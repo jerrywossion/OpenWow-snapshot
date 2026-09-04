@@ -411,6 +411,8 @@ public:
   [[nodiscard]] std::uint32_t ResolveTerrainGroundTypeAtPosition(float x, float y) const;
   [[nodiscard]] AreaEnvironmentContext ResolveAreaEnvironmentContextAtPosition(
       float x, float y, float z) const;
+  [[nodiscard]] bool UsesWmoMinimapSourceAtPosition(
+      float x, float y, float z) const;
   [[nodiscard]] WmoMinimapSource PrepareWmoMinimapSource(
       float x, float y, float z, float visible_radius);
 
@@ -500,6 +502,8 @@ private:
 
   [[nodiscard]] ResolvedWmoAreaRows ResolveWmoAreaRowsForGroup(
       const WmoAreaGroupRef &ref) const;
+  [[nodiscard]] static bool UsesWmoMinimapSource(
+      const ResolvedWmoAreaRows &rows) noexcept;
 
   struct CameraWmoFogResolution {
     FogState state;

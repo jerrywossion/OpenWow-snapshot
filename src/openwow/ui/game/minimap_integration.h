@@ -15,7 +15,6 @@ namespace openwow::game {
 class MinimapSystem;
 class ObjectManager;
 class WorldSession;
-class WorldEnvironmentState;
 class WorldSceneState;
 }
 
@@ -39,8 +38,7 @@ class MinimapIntegration {
       std::function<std::vector<std::uint8_t>(const std::string&)>;
   MinimapIntegration(openwow::render::TextureManager& texture_manager,
                      openwow::ui::MinimapSystem& minimap_state,
-                     openwow::game::MinimapSystem& minimap_content,
-                     openwow::game::WorldEnvironmentState& world_environment);
+                     openwow::game::MinimapSystem& minimap_content);
   ~MinimapIntegration();
 
   MinimapIntegration(const MinimapIntegration&) = delete;
@@ -133,7 +131,6 @@ class MinimapIntegration {
   openwow::render::TextureManager& texture_manager_;
   openwow::ui::MinimapSystem& minimap_state_;
   openwow::game::MinimapSystem& minimap_content_;
-  openwow::game::WorldEnvironmentState& world_environment_;
   const openwow::game::WorldSceneState* world_scene_state_{nullptr};
   openwow::world::WorldMap* world_map_{nullptr};
   Minimap minimap_;

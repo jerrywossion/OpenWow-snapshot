@@ -1769,6 +1769,40 @@ AreaEnvironmentContext WorldMap::ResolveAreaEnvironmentContextAtPosition(
                                          AreaEnvironmentProbe::kUnitSurface);
 }
 
+bool WorldMap::UsesWmoMinimapSource(
+    const ResolvedWmoAreaRows &rows) noexcept {
+  if (!rows.resolved || !rows.group_resident) {
+    return false;
+  }
+
+  constexpr std::uint32_t kRootWmoMinimapSourceMask = 0x19u;
+  constexpr std::uint32_t kGroupSuppressesWmoMinimap = 0x20u;
+  if (rows.group != nullptr &&
+      (rows.group->flags & kGroupSuppressesWmoMinimap) != 0u) {
+    return false;
+  }
+
+  const bool interior_group =
+      (rows.group_flags & data::wmo::kMogpExterior) == 0u;
+  const std::uint32_t root_flags =
+      rows.root != nullptr ? rows.root->flags : 0u;
+  return interior_group ||
+         (root_flags & kRootWmoMinimapSourceMask) != 0u;
+}
+
+bool WorldMap::UsesWmoMinimapSourceAtPosition(
+    const float x, const float y, const float z) const {
+  const AreaEnvironmentContext environment =
+      ResolveAreaEnvironmentAtPosition(x, y, z,
+                                       AreaEnvironmentProbe::kUnitSurface);
+  if (!environment.has_wmo_context ||
+      !last_area_environment_resolution_.containing_group.has_value()) {
+    return false;
+  }
+  return UsesWmoMinimapSource(ResolveWmoAreaRowsForGroup(
+      *last_area_environment_resolution_.containing_group));
+}
+
 WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     const float x, const float y, const float z,
     const float visible_radius) {
@@ -1840,6 +1874,13 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
   }
   if (cached.group_residency[active_group] != WmoGroupResidency::kResident) {
     source.detail = "active WMO group is pending";
+    return source;
+  }
+  const ResolvedWmoAreaRows active_area_rows =
+      ResolveWmoAreaRowsForGroup(active_ref);
+  if (!UsesWmoMinimapSource(active_area_rows)) {
+    source.status = WmoMinimapSourceStatus::kOutdoor;
+    source.detail.clear();
     return source;
   }
   if (visible_radius <= 0.0f || !std::isfinite(visible_radius)) {
@@ -2093,7 +2134,8 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
   };
 
   const bool active_group_only =
-      (instance.placement_flags & 0x18u) != 0u &&
+      active_area_rows.root != nullptr &&
+      (active_area_rows.root->flags & 0x18u) != 0u &&
       (cached.root.groupInfos[active_group].flags &
        (data::wmo::kMogpExterior | data::wmo::kMogpExteriorLit)) != 0u;
   if (active_group_only) {

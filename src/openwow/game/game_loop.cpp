@@ -1537,8 +1537,7 @@ GameLoop::GameLoop(openwow::ui::display::ProductionDisplaySettingsRuntime *runti
       floating_text_(render_resources_->floating_text), cursor_manager_(texture_manager_),
       cinematic_player_(m2_system_, sound_runtime_), post_process_(render_resources_->post_process),
       debug_draw_renderer_(render_resources_->debug_draw_renderer),
-      minimap_(texture_manager_, game_ui_.minimap_state(), game_ui_.minimap_content(),
-               world_environment_),
+      minimap_(texture_manager_, game_ui_.minimap_state(), game_ui_.minimap_content()),
       zone_ui_state_(game_ui_.minimap_state(), game_ui_.world_map()),
       world_ui_lifecycle_(CreateWorldUiLifecycleOperations(), world_ui_session_commands_,
                           world_ui_entry_settings_) {
