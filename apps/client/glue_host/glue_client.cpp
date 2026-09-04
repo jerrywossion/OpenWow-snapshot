@@ -903,6 +903,11 @@ std::string GlueClient::FindPasswordWidget() const {
 
 void GlueClient::SetMode(UiMode next_mode) {
   const bool mode_changed = mode_ != next_mode;
+#if defined(OPENWOW_PLATFORM_IOS)
+  if (mode_changed) {
+    CancelMobileInput();
+  }
+#endif
   if (mode_ == UiMode::kInWorld && next_mode != UiMode::kInWorld) {
     ReleaseInWorldInput();
   }
@@ -933,6 +938,9 @@ void GlueClient::SyncGlueViewportFromWindow() {
 }
 
 void GlueClient::RefreshLayout() {
+#if defined(OPENWOW_PLATFORM_IOS)
+  RefreshMobileInputViewport();
+#endif
   int width = 0;
   int height = 0;
   GetDrawableSize(window_, &width, &height);
@@ -1448,6 +1456,9 @@ void GlueClient::HandleWorldTransportDisconnect() {
 }
 
 bool GlueClient::Initialize() {
+#if defined(OPENWOW_PLATFORM_IOS)
+  RefreshMobileInputViewport();
+#endif
   if (startup_trace_)
     startup_trace_->Add("glue.Initialize.begin");
   if (!InitCVars()) {
@@ -3133,6 +3144,9 @@ int GlueClient::Run() {
 }
 
 void GlueClient::Shutdown() {
+#if defined(OPENWOW_PLATFORM_IOS)
+  CancelMobileInput();
+#endif
   if (debug_ui_control_adapter_) {
 
     debug_ui_control_adapter_->Stop();

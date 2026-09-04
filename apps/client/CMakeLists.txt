@@ -84,6 +84,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(FATAL_ERROR "The iOS SDL2 package does not provide SDL2::SDL2main")
   endif()
 
+  target_sources(openwow-client PRIVATE
+    mobile/mobile_input_controller.cpp
+    mobile/mobile_input_controller.h
+    mobile/mobile_ios_platform.h
+    mobile/mobile_ios_platform.mm
+  )
+
   function(openwow_add_ios_resource_tree target source_root bundle_root)
     file(GLOB_RECURSE resource_files CONFIGURE_DEPENDS
       LIST_DIRECTORIES FALSE "${source_root}/*")

@@ -50,6 +50,10 @@
 #include "openwow/runtime/bootstrap/startup_trace.h"
 #include "openwow/vfs/virtual_file_system.h"
 
+#if defined(OPENWOW_PLATFORM_IOS)
+#include "mobile/mobile_input_controller.h"
+#endif
+
 #include <SDL2/SDL.h>
 
 #include <atomic>
@@ -191,6 +195,11 @@ class GlueClient {
   void HandleMouseDown(const SDL_Event& event);
   void HandleMouseUp(const SDL_Event& event);
   void HandleKeyDown(const SDL_Event& event);
+#if defined(OPENWOW_PLATFORM_IOS)
+  void HandleMobileFingerEvent(const SDL_TouchFingerEvent& event);
+  void CancelMobileInput();
+  void RefreshMobileInputViewport();
+#endif
   void UpdateInWorldMouseButtonState(std::uint8_t button, bool pressed);
   void ReleaseInWorldInput();
 
@@ -310,6 +319,12 @@ class GlueClient {
   openwow::platform::StockWindowEventState stock_window_event_state_;
   bool left_mouse_held_{false};
   bool right_mouse_held_{false};
+#if defined(OPENWOW_PLATFORM_IOS)
+  mobile::MobileInputController mobile_input_;
+  std::uint32_t last_mobile_glue_tap_ms_{0};
+  float last_mobile_glue_tap_x_{0.0F};
+  float last_mobile_glue_tap_y_{0.0F};
+#endif
 
   openwow::net::NetworkRecvThread recv_thread_;
 

@@ -260,6 +260,9 @@ void GlueClient::ApplyWindowFocusChange(const bool focused) {
 
     game_loop_.cursor_manager().ReassertPresentation();
   } else {
+#if defined(OPENWOW_PLATFORM_IOS)
+    CancelMobileInput();
+#endif
     if (mode_ == UiMode::kInWorld) {
       ReleaseInWorldInput();
     } else {
@@ -327,6 +330,24 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
     sound_runtime_.ClearSoundKitProviderCaches();
     return;
   }
+
+#if defined(OPENWOW_PLATFORM_IOS)
+  if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERMOTION ||
+      event.type == SDL_FINGERUP) {
+    HandleMobileFingerEvent(event.tfinger);
+    return;
+  }
+  const bool is_touch_emulated_mouse =
+      (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP)
+          ? event.button.which == SDL_TOUCH_MOUSEID
+          : event.type == SDL_MOUSEMOTION
+                ? event.motion.which == SDL_TOUCH_MOUSEID
+                : event.type == SDL_MOUSEWHEEL &&
+                      event.wheel.which == SDL_TOUCH_MOUSEID;
+  if (is_touch_emulated_mouse) {
+    return;
+  }
+#endif
 
   const std::uint32_t mouse_button_flag =
       (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP)
@@ -687,6 +708,124 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
     return;
   }
 }
+
+#if defined(OPENWOW_PLATFORM_IOS)
+void GlueClient::RefreshMobileInputViewport() {
+  mobile_input_.RefreshViewport(
+      window_, openwow::platform::WindowManager::Get().GetNativeHandle());
+}
+
+void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
+  using mobile::TouchOwner;
+
+  if (event.type == SDL_FINGERDOWN) {
+    auto* const contact = mobile_input_.BeginContact(event);
+    if (contact == nullptr) {
+      return;
+    }
+    if (mode_ == UiMode::kInWorld ||
+        mobile_input_.HasOwner(TouchOwner::kGlueUi)) {
+      contact->owner = TouchOwner::kIgnored;
+      return;
+    }
+
+    contact->owner = TouchOwner::kGlueUi;
+    const std::uint32_t elapsed = event.timestamp - last_mobile_glue_tap_ms_;
+    const float dx = contact->current.logical_x - last_mobile_glue_tap_x_;
+    const float dy = contact->current.logical_y - last_mobile_glue_tap_y_;
+    const bool is_double_tap =
+        last_mobile_glue_tap_ms_ != 0u && elapsed <= 350u &&
+        dx * dx + dy * dy <= 24.0F * 24.0F;
+
+    SDL_Event pointer{};
+    pointer.type = SDL_MOUSEBUTTONDOWN;
+    pointer.button.type = SDL_MOUSEBUTTONDOWN;
+    pointer.button.timestamp = event.timestamp;
+    pointer.button.windowID = event.windowID;
+    pointer.button.button = SDL_BUTTON_LEFT;
+    pointer.button.state = SDL_PRESSED;
+    pointer.button.clicks = is_double_tap ? 2u : 1u;
+    pointer.button.x = static_cast<Sint32>(std::lround(contact->current.logical_x));
+    pointer.button.y = static_cast<Sint32>(std::lround(contact->current.logical_y));
+    HandleMouseDown(pointer);
+    return;
+  }
+
+  if (event.type == SDL_FINGERMOTION) {
+    auto* const contact = mobile_input_.UpdateContact(event);
+    if (contact == nullptr || contact->owner != TouchOwner::kGlueUi) {
+      return;
+    }
+    SDL_Event pointer{};
+    pointer.type = SDL_MOUSEMOTION;
+    pointer.motion.type = SDL_MOUSEMOTION;
+    pointer.motion.timestamp = event.timestamp;
+    pointer.motion.windowID = event.windowID;
+    pointer.motion.x = static_cast<Sint32>(std::lround(contact->current.logical_x));
+    pointer.motion.y = static_cast<Sint32>(std::lround(contact->current.logical_y));
+    pointer.motion.xrel = static_cast<Sint32>(std::lround(
+        event.dx * mobile_input_.viewport().logical_width));
+    pointer.motion.yrel = static_cast<Sint32>(std::lround(
+        event.dy * mobile_input_.viewport().logical_height));
+    HandleEvent(pointer);
+    return;
+  }
+
+  const auto ended = mobile_input_.EndContact(event);
+  if (!ended.has_value() || ended->owner != TouchOwner::kGlueUi) {
+    return;
+  }
+  SDL_Event pointer{};
+  pointer.type = SDL_MOUSEBUTTONUP;
+  pointer.button.type = SDL_MOUSEBUTTONUP;
+  pointer.button.timestamp = event.timestamp;
+  pointer.button.windowID = event.windowID;
+  pointer.button.button = SDL_BUTTON_LEFT;
+  pointer.button.state = SDL_RELEASED;
+  pointer.button.clicks = 1u;
+  pointer.button.x = static_cast<Sint32>(std::lround(ended->current.logical_x));
+  pointer.button.y = static_cast<Sint32>(std::lround(ended->current.logical_y));
+  HandleMouseUp(pointer);
+  last_mobile_glue_tap_ms_ = event.timestamp;
+  last_mobile_glue_tap_x_ = ended->current.logical_x;
+  last_mobile_glue_tap_y_ = ended->current.logical_y;
+}
+
+void GlueClient::CancelMobileInput() {
+  const auto contacts = mobile_input_.TakeAllContacts();
+  const bool had_glue_contact = std::any_of(
+      contacts.begin(), contacts.end(), [](const mobile::TouchContact& contact) {
+        return contact.owner == mobile::TouchOwner::kGlueUi;
+      });
+  if (!had_glue_contact) {
+    return;
+  }
+
+  if (!dragging_slider_name_.empty()) {
+    const std::string released = dragging_slider_name_;
+    dragging_slider_name_.clear();
+    mouse_capture_widget_name_.clear();
+    (void)DispatchWidgetEvent(released, "OnMouseUp", released + ".OnMouseUp",
+                              {MakeLuaString("LeftButton")});
+  } else if (!mouse_capture_widget_name_.empty()) {
+    const std::string released = mouse_capture_widget_name_;
+    mouse_capture_widget_name_.clear();
+    (void)DispatchWidgetEvent(released, "OnMouseUp", released + ".OnMouseUp",
+                              {MakeLuaString("LeftButton")});
+  }
+  if (!pressed_widget_name_.empty()) {
+    const std::string released = pressed_widget_name_;
+    pressed_widget_name_.clear();
+    if (!glue_widgets_.HighlightLocked(released) &&
+        !openwow::text::EqualsIgnoreCaseAscii(
+            glue_widgets_.GetButtonState(released), "DISABLED")) {
+      glue_widgets_.SetButtonState(released, "NORMAL");
+    }
+    (void)DispatchWidgetEvent(released, "OnMouseUp", released + ".OnMouseUp",
+                              {MakeLuaString("LeftButton")});
+  }
+}
+#endif
 
 void GlueClient::HandleTextInput(const SDL_Event &event) {
   UpdateFocusedEditBoxInputLanguage();

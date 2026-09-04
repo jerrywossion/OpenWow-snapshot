@@ -559,6 +559,8 @@ int RunClientProcess(int argc, char** argv) {
 #if defined(OPENWOW_PLATFORM_IOS)
   (void)SDL_SetHint("SDL_IOS_ORIENTATIONS", "LandscapeLeft LandscapeRight");
   (void)SDL_SetHint("SDL_IOS_HIDE_HOME_INDICATOR", "2");
+  (void)SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
+  (void)SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
 #endif
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) != 0) {

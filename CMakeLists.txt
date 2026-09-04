@@ -9,6 +9,10 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 
 project(OpenWoW VERSION 0.1.2 LANGUAGES C CXX)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  enable_language(OBJCXX)
+endif()
+
 add_custom_target(openwow-compatibility-audit
   COMMAND ${CMAKE_COMMAND}
     -DOPENWOW_SOURCE_DIR:PATH=${CMAKE_CURRENT_SOURCE_DIR}
