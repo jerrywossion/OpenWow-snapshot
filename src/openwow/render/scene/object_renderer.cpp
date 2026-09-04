@@ -306,26 +306,20 @@ void ReconcileItemVisualChildren(m2::M2System &m2_system, ModelAttachmentBinding
 
 [[nodiscard]] RenderMatrix4x4 BuildM2InstanceModelMatrix(const RenderInstance &inst,
                                                          const MountRenderer &mount_renderer) {
+  if (inst.is_mounted) {
+    RenderMatrix4x4 rider_transform{};
+    if (mount_renderer.GetRiderWorldTransform(
+            inst.guid, inst.scale, rider_transform)) {
+      return rider_transform;
+    }
+  }
+
   if (inst.has_explicit_world_transform) {
     return inst.world_transform;
   }
 
-  float render_x = inst.position[0];
-  float render_y = inst.position[1];
-  float render_z = inst.position[2];
-
-  if (inst.is_mounted) {
-    float offset_x = 0.0f;
-    float offset_y = 0.0f;
-    float offset_z = 0.0f;
-    if (mount_renderer.GetRiderOffset(inst.guid, offset_x, offset_y, offset_z)) {
-      render_x += offset_x;
-      render_y += offset_y;
-      render_z += offset_z;
-    }
-  }
-
-  return BuildM2ModelInstanceTransform(render_x, render_y, render_z,
+  return BuildM2ModelInstanceTransform(inst.position[0], inst.position[1],
+                                       inst.position[2],
                                        inst.orientation, inst.scale);
 }
 
@@ -733,6 +727,8 @@ void ObjectRenderer::PrepareVisibleInstances(
   }
   out_entity_ids.reserve(active.size());
   out_bounding_spheres.reserve(active.size());
+
+  mount_renderer_.PrepareRiderAttachments(active);
 
   ++animation_sample_frame_;
 
@@ -3608,6 +3604,10 @@ bool ObjectRenderer::PrepareInstanceBodyForSubmit(
     m2::M2InstanceFramePrepareScope &prepare, RenderInstance &inst,
     const PassBatchUniforms &pass_uniforms) {
 
+  if (inst.is_mounted &&
+      !mount_renderer_.HasRiderAttachmentTransform(inst.guid)) {
+    return false;
+  }
   if (inst.m2_instance_id == 0u || !prepare.QueryRenderReady(inst.m2_instance_id) ||
       !ResolveFrameAnimationSample(prepare, inst)) {
     return false;

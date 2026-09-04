@@ -34,9 +34,9 @@ struct MountInstance {
 
   AnimationState animation;
 
-  float rider_world_offset[3]{0.0f, 0.0f, 0.0f};
-  float rider_world_pos[3]{0.0f, 0.0f, 0.0f};
-  bool rider_world_pos_valid{false};
+  RenderMatrix4x4 rider_attachment_transform{};
+  bool rider_attachment_transform_valid{false};
+  bool rider_attachment_failure_reported{false};
 
   float mount_scale{1.0f};
   float mount_opacity{1.0f};
@@ -50,7 +50,6 @@ struct MountInstance {
   bool needs_resolve{true};
   bool display_overrides_applied{false};
   bool visible_submeshes_applied{false};
-  bool rider_attachment_checked{false};
 };
 
 class MountRenderer {
@@ -97,13 +96,15 @@ class MountRenderer {
       const game::ObjectPresentationSnapshot& objects,
       std::span<const std::uint64_t> rider_entity_ids);
 
-  bool GetRiderOffset(game::ObjectGuid guid,
-                      float& ox, float& oy, float& oz) const;
+  void PrepareRiderAttachments(
+      std::span<const game::ObjectPresentationRecord> objects);
 
-  bool GetRiderWorldPos(game::ObjectGuid guid,
-                         float& ox, float& oy, float& oz) const;
+  [[nodiscard]] bool GetRiderWorldTransform(
+      game::ObjectGuid guid, float rider_scale,
+      RenderMatrix4x4& out_transform) const;
 
-  [[nodiscard]] float GetMountScale(game::ObjectGuid guid) const;
+  [[nodiscard]] bool HasRiderAttachmentTransform(
+      game::ObjectGuid guid) const;
 
   void SyncFromSnapshot(const game::ObjectPresentationSnapshot& objects);
 
@@ -113,9 +114,10 @@ class MountRenderer {
   void LoadModelForMount(MountInstance& inst);
   void ApplyDisplayOverrides(MountInstance& inst);
   void ApplyVisibleSubmeshes(MountInstance& inst);
-  void ValidateRiderAttachment(MountInstance& inst);
 
-  void UpdateRiderAttachmentFromM2System(MountInstance& inst);
+  [[nodiscard]] bool PrepareMountPose(
+      MountInstance& inst, const game::ObjectPresentationRecord& unit);
+  void RefreshRiderAttachmentTransform(MountInstance& inst);
 
   [[nodiscard]] bool PrepareMountInstance(MountInstance& inst,
                                           const game::ObjectPresentationRecord& unit,

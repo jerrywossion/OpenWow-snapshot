@@ -958,7 +958,9 @@ ObjectPresentationSnapshot ObjectManager::PublishPresentationSnapshot(
         .x = world_position.x,
         .y = world_position.y,
         .z = world_position.z,
-        .facing = object->GetWorldFacing(),
+        .facing = unit != nullptr
+                      ? unit->Movement().WorldSmoothBodyFacing()
+                      : object->GetWorldFacing(),
         .scale = object->GetScale(),
         .display_id = object->GetDisplayId(),
         .health = object->GetHealth(),

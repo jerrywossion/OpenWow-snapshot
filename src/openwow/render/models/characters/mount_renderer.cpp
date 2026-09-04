@@ -8,39 +8,14 @@
 #include "openwow/render/api/math/render_math_types.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/render/models/characters/character_appearance_geosets.h"
+#include "openwow/render/models/animation/model_instance_transform.h"
+#include "openwow/render/api/math/render_matrix_math.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <numeric>
 
 namespace openwow::render {
-
-namespace {
-
-[[nodiscard]] RenderMatrix4x4 BuildMountModelMatrix(
-    const float x,
-    const float y,
-    const float z,
-    const float yaw,
-    const float scale) {
-  const float cosine = std::cos(yaw);
-  const float sine = std::sin(yaw);
-
-  RenderMatrix4x4 matrix{};
-  matrix[0] = cosine * scale;
-  matrix[2] = -sine * scale;
-  matrix[5] = scale;
-  matrix[8] = sine * scale;
-  matrix[10] = cosine * scale;
-  matrix[12] = x;
-  matrix[13] = y;
-  matrix[14] = z;
-  matrix[15] = 1.0f;
-  return matrix;
-}
-
-}
 
 MountRenderer::~MountRenderer() {
   Shutdown();
@@ -188,10 +163,10 @@ void MountRenderer::ClearM2Binding(MountInstance& inst) {
   inst.m2_instance_id = 0u;
   inst.render_ready_latched_instance_id = 0u;
   inst.mount_loaded = false;
-  inst.rider_world_pos_valid = false;
+  inst.rider_attachment_transform_valid = false;
+  inst.rider_attachment_failure_reported = false;
   inst.display_overrides_applied = false;
   inst.visible_submeshes_applied = false;
-  inst.rider_attachment_checked = false;
 }
 
 void MountRenderer::LoadModelForMount(MountInstance& inst) {
@@ -286,25 +261,6 @@ void MountRenderer::ApplyVisibleSubmeshes(MountInstance& inst) {
   }
 }
 
-void MountRenderer::ValidateRiderAttachment(MountInstance& inst) {
-  if (inst.rider_attachment_checked || inst.m2_model_id == 0u) {
-    return;
-  }
-  const auto attachment = m2_system_.QueryModelAttachmentInfo(
-      inst.m2_model_id, kRiderAttachmentLookupIndex);
-  if (attachment.status == m2::M2ResultStatus::kNotReady) {
-    return;
-  }
-  inst.rider_attachment_checked = true;
-  if (attachment.status != m2::M2ResultStatus::kReady) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "MountRenderer: MOUNTDISPLAYIDNOMOUNTATTACHMENT|" +
-            std::to_string(inst.mount_display_id) +
-            " status=" + m2::M2ResultStatusName(attachment.status));
-  }
-}
-
 void MountRenderer::Update(float dt, int max_loads_per_frame) {
   if (!initialized_) return;
 
@@ -333,7 +289,6 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
 
     ApplyDisplayOverrides(inst);
     ApplyVisibleSubmeshes(inst);
-    ValidateRiderAttachment(inst);
 
     std::uint32_t anim_duration_ms = 0u;
     if (inst.m2_model_id != 0u) {
@@ -486,63 +441,32 @@ void MountRenderer::RenderShadowCasters(
   }
 }
 
-bool MountRenderer::GetRiderOffset(game::ObjectGuid guid, float& ox,
-                                   float& oy, float& oz) const {
-  auto it = mounts_.find(guid);
-  if (it == mounts_.end()) return false;
-
-  const auto& inst = it->second;
-  if (inst.rider_world_pos_valid) {
-    ox = inst.rider_world_offset[0];
-    oy = inst.rider_world_offset[1];
-    oz = inst.rider_world_offset[2];
-  } else {
-    return false;
-  }
-  return true;
-}
-
-bool MountRenderer::GetRiderWorldPos(game::ObjectGuid guid, float& ox,
-                                      float& oy, float& oz) const {
-  auto it = mounts_.find(guid);
-  if (it == mounts_.end()) return false;
-
-  const auto& inst = it->second;
-  if (!inst.rider_world_pos_valid) return false;
-
-  ox = inst.rider_world_pos[0];
-  oy = inst.rider_world_pos[1];
-  oz = inst.rider_world_pos[2];
-  return true;
-}
-
-float MountRenderer::GetMountScale(game::ObjectGuid guid) const {
-  auto it = mounts_.find(guid);
-  if (it == mounts_.end()) return 1.0f;
-  return it->second.mount_scale;
-}
-
-void MountRenderer::UpdateRiderAttachmentFromM2System(MountInstance& inst) {
-  inst.rider_world_pos_valid = false;
+void MountRenderer::RefreshRiderAttachmentTransform(MountInstance& inst) {
+  inst.rider_attachment_transform_valid = false;
   if (inst.m2_instance_id == 0u) {
     return;
   }
 
-  auto& system = m2_system_;
-  const auto attachment_query =
-      system.QueryAttachmentPosition(inst.m2_instance_id, kRiderAttachmentLookupIndex);
-  const auto origin_query = system.QueryModelWorldPoint(inst.m2_instance_id);
-  if (attachment_query.status != m2::M2ResultStatus::kReady ||
-      origin_query.status != m2::M2ResultStatus::kReady) {
+  const auto attachment = m2_system_.QueryAttachmentTransformMatrix(
+      inst.m2_instance_id, kRiderAttachmentLookupIndex);
+  if (attachment.status == m2::M2ResultStatus::kReady) {
+    inst.rider_attachment_transform = attachment.matrix;
+    inst.rider_attachment_transform_valid = true;
+    inst.rider_attachment_failure_reported = false;
     return;
   }
-
-  for (std::size_t axis = 0; axis < 3u; ++axis) {
-    inst.rider_world_pos[axis] = attachment_query.position[axis];
-    inst.rider_world_offset[axis] =
-        attachment_query.position[axis] - origin_query.position[axis];
+  if (attachment.status != m2::M2ResultStatus::kNotReady &&
+      !inst.rider_attachment_failure_reported) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "MountRenderer: rider attachment transform failed display=" +
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(attachment.status) +
+            " reason=" + m2::M2ResultReasonName(attachment.reason) +
+            (attachment.detail.empty() ? std::string()
+                                       : " detail=" + attachment.detail));
+    inst.rider_attachment_failure_reported = true;
   }
-  inst.rider_world_pos_valid = true;
 }
 
 game::CharacterLocomotionAnimation MountRenderer::SelectMountAnimation(
@@ -559,28 +483,14 @@ bool MountRenderer::PrepareMountInstance(MountInstance& inst,
                                          const m2::M2BatchUniforms& world_uniforms) {
 
   auto& system = m2_system_;
-
-  const auto locomotion = SelectMountAnimation(unit);
-  inst.animation.SetAnimation(locomotion.animation_id, locomotion.looping);
-
-  const float pos_x = unit.x;
-  const float pos_y = unit.y;
-  const float pos_z = unit.z;
-  const float orientation = unit.facing;
-
-  const RenderMatrix4x4 model_matrix =
-      BuildMountModelMatrix(pos_x, pos_y, pos_z, orientation, inst.mount_scale);
-
-  const std::uint32_t anim_time = inst.animation.current_time_ms();
+  if (!PrepareMountPose(inst, unit)) {
+    return false;
+  }
 
   m2::M2ResultStatus setup_status = m2::M2ResultStatus::kReady;
   const auto merge_setup_status = [&setup_status](const m2::M2ResultStatus status) {
     setup_status = m2::MergeM2ResultStatus(setup_status, status);
   };
-  merge_setup_status(
-      system.SetWorldTransformMatrix(inst.m2_instance_id, model_matrix));
-  merge_setup_status(
-      system.SetAnimationSample(inst.m2_instance_id, inst.animation.current_anim(), anim_time));
   merge_setup_status(system.SetVisible(inst.m2_instance_id, true));
 
   merge_setup_status(system.SetAlpha(
@@ -594,8 +504,87 @@ bool MountRenderer::PrepareMountInstance(MountInstance& inst,
   if (setup_status != m2::M2ResultStatus::kReady) {
     return false;
   }
-  UpdateRiderAttachmentFromM2System(inst);
   return true;
+}
+
+bool MountRenderer::PrepareMountPose(
+    MountInstance& inst, const game::ObjectPresentationRecord& unit) {
+  inst.rider_attachment_transform_valid = false;
+  if (inst.m2_instance_id == 0u) {
+    return false;
+  }
+
+  const auto locomotion = SelectMountAnimation(unit);
+  inst.animation.SetAnimation(locomotion.animation_id, locomotion.looping);
+  const auto model_matrix = BuildM2ModelInstanceTransform(
+      unit.x, unit.y, unit.z, unit.facing, inst.mount_scale);
+
+  auto status = m2_system_.SetWorldTransformMatrix(inst.m2_instance_id,
+                                                   model_matrix);
+  status = m2::MergeM2ResultStatus(
+      status, m2_system_.SetAnimationSample(
+                  inst.m2_instance_id, inst.animation.current_anim(),
+                  inst.animation.current_time_ms()));
+  if (m2::IsTerminalM2ResultStatus(status)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "MountRenderer: pose setup failed display=" +
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(status));
+    ClearM2Binding(inst);
+    return false;
+  }
+  if (status != m2::M2ResultStatus::kReady) {
+    return false;
+  }
+
+  RefreshRiderAttachmentTransform(inst);
+  return inst.rider_attachment_transform_valid;
+}
+
+void MountRenderer::PrepareRiderAttachments(
+    const std::span<const game::ObjectPresentationRecord> objects) {
+  for (auto& [guid, inst] : mounts_) {
+    const auto unit = std::lower_bound(
+        objects.begin(), objects.end(), guid.GetRawValue(),
+        [](const game::ObjectPresentationRecord& record,
+           const std::uint64_t raw_guid) {
+          return record.handle.guid.GetRawValue() < raw_guid;
+        });
+    if (unit == objects.end() || unit->handle != inst.rider ||
+        unit->mount_display_id != inst.mount_display_id ||
+        !inst.mount_loaded) {
+      inst.rider_attachment_transform_valid = false;
+      continue;
+    }
+    static_cast<void>(PrepareMountPose(inst, *unit));
+  }
+}
+
+bool MountRenderer::GetRiderWorldTransform(
+    const game::ObjectGuid guid, const float rider_scale,
+    RenderMatrix4x4& out_transform) const {
+  const auto it = mounts_.find(guid);
+  if (it == mounts_.end() ||
+      !it->second.rider_attachment_transform_valid) {
+    return false;
+  }
+
+  const auto& inst = it->second;
+  const float parent_scale = inst.mount_scale > 0.0f ? inst.mount_scale : 1.0f;
+  const float child_scale =
+      (rider_scale > 0.0f ? rider_scale : 1.0f) / parent_scale;
+  const RenderVec3 scale{child_scale, child_scale, child_scale};
+  out_transform = ScaleMatrix4x4BasisRows(
+      inst.rider_attachment_transform, scale);
+  return true;
+}
+
+bool MountRenderer::HasRiderAttachmentTransform(
+    const game::ObjectGuid guid) const {
+  const auto it = mounts_.find(guid);
+  return it != mounts_.end() &&
+         it->second.rider_attachment_transform_valid;
 }
 
 }
