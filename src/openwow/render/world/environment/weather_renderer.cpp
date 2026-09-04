@@ -659,8 +659,7 @@ float WeatherRenderer::SampleGroundProfile(const MistParticle& particle) const {
          (particle.ground_profile[high] - particle.ground_profile[low]) * fraction;
 }
 
-void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera,
-                                     const world::WeatherState& weather) {
+void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera) {
   std::size_t retained = 0u;
   for (PrimaryParticle particle : primary_particles_) {
     const float previous_age = particle.age;
@@ -670,7 +669,7 @@ void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera,
                            std::min(previous_age, particle.motion_lifetime));
     particle.position = Add(particle.position,
                             Scale(particle.velocity, motion_step));
-    if (weather.kind == world::WeatherKind::kRain &&
+    if (kind_ == world::WeatherKind::kRain &&
         previous_age < particle.motion_lifetime &&
         particle.age >= particle.motion_lifetime && particle.has_collision &&
         rain_splash_particles_.size() < kMaximumRainSplashes) {
@@ -702,21 +701,39 @@ void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera,
   });
 }
 
+void WeatherRenderer::ActivateWeather(const world::WeatherState& weather) {
+  Reset();
+  kind_ = weather.kind;
+  active_color_abgr_ = weather.color_abgr;
+  RefreshPrimaryTexture(weather);
+  RefreshMistTexture(weather.kind);
+  RefreshRainSplashTexture(weather.kind);
+}
+
 void WeatherRenderer::Update(const float dt, const RenderVec3& camera,
                              const world::WeatherState& weather,
                              const float particle_density_scale,
                              const bool use_weather_shaders) {
   if (weather.kind != kind_) {
-    Reset();
-    kind_ = weather.kind;
+    if (!weather.smooth_transition || kind_ == world::WeatherKind::kNone ||
+        (primary_particles_.empty() && rain_splash_particles_.empty() &&
+         mist_particles_.empty())) {
+      ActivateWeather(weather);
+    } else {
+      retiring_ = true;
+      primary_spawn_credit_ = 0.0f;
+      mist_spawn_credit_ = 0.0f;
+    }
+  } else {
+    retiring_ = false;
+    active_color_abgr_ = weather.color_abgr;
+    RefreshPrimaryTexture(weather);
+    RefreshMistTexture(weather.kind);
+    RefreshRainSplashTexture(weather.kind);
   }
-  RefreshPrimaryTexture(weather);
-  RefreshMistTexture(weather.kind);
-  RefreshRainSplashTexture(weather.kind);
 
   const float step = std::max(0.0f, dt);
-  AdvancePrimary(step, camera, weather);
-  SpawnPrimary(step, camera, weather, particle_density_scale, use_weather_shaders);
+  AdvancePrimary(step, camera);
 
   const float half_step_squared = 0.5f * step * step;
   for (auto& particle : mist_particles_) {
@@ -737,17 +754,26 @@ void WeatherRenderer::Update(const float dt, const RenderVec3& camera,
   std::erase_if(mist_particles_, [](const MistParticle& particle) {
     return particle.age >= particle.lifetime;
   });
-  SpawnMist(step, camera, weather, particle_density_scale, use_weather_shaders);
+
+  if (retiring_ && primary_particles_.empty() &&
+      rain_splash_particles_.empty() && mist_particles_.empty()) {
+    ActivateWeather(weather);
+  }
+  if (!retiring_) {
+    SpawnPrimary(step, camera, weather, particle_density_scale,
+                 use_weather_shaders);
+    SpawnMist(step, camera, weather, particle_density_scale,
+              use_weather_shaders);
+  }
 }
 
 void WeatherRenderer::Render(const std::uint8_t view_id,
                              const RenderMatrix4x4& view,
                              const RenderMatrix4x4& projection,
                              const RenderVec3& camera,
-                             const world::WeatherState& weather,
                              const RenderVec4& fog_color,
                              bgfx::Encoder* const encoder) {
-  if (!initialized_ || weather.kind != kind_) {
+  if (!initialized_ || kind_ == world::WeatherKind::kNone) {
     return;
   }
   const RenderVec3 right{view[0], view[4], view[8]};
@@ -758,7 +784,7 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
   bgfx::setViewTransform(view_id, view.data(), projection.data());
 
   const bgfx::TextureHandle primary_texture =
-      weather.kind == world::WeatherKind::kSandstorm
+      kind_ == world::WeatherKind::kSandstorm
           ? texture_manager_.GetWhiteTexture()
           : primary_texture_lease_.valid()
                 ? BgfxTextureLeaseAccess::Get(primary_texture_lease_)
@@ -768,12 +794,12 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     output.reserve(primary_particles_.size() * 6u);
 
     for (const auto& particle : primary_particles_) {
-      if (weather.kind == world::WeatherKind::kRain) {
+      if (kind_ == world::WeatherKind::kRain) {
         AppendRainDrop(particle.position, particle.velocity, camera, right,
-                       ScaleAlpha(weather.color_abgr, 0.5f), output);
+                       ScaleAlpha(active_color_abgr_, 0.5f), output);
       } else {
         float opacity = 1.0f;
-        if (weather.kind == world::WeatherKind::kSnow) {
+        if (kind_ == world::WeatherKind::kSnow) {
           opacity = std::clamp(particle.age, 0.0f, 1.0f) *
                     std::clamp((particle.lifetime - particle.age) * 4.0f,
                                0.0f, 1.0f);
@@ -784,7 +810,7 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
         }
         AppendBillboard(particle.position, right, up, camera,
                         kPointFallbackHalfSize,
-                        ScaleAlpha(weather.color_abgr, opacity), false,
+                        ScaleAlpha(active_color_abgr_, opacity), false,
                         output);
       }
     }
@@ -816,7 +842,7 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
       const float opacity =
           0.5f * (1.0f - splash.age / kRainSplashLifetime);
       AppendRainSplash(splash.position, splash.normal, right, up, splash.age,
-                       ScaleAlpha(weather.color_abgr, opacity), output);
+                       ScaleAlpha(active_color_abgr_, opacity), output);
     }
     bgfx::update(rain_splash_vertices_, 0,
                  bgfx::copy(output.data(), static_cast<std::uint32_t>(
@@ -874,6 +900,8 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
 void WeatherRenderer::Reset() {
   kind_ = world::WeatherKind::kNone;
+  active_color_abgr_ = 0xffffffffu;
+  retiring_ = false;
   primary_spawn_credit_ = 0.0f;
   primary_particles_.clear();
   rain_splash_particles_.clear();

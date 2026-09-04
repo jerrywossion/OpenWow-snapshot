@@ -42,7 +42,6 @@ class WeatherRenderer {
   void Render(std::uint8_t view_id, const RenderMatrix4x4& view,
               const RenderMatrix4x4& projection,
               const RenderVec3& camera_position,
-              const world::WeatherState& weather,
               const RenderVec4& fog_color,
               bgfx::Encoder* encoder = nullptr);
   void Reset();
@@ -88,8 +87,9 @@ class WeatherRenderer {
                 float particle_density_scale,
                 bool use_weather_shaders);
 
-  void AdvancePrimary(float dt, const RenderVec3& camera_position,
-                      const world::WeatherState& weather);
+  void AdvancePrimary(float dt, const RenderVec3& camera_position);
+
+  void ActivateWeather(const world::WeatherState& weather);
 
   [[nodiscard]] bool BuildGroundProfile(MistParticle& particle) const;
 
@@ -105,6 +105,8 @@ class WeatherRenderer {
   GroundHeightSampler ground_height_sampler_;
   CollisionSampler collision_sampler_;
   world::WeatherKind kind_{world::WeatherKind::kNone};
+  std::uint32_t active_color_abgr_{0xffffffffu};
+  bool retiring_{};
   std::mt19937 random_{0x335a1234u};
 
   float primary_spawn_credit_{};

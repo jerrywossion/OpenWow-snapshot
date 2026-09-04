@@ -986,7 +986,7 @@ void WorldPresentationScene::Render(
                    pos, env);
 
     weather_renderer_->Render(views.weather, matrices.bgfx_view(),
-      matrices.bgfx_projection(), {pos[0], pos[1], pos[2]}, weather_, env.fog.color);
+      matrices.bgfx_projection(), {pos[0], pos[1], pos[2]}, env.fog.color);
   };
 
   visible_wmo_liquids_scratch_.clear();
