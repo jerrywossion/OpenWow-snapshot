@@ -554,8 +554,8 @@ void WorldMap::UnloadMap() {
   wmo_cache_.clear();
 
   InvalidateAreaEnvironmentCache();
-  active_weather_type_ = WeatherKind::kNone;
-  active_weather_density_ = 0.0f;
+  ResetWeather(weather_);
+  weather_clock_ = 0u;
   active_weather_row_.reset();
   terrain_streamer_.Reset();
   terrain_streamer_.SetTileExistsCallback({});
@@ -1076,7 +1076,7 @@ void WorldMap::RefreshLightingEnvironment() {
     const auto resolved = lighting_.ResolveEnvironment(
         player_x_, player_y_, player_z_, time_of_day_,
         screen_effect_light_param_slot_override_,
-        active_weather_density_,
+        WeatherLightingBlendFactor(weather_),
         use_underwater_light_params, liquid_darkening,
         suppress_local_lighting_);
     const world::SkyColors &colors = resolved.sky;
@@ -1160,7 +1160,7 @@ void WorldMap::UpdateDayNightLightEnvironmentForFrame(
   light_env.WriteFloat(16u, far_clip);
   light_env.WriteFloat(17u, static_cast<float>(tick_ms) * 0.001f);
   light_env.WriteFloat(18u, last_frame_delta_seconds_);
-  light_env.WriteFloat(19u, active_weather_density_);
+  light_env.WriteFloat(19u, WeatherLightingBlendFactor(weather_));
   openwow::game::DayNight_WriteOutdoorFogBand(
       light_env,
       openwow::game::DayNightFogBand{
@@ -1221,18 +1221,21 @@ void WorldMap::SetWeather(const std::uint32_t type, const float intensity,
 
   const std::uint32_t effect_type =
       weather_row != nullptr ? weather_row->effect_type : 0u;
-  active_weather_type_ =
+  const WeatherKind effect =
       effect_type <= static_cast<std::uint32_t>(WeatherKind::kSandstorm)
           ? static_cast<WeatherKind>(effect_type)
           : WeatherKind::kNone;
-  active_weather_density_ = std::clamp(intensity, 0.0f, 1.0f);
   active_weather_row_ =
       weather_row != nullptr
           ? std::optional<data::dbc::WeatherEntry>(*weather_row)
           : std::nullopt;
+  openwow::world::SetWeather(
+      weather_, effect, intensity, weather_row, smooth,
+      weather_row != nullptr ? weather_row->transition_value : 1.0f,
+      weather_clock_);
   presentation_commands_.emplace_back(SetWeatherPresentationCommand{
-      .type = active_weather_type_,
-      .density = active_weather_density_,
+      .type = weather_.kind,
+      .density = weather_.target_density,
       .row = active_weather_row_,
       .smooth = smooth});
   RefreshLightingEnvironment();
@@ -3082,6 +3085,15 @@ void WorldMap::Update(float dt) {
 
   last_frame_delta_seconds_ = std::max(0.0f, dt);
   light_env_elapsed_seconds_ += last_frame_delta_seconds_;
+  weather_clock_ += static_cast<std::uint32_t>(
+      last_frame_delta_seconds_ * 1000.0f);
+  const float previous_weather_blend = WeatherLightingBlendFactor(weather_);
+  UpdateWeather(weather_, {.now = weather_clock_,
+                           .position = {player_x_, player_y_, player_z_},
+                           .indoors = !player_is_outdoors_});
+  if (WeatherLightingBlendFactor(weather_) != previous_weather_blend) {
+    RefreshLightingEnvironment();
+  }
 }
 
 WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
@@ -3152,8 +3164,8 @@ WorldPresentationSnapshot WorldMap::PublishPresentationSnapshot(
   environment_.fog_end = fog.params[1];
   environment_.fog_density = std::clamp(fog.params[2], 0.0f, 1.0f);
   environment_.fog_color = fog.color;
-  environment_.weather = active_weather_type_;
-  environment_.weather_density = active_weather_density_;
+  environment_.weather = weather_.kind;
+  environment_.weather_density = weather_.density;
   environment_.indoors = !area_environment.outdoors;
   std::optional<ZoneSkyboxEntry> camera_wmo_skybox;
   const auto view_projection = Multiply(camera.view, camera.projection);
@@ -3554,8 +3566,8 @@ void WorldMap::QueueFullPresentationReplay() {
   }
 
   presentation_commands_.emplace_back(SetWeatherPresentationCommand{
-      .type = active_weather_type_,
-      .density = active_weather_density_,
+      .type = weather_.kind,
+      .density = weather_.target_density,
       .row = active_weather_row_});
 }
 

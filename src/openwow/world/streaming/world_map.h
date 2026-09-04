@@ -651,8 +651,8 @@ private:
   int32_t view_distance_ = 2;
   int32_t unload_distance_ = 2;
   float time_of_day_ = 0.5f;
-  WeatherKind active_weather_type_{WeatherKind::kNone};
-  float active_weather_density_{0.0f};
+  WeatherState weather_{};
+  std::uint32_t weather_clock_{};
   std::optional<data::dbc::WeatherEntry> active_weather_row_;
   LifecycleState lifecycle_state_{LifecycleState::kStopped};
   bool initialization_succeeded_{false};

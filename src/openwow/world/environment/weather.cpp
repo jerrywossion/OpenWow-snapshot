@@ -45,12 +45,13 @@ std::string_view DefaultTexture(const WeatherKind kind) {
 
 void SetWeather(WeatherState& state, const WeatherKind kind, float density,
                 const data::dbc::WeatherEntry* row, const bool smooth,
-                const float fog_speed, const std::uint32_t now) {
+                const float transition_value, const std::uint32_t now) {
   density = std::clamp(density, 0.0f, 1.0f);
   state.transition_start_density = smooth ? state.density : density;
-  state.transition_start_fog_speed = smooth ? state.fog_speed : fog_speed;
+  state.transition_start_value =
+      smooth ? state.transition_value : transition_value;
   state.target_density = density;
-  state.target_fog_speed = fog_speed;
+  state.target_transition_value = transition_value;
   state.transition_started_at = now;
   state.smooth_transition = smooth;
   state.kind = kind;
@@ -68,7 +69,7 @@ void SetWeather(WeatherState& state, const WeatherKind kind, float density,
   }
   if (!smooth) {
     state.density = density;
-    state.fog_speed = fog_speed;
+    state.transition_value = transition_value;
     state.sky_overlay = std::min(density, 0.25f);
   }
 }
@@ -106,8 +107,13 @@ void UpdateWeather(WeatherState& state, const WeatherUpdate& update) {
   state.sky_overlay =
       Transition(std::min(state.transition_start_density, 0.25f),
                  std::min(state.target_density, 0.25f), elapsed, 10.0f, 4.0f);
-  state.fog_speed = Transition(state.transition_start_fog_speed,
-                               state.target_fog_speed, elapsed, 5.0f, 4.0f);
+  state.transition_value =
+      Transition(state.transition_start_value, state.target_transition_value,
+                 elapsed, 5.0f, 4.0f);
+}
+
+float WeatherLightingBlendFactor(const WeatherState& state) {
+  return state.sky_overlay * state.transition_value;
 }
 
 void ResetWeather(WeatherState& state) {
