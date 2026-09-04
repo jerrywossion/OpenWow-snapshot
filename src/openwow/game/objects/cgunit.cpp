@@ -175,6 +175,7 @@ void CGUnit_C::FinalizeUnitCreateState(
 
   Movement().SeedBodyFacing(GetLocalFacing());
   Animation().SeedCachedSheatheStateFromDescriptor();
+  Mount().InitializeFromDescriptor(*this);
 
   if (!upd.movement_applied_before_post_init) {
     movement_.ApplyCreateUpdate(upd.client_receive_tick_ms);

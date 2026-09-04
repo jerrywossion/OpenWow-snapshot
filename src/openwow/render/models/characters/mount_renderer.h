@@ -39,10 +39,18 @@ struct MountInstance {
   bool rider_world_pos_valid{false};
 
   float mount_scale{1.0f};
+  float mount_opacity{1.0f};
+
+  std::array<std::string, 3> display_texture_paths{};
+  std::optional<CreatureDisplayParticleColors> display_particle_colors;
+  std::uint32_t display_geoset_data{0u};
 
   bool mount_loaded{false};
 
   bool needs_resolve{true};
+  bool display_overrides_applied{false};
+  bool visible_submeshes_applied{false};
+  bool rider_attachment_checked{false};
 };
 
 class MountRenderer {
@@ -101,9 +109,11 @@ class MountRenderer {
 
  private:
 
-  std::string ResolveMountModel(std::uint32_t display_id);
   void ClearM2Binding(MountInstance& inst);
   void LoadModelForMount(MountInstance& inst);
+  void ApplyDisplayOverrides(MountInstance& inst);
+  void ApplyVisibleSubmeshes(MountInstance& inst);
+  void ValidateRiderAttachment(MountInstance& inst);
 
   void UpdateRiderAttachmentFromM2System(MountInstance& inst);
 

@@ -7,6 +7,7 @@
 #include "openwow/render/scene/m2_instance_render_cost.h"
 #include "openwow/render/api/math/render_math_types.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/render/models/characters/character_appearance_geosets.h"
 
 #include <algorithm>
 #include <cmath>
@@ -100,6 +101,11 @@ void MountRenderer::SetMount(game::ObjectGuid guid,
   ClearM2Binding(inst);
   inst.mount_model_path.clear();
   inst.animation.Reset();
+  inst.display_texture_paths = {};
+  inst.display_particle_colors.reset();
+  inst.display_geoset_data = 0u;
+  inst.mount_scale = 1.0f;
+  inst.mount_opacity = 1.0f;
 }
 
 void MountRenderer::ClearMount(game::ObjectGuid guid) {
@@ -143,6 +149,11 @@ void MountRenderer::SyncFromSnapshot(
       ClearM2Binding(inst);
       inst.mount_model_path.clear();
       inst.animation.Reset();
+      inst.display_texture_paths = {};
+      inst.display_particle_colors.reset();
+      inst.display_geoset_data = 0u;
+      inst.mount_scale = 1.0f;
+      inst.mount_opacity = 1.0f;
     }
   }
 
@@ -164,11 +175,6 @@ void MountRenderer::SyncFromSnapshot(
   }
 }
 
-std::string MountRenderer::ResolveMountModel(std::uint32_t display_id) {
-  if (!display_info_ || !display_info_->IsReady()) return {};
-  return display_info_->ResolveCreatureModel(display_id);
-}
-
 void MountRenderer::ClearM2Binding(MountInstance& inst) {
   if (inst.m2_instance_id != 0u) {
     const auto status = m2_system_.DestroyInstance(inst.m2_instance_id);
@@ -180,6 +186,12 @@ void MountRenderer::ClearM2Binding(MountInstance& inst) {
   }
   inst.m2_model_id = 0u;
   inst.m2_instance_id = 0u;
+  inst.render_ready_latched_instance_id = 0u;
+  inst.mount_loaded = false;
+  inst.rider_world_pos_valid = false;
+  inst.display_overrides_applied = false;
+  inst.visible_submeshes_applied = false;
+  inst.rider_attachment_checked = false;
 }
 
 void MountRenderer::LoadModelForMount(MountInstance& inst) {
@@ -204,21 +216,92 @@ void MountRenderer::LoadModelForMount(MountInstance& inst) {
   inst.m2_model_id = model_id;
   inst.m2_instance_id = instance_result.instance_id;
   inst.mount_loaded = true;
+}
 
-  inst.rider_world_pos_valid = false;
+void MountRenderer::ApplyDisplayOverrides(MountInstance& inst) {
+  if (inst.display_overrides_applied || inst.m2_instance_id == 0u) {
+    return;
+  }
+  std::optional<m2::M2ParticleColorRecord> particle_colors;
+  if (inst.display_particle_colors.has_value()) {
+    particle_colors = m2::M2ParticleColorRecord{
+        .start = inst.display_particle_colors->start,
+        .mid = inst.display_particle_colors->mid,
+        .end = inst.display_particle_colors->end,
+    };
+  }
+  const auto status = m2_system_.ApplyCreatureDisplayRecordOverrides(
+      inst.m2_instance_id, inst.display_texture_paths,
+      std::move(particle_colors));
+  if (status == m2::M2ResultStatus::kReady) {
+    inst.display_overrides_applied = true;
+  } else if (m2::IsTerminalM2ResultStatus(status)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "MountRenderer: display overrides failed display=" +
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(status));
+    ClearM2Binding(inst);
+  }
+}
 
-  const auto attachment =
-      system.QueryModelAttachmentInfo(model_id, kRiderAttachmentLookupIndex);
+void MountRenderer::ApplyVisibleSubmeshes(MountInstance& inst) {
+  if (inst.visible_submeshes_applied || inst.m2_instance_id == 0u ||
+      inst.m2_model_id == 0u) {
+    return;
+  }
+  const auto sections =
+      m2_system_.QueryModelSubmeshSectionIds(inst.m2_model_id);
+  if (sections.status != m2::M2ResultStatus::kReady) {
+    if (m2::IsTerminalM2ResultStatus(sections.status)) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "MountRenderer: geoset query failed display=" +
+              std::to_string(inst.mount_display_id) +
+              " status=" + m2::M2ResultStatusName(sections.status));
+      ClearM2Binding(inst);
+    }
+    return;
+  }
+
+  std::vector<std::size_t> visible_indices;
+  visible_indices.reserve(sections.section_ids.size());
+  for (std::size_t index = 0u; index < sections.section_ids.size(); ++index) {
+    if (IsCreatureGeosetSectionVisible(sections.section_ids[index],
+                                       inst.display_geoset_data)) {
+      visible_indices.push_back(index);
+    }
+  }
+  const auto status = m2_system_.SetVisibleSubmeshIndices(
+      inst.m2_instance_id, std::move(visible_indices));
+  if (status == m2::M2ResultStatus::kReady) {
+    inst.visible_submeshes_applied = true;
+  } else if (m2::IsTerminalM2ResultStatus(status)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "MountRenderer: geoset apply failed display=" +
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(status));
+    ClearM2Binding(inst);
+  }
+}
+
+void MountRenderer::ValidateRiderAttachment(MountInstance& inst) {
+  if (inst.rider_attachment_checked || inst.m2_model_id == 0u) {
+    return;
+  }
+  const auto attachment = m2_system_.QueryModelAttachmentInfo(
+      inst.m2_model_id, kRiderAttachmentLookupIndex);
+  if (attachment.status == m2::M2ResultStatus::kNotReady) {
+    return;
+  }
+  inst.rider_attachment_checked = true;
   if (attachment.status != m2::M2ResultStatus::kReady) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
         "MountRenderer: MOUNTDISPLAYIDNOMOUNTATTACHMENT|" +
-            std::to_string(inst.mount_display_id));
-  }
-
-  if (display_info_ && display_info_->IsReady()) {
-    inst.mount_scale =
-        display_info_->GetCreatureModelScale(inst.mount_display_id);
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(attachment.status));
   }
 }
 
@@ -231,7 +314,14 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
   for (auto& [guid, inst] : mounts_) {
 
     if (inst.needs_resolve && display_info_ && display_info_->IsReady()) {
-      inst.mount_model_path = ResolveMountModel(inst.mount_display_id);
+      const auto visual =
+          display_info_->ResolveCreatureDisplay(inst.mount_display_id);
+      inst.mount_model_path = visual.model_path;
+      inst.mount_scale = visual.model_scale;
+      inst.mount_opacity = visual.model_opacity;
+      inst.display_texture_paths = visual.texture_paths;
+      inst.display_particle_colors = visual.particle_colors;
+      inst.display_geoset_data = visual.geoset_data;
       inst.needs_resolve = false;
     }
 
@@ -240,6 +330,10 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
       LoadModelForMount(inst);
       ++loads_this_frame;
     }
+
+    ApplyDisplayOverrides(inst);
+    ApplyVisibleSubmeshes(inst);
+    ValidateRiderAttachment(inst);
 
     std::uint32_t anim_duration_ms = 0u;
     if (inst.m2_model_id != 0u) {
@@ -274,7 +368,9 @@ void MountRenderer::Render(std::uint8_t view_id, const float* view_mtx,
   render_batch_ids_scratch_.clear();
   for (auto& [guid, inst] : mounts_) {
 
-    if (!inst.mount_loaded || inst.m2_instance_id == 0u) {
+    if (!inst.mount_loaded || inst.m2_instance_id == 0u ||
+        !inst.display_overrides_applied ||
+        !inst.visible_submeshes_applied) {
       continue;
     }
     if (inst.render_ready_latched_instance_id != inst.m2_instance_id) {
@@ -346,7 +442,9 @@ void MountRenderer::RenderShadowCasters(
   for (auto& [guid, inst] : mounts_) {
     if (!std::binary_search(rider_entity_ids.begin(), rider_entity_ids.end(),
                             guid.GetRawValue()) ||
-        !inst.mount_loaded || inst.m2_instance_id == 0u) {
+        !inst.mount_loaded || inst.m2_instance_id == 0u ||
+        !inst.display_overrides_applied ||
+        !inst.visible_submeshes_applied) {
       continue;
     }
     if (inst.render_ready_latched_instance_id != inst.m2_instance_id) {
@@ -486,8 +584,8 @@ bool MountRenderer::PrepareMountInstance(MountInstance& inst,
   merge_setup_status(system.SetVisible(inst.m2_instance_id, true));
 
   merge_setup_status(system.SetAlpha(
-      inst.m2_instance_id, std::clamp(unit.render_opacity, 0.0f, 1.0f)));
-  merge_setup_status(system.ClearVisibleSubmeshIndices(inst.m2_instance_id));
+      inst.m2_instance_id,
+      std::clamp(unit.render_opacity * inst.mount_opacity, 0.0f, 1.0f)));
   merge_setup_status(system.SetBatchUniforms(inst.m2_instance_id, world_uniforms));
   if (m2::IsTerminalM2ResultStatus(setup_status)) {
     ClearM2Binding(inst);

@@ -53,6 +53,12 @@ bool UnitMountComponent::HasCompletedTransition() const {
          MountTransitionObject_IsTransitionComplete(TransitionHandle());
 }
 
+void UnitMountComponent::InitializeFromDescriptor(
+    const CGUnit_C &owner) noexcept {
+  SetCachedDisplayForSpell(DisplayId(owner));
+  SetPendingDisplayChange(std::nullopt);
+}
+
 void UnitMountComponent::CompleteTransition(CGUnit_C &owner,
                                             const WorldSession &session) {
   if (TransitionNode() != nullptr) {

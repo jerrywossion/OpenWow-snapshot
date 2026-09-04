@@ -83,6 +83,7 @@ public:
   }
 
   [[nodiscard]] bool HasCompletedTransition() const;
+  void InitializeFromDescriptor(const CGUnit_C &owner) noexcept;
   void CompleteTransition(CGUnit_C &owner, const WorldSession &session);
   void SetPendingTransition(std::uint32_t spell_id,
                             std::uint32_t cached_mount_display) noexcept;

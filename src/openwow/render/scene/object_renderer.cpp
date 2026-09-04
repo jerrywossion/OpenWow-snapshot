@@ -304,20 +304,6 @@ void ReconcileItemVisualChildren(m2::M2System &m2_system, ModelAttachmentBinding
   }
 }
 
-[[nodiscard]] std::string BuildCreatureDisplayTexturePath(const std::string_view model_path,
-                                                          const std::string_view texture_name) {
-  if (texture_name.empty()) {
-    return {};
-  }
-  const auto separator = model_path.find_last_of("\\/");
-  if (separator == std::string_view::npos) {
-    return std::string(texture_name);
-  }
-  std::string path(model_path.substr(0u, separator + 1u));
-  path.append(texture_name);
-  return path;
-}
-
 [[nodiscard]] RenderMatrix4x4 BuildM2InstanceModelMatrix(const RenderInstance &inst,
                                                          const MountRenderer &mount_renderer) {
   if (inst.has_explicit_world_transform) {
@@ -2347,29 +2333,18 @@ void ObjectRenderer::ApplyCreatureDisplayOverrides(RenderInstance &inst) {
     return;
   }
 
-  std::array<std::string, 3> texture_paths{};
+  const auto visual =
+      display_info_.ResolveCreatureDisplay(inst.display_id, inst.model_path);
   std::optional<m2::M2ParticleColorRecord> particle_colors;
-  if (dbc_ != nullptr) {
-    if (const auto *display = dbc_->creature_display_info().LookupEntry(inst.display_id);
-        display != nullptr) {
-      for (std::size_t index = 0u; index < texture_paths.size(); ++index) {
-        texture_paths[index] =
-            BuildCreatureDisplayTexturePath(inst.model_path, display->texture_variation[index]);
-      }
-      if (display->particle_color_id != 0u) {
-        if (const auto *record = dbc_->particle_color().LookupEntry(display->particle_color_id);
-            record != nullptr) {
-          particle_colors = m2::M2ParticleColorRecord{
-              .start = record->start,
-              .mid = record->mid,
-              .end = record->end,
-          };
-        }
-      }
-    }
+  if (visual.particle_colors.has_value()) {
+    particle_colors = m2::M2ParticleColorRecord{
+        .start = visual.particle_colors->start,
+        .mid = visual.particle_colors->mid,
+        .end = visual.particle_colors->end,
+    };
   }
   const auto status = m2_system_.ApplyCreatureDisplayRecordOverrides(
-      inst.m2_instance_id, texture_paths, std::move(particle_colors));
+      inst.m2_instance_id, visual.texture_paths, std::move(particle_colors));
   if (status == m2::M2ResultStatus::kReady) {
     inst.creature_display_overrides_applied = true;
   } else if (m2::IsTerminalM2ResultStatus(status)) {
@@ -2403,13 +2378,7 @@ void ObjectRenderer::ApplyVisibleSubmeshes(RenderInstance &inst) {
       }
     } else {
 
-      std::uint32_t creature_geoset_data = 0u;
-      if (dbc_ != nullptr) {
-        if (const auto *display = dbc_->creature_display_info().LookupEntry(inst.display_id);
-            display != nullptr) {
-          creature_geoset_data = display->creature_geoset_data;
-        }
-      }
+      const auto visual = display_info_.ResolveCreatureDisplay(inst.display_id);
       const auto sections = system.QueryModelSubmeshSectionIds(inst.m2_model_id);
       if (sections.status != m2::M2ResultStatus::kReady) {
         if (m2::IsTerminalM2ResultStatus(sections.status)) {
@@ -2420,7 +2389,7 @@ void ObjectRenderer::ApplyVisibleSubmeshes(RenderInstance &inst) {
       visible_indices.reserve(sections.section_ids.size());
       for (std::size_t index = 0u; index < sections.section_ids.size(); ++index) {
         if (IsCreatureGeosetSectionVisible(sections.section_ids[index],
-                                          creature_geoset_data)) {
+                                          visual.geoset_data)) {
           visible_indices.push_back(index);
         }
       }
