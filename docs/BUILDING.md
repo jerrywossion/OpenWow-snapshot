@@ -203,9 +203,10 @@ Because the content uses user-supplied original game assets and is very large,
 this workflow targets personal/development deployment, not App Store
 distribution.
 
-Keyboard, mouse/trackpad and existing controller input paths are available on
-iOS. Dedicated touch gestures and a touch-first interface are outside the
-current scope, so practical use currently requires external input hardware.
+Keyboard, mouse/trackpad and existing controller input paths remain available
+on iOS alongside native multi-touch world controls and the safe-area-aware
+mobile HUD. See `docs/IOS_INTERACTION.md` for the touch map and device
+acceptance checklist.
 
 **Linux (Debian/Ubuntu)** — what the vcpkg ports build against:
 

@@ -2213,6 +2213,21 @@ bool GameLoop::StartWorldUiRuntime(const openwow::ui::game::WorldUiGeneration ge
       return false;
     }
 
+#if defined(OPENWOW_PLATFORM_IOS)
+    if (!game_ui_.LoadToc(
+            "/Interface/OpenWoW/MobileUI/OpenWoWMobileUI.toc",
+            &framexml_log)) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kError,
+          "iOS world UI initialization failed while loading the internal "
+          "mobile interaction layer");
+      return false;
+    }
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kInfo,
+        "iOS internal mobile interaction layer loaded");
+#endif
+
     (void)PumpWorldEntryProtocolControlPackets();
 
     if (lua_State *L = game_ui_.lua_state(); L != nullptr && !identity.account_name.empty() &&
