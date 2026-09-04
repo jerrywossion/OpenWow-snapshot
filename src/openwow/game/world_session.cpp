@@ -637,13 +637,13 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
                   },
               .spell_learned =
                   [this](const std::uint32_t spell_id,
-                         const bool superseded,
+                         const bool notify,
                          const std::uint32_t old_spell_id) {
 
                     gossip_.MarkTrainerSpellKnown(
                         static_cast<std::int32_t>(spell_id));
                     SpellBookFrame::LearnSpell(
-                        *this, spell_id, superseded, old_spell_id);
+                        *this, spell_id, notify, old_spell_id);
                   },
               .spell_forgotten =
                   [this](const std::uint32_t spell_id) {

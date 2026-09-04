@@ -809,14 +809,14 @@ bool IsLocalPlayerSpellEvent(const WorldSession& session,
 
 bool ReadLearnedSpellPacket(const net::wotlk::WorldPacket& pkt,
                             std::uint32_t& spell_id,
-                            std::uint16_t& learn_flags) {
-  if (pkt.payload.size() < sizeof(spell_id) + sizeof(learn_flags)) {
+                            std::uint16_t& slot_or_zero) {
+  if (pkt.payload.size() < sizeof(spell_id) + sizeof(slot_or_zero)) {
     return false;
   }
 
   std::memcpy(&spell_id, pkt.payload.data(), sizeof(spell_id));
-  std::memcpy(&learn_flags, pkt.payload.data() + sizeof(spell_id),
-              sizeof(learn_flags));
+  std::memcpy(&slot_or_zero, pkt.payload.data() + sizeof(spell_id),
+              sizeof(slot_or_zero));
   return true;
 }
 
@@ -900,12 +900,12 @@ void WorldSession::HandleLearnedSpell(const net::wotlk::WorldPacket& pkt) {
   }
 
   std::uint32_t learned_spell_id = 0;
-  std::uint16_t learn_flags = 0;
-  if (!ReadLearnedSpellPacket(pkt, learned_spell_id, learn_flags)) {
+  std::uint16_t slot_or_zero = 0;
+  if (!ReadLearnedSpellPacket(pkt, learned_spell_id, slot_or_zero)) {
     return;
   }
 
-  if (learn_flags != 0) {
+  if (slot_or_zero != 0) {
     NotifyChangedActionSlots(
         *this, action_assignments_.ReplaceSpellActionReferences(0, learned_spell_id));
   }
