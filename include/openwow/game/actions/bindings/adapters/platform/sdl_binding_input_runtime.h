@@ -39,6 +39,9 @@ class SdlBindingInputRuntime {
   [[nodiscard]] bool MouseWheel(std::int32_t wheel_delta);
   [[nodiscard]] bool JoystickAxisMotion(std::uint32_t axis_index,
                                         std::int32_t raw_value);
+  [[nodiscard]] bool VirtualCommandDown(std::string_view source,
+                                        const BindingCommand& command);
+  [[nodiscard]] bool VirtualCommandUp(std::string_view source);
   void ReleaseAll();
   void Reset();
 
@@ -59,6 +62,10 @@ class SdlBindingInputRuntime {
       std::string_view mouse_button,
       std::optional<std::uint16_t> modifier_state,
       std::uint32_t current_mouse_button_flag = 0u);
+  [[nodiscard]] bool HasPhysicalCommand(
+      const BindingCommand& command) const noexcept;
+  [[nodiscard]] bool HasVirtualCommand(
+      const BindingCommand& command) const noexcept;
 
   BindingProfiles& profiles_;
   CommandSink command_sink_;
@@ -67,6 +74,7 @@ class SdlBindingInputRuntime {
   std::unordered_map<BindingKey, HeldBinding> held_keys_;
   std::unordered_map<BindingKey, HeldBinding> held_mouse_buttons_;
   std::unordered_map<BindingKey, BindingCommand> held_joystick_axes_;
+  std::unordered_map<BindingKey, BindingCommand> held_virtual_commands_;
 };
 
 }

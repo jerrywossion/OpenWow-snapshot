@@ -49,6 +49,7 @@ struct TouchContact {
   SDL_FingerID finger_id{0};
   TouchOwner owner{TouchOwner::kUnassigned};
   TouchPoint start;
+  TouchPoint previous;
   TouchPoint current;
   std::uint32_t started_at_ms{0};
   float pressure{0.0F};
@@ -70,6 +71,11 @@ class MobileInputController final {
   [[nodiscard]] TouchContact* FindContact(SDL_FingerID finger_id) noexcept;
   [[nodiscard]] const TouchContact* FindContact(
       SDL_FingerID finger_id) const noexcept;
+  [[nodiscard]] TouchContact* FindContactByOwner(TouchOwner owner) noexcept;
+  [[nodiscard]] const TouchContact* FindContactByOwner(
+      TouchOwner owner) const noexcept;
+  [[nodiscard]] TouchContact* FindOtherContactByOwner(
+      TouchOwner owner, SDL_FingerID finger_id) noexcept;
   [[nodiscard]] bool HasOwner(TouchOwner owner) const noexcept;
   [[nodiscard]] std::optional<TouchContact> EndContact(
       const SDL_TouchFingerEvent& event);

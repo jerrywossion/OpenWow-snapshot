@@ -26,4 +26,26 @@ SafeAreaInsetsPoints QuerySafeAreaInsetsPoints(void* native_window) noexcept {
   }
 }
 
+void PerformHapticFeedback(const HapticFeedback feedback) noexcept {
+  @autoreleasepool {
+    switch (feedback) {
+      case HapticFeedback::kSelection: {
+        static UISelectionFeedbackGenerator* generator =
+            [[UISelectionFeedbackGenerator alloc] init];
+        [generator selectionChanged];
+        [generator prepare];
+        break;
+      }
+      case HapticFeedback::kLightImpact: {
+        static UIImpactFeedbackGenerator* generator =
+            [[UIImpactFeedbackGenerator alloc]
+                initWithStyle:UIImpactFeedbackStyleLight];
+        [generator impactOccurred];
+        [generator prepare];
+        break;
+      }
+    }
+  }
+}
+
 }

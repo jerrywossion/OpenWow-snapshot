@@ -414,6 +414,7 @@ void FrameInputRouter::Reset() noexcept {
   processing_edit_box_updates_.clear();
   pending_edit_box_update_refs_.clear();
   edit_box_drag_select_frame_.clear();
+  touch_capture_active_ = false;
   running_macro_input_button_provider_ = {};
 }
 
@@ -639,6 +640,43 @@ bool FrameInputRouter::HandleMouseDown(float x, float y, int button) {
 }
 
 bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32_t button_flag) {
+  if (touch_capture_active_ && button_flag == 1u) {
+    return true;
+  }
+  return HandlePointerDownByFlag(x, y, button_flag, false);
+}
+
+bool FrameInputRouter::HandleTouchDown(float x, float y) {
+  constexpr std::uint32_t kLeftButtonFlag = 1u;
+  if (touch_capture_active_) {
+    return true;
+  }
+  if (const auto* const capture = FindCapture(kLeftButtonFlag);
+      capture != nullptr && capture->active) {
+    return true;
+  }
+  touch_capture_active_ =
+      HandlePointerDownByFlag(x, y, kLeftButtonFlag, true);
+  return touch_capture_active_;
+}
+
+bool FrameInputRouter::HitTestTouchTarget(const float x, const float y) {
+  if (lua_ == nullptr) {
+    return false;
+  }
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  const std::string hit = traversal_.HitTarget(x, y, viewport_height());
+  if (hit.empty() || !frames_.FindLuaRef(hit).has_value()) {
+    return false;
+  }
+  const auto* const frame = frames_.FindFrame(hit);
+  return frame == nullptr || !FrameIsWorldFrame(*frame);
+}
+
+bool FrameInputRouter::HandlePointerDownByFlag(float x, float y,
+                                               std::uint32_t button_flag,
+                                               bool touch) {
   if (lua_ == nullptr || button_flag == 0) {
     return false;
   }
@@ -649,12 +687,16 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   const ::openwow::game::actions::bindings::adapters::lua::ScopedLuaModifierState modifier_snapshot(
       lua_, static_cast<std::uint16_t>(SDL_GetModState()));
   pressed_button_mask_ |= button_flag;
-  last_mouse_x_ = x;
-  last_mouse_y_ = y;
-  have_last_mouse_position_ = true;
+  if (!touch) {
+    last_mouse_x_ = x;
+    last_mouse_y_ = y;
+    have_last_mouse_position_ = true;
+  }
   layout_.SolveIfDirty();
   RebuildTraversalIfDirty();
-  RefreshMouseFocusAt(x, y, false);
+  if (!touch) {
+    RefreshMouseFocusAt(x, y, false);
+  }
   std::string hit = traversal_.HitTarget(x, y, viewport_height());
   const auto *pressed_hyperlink = ResolveHyperlinkAt(hit, x, y);
   if (pressed_hyperlink != nullptr) {
@@ -670,12 +712,18 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   }
 
   if (hit.empty()) {
+    if (touch) {
+      pressed_button_mask_ &= ~button_flag;
+    }
     return false;
   }
 
   const auto ref = frames_.FindLuaRef(hit);
   auto *capture = FindCapture(button_flag);
   if (!ref.has_value() || capture == nullptr) {
+    if (touch) {
+      pressed_button_mask_ &= ~button_flag;
+    }
     return false;
   }
   *capture = {};
@@ -714,6 +762,11 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
 
   if (const auto *hit_frame = frames_.FindFrame(hit);
       hit_frame != nullptr && FrameIsWorldFrame(*hit_frame)) {
+
+    if (touch) {
+      pressed_button_mask_ &= ~button_flag;
+      return false;
+    }
 
     const char *wf_button_name = openwow::ui::widgets::MouseButtonName(button_flag);
     const lua_adapter::ScopedMouseButtonOverride button_override(lua_, wf_button_name);
@@ -766,6 +819,23 @@ bool FrameInputRouter::HandleMouseUp(float x, float y, int button) {
 }
 
 bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t button_flag) {
+  if (touch_capture_active_ && button_flag == 1u) {
+    return true;
+  }
+  return HandlePointerUpByFlag(x, y, button_flag, false);
+}
+
+bool FrameInputRouter::HandleTouchUp(float x, float y) {
+  if (!touch_capture_active_) {
+    return false;
+  }
+  touch_capture_active_ = false;
+  return HandlePointerUpByFlag(x, y, 1u, true);
+}
+
+bool FrameInputRouter::HandlePointerUpByFlag(float x, float y,
+                                             std::uint32_t button_flag,
+                                             bool touch) {
   if (lua_ == nullptr || button_flag == 0) {
     return false;
   }
@@ -776,11 +846,15 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
       lua_, static_cast<std::uint16_t>(SDL_GetModState()));
   pressed_button_mask_ &= ~button_flag;
   layout_.SolveIfDirty();
-  last_mouse_x_ = x;
-  last_mouse_y_ = y;
-  have_last_mouse_position_ = true;
+  if (!touch) {
+    last_mouse_x_ = x;
+    last_mouse_y_ = y;
+    have_last_mouse_position_ = true;
+  }
   RebuildTraversalIfDirty();
-  RefreshMouseFocusAt(x, y, false);
+  if (!touch) {
+    RefreshMouseFocusAt(x, y, false);
+  }
 
   edit_box_drag_select_frame_.clear();
   const char *button_name = openwow::ui::widgets::MouseButtonName(button_flag);
@@ -871,6 +945,10 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
   if (const auto *hit_frame = frames_.FindFrame(hit);
       hit_frame != nullptr && FrameIsWorldFrame(*hit_frame)) {
 
+    if (touch) {
+      return handled;
+    }
+
     if (const auto ref = frames_.FindLuaRef(hit); ref.has_value()) {
       const lua_adapter::ScopedMouseButtonOverride button_override(lua_, button_name);
       const detail::ScopedCurrentMouseButtonMaskOverride mask_override(
@@ -896,13 +974,23 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
 }
 
 bool FrameInputRouter::HandleMouseMove(float x, float y) {
+  return HandlePointerMove(x, y, false);
+}
+
+bool FrameInputRouter::HandleTouchMove(float x, float y) {
+  return touch_capture_active_ && HandlePointerMove(x, y, true);
+}
+
+bool FrameInputRouter::HandlePointerMove(float x, float y, bool touch) {
   if (lua_ == nullptr) {
     return false;
   }
   layout_.SolveIfDirty();
-  last_mouse_x_ = x;
-  last_mouse_y_ = y;
-  have_last_mouse_position_ = true;
+  if (!touch) {
+    last_mouse_x_ = x;
+    last_mouse_y_ = y;
+    have_last_mouse_position_ = true;
+  }
 
   if (active_move_sizing_.active && layout_.UpdateMoveSizing(&active_move_sizing_, x, y)) {
 
@@ -960,8 +1048,57 @@ bool FrameInputRouter::HandleMouseMove(float x, float y) {
   }
 
   RebuildTraversalIfDirty();
-  RefreshMouseFocusAt(x, y, true);
-  return !mouseover_frame_.empty();
+  if (!touch) {
+    RefreshMouseFocusAt(x, y, true);
+    return !mouseover_frame_.empty();
+  }
+  return true;
+}
+
+void FrameInputRouter::CancelPointerCapture(const std::uint32_t button_flag) {
+  pressed_button_mask_ &= ~button_flag;
+  edit_box_drag_select_frame_.clear();
+  if (active_move_sizing_.active) {
+    (void)StopFrameMoveSizing(active_move_sizing_.frame_name);
+  }
+
+  auto* const capture = FindCapture(button_flag);
+  if (lua_ == nullptr || capture == nullptr || !capture->active) {
+    if (capture != nullptr) {
+      *capture = {};
+    }
+    return;
+  }
+
+  const std::string capture_name = capture->frame_name;
+  const char* const button_name =
+      openwow::ui::widgets::MouseButtonName(button_flag);
+  if (const auto ref = frames_.FindLuaRef(capture_name); ref.has_value()) {
+    const lua_adapter::ScopedMouseButtonOverride button_override(lua_, button_name);
+    const detail::ScopedCurrentMouseButtonMaskOverride mask_override(
+        lua_, LiveButtonMask(button_flag, false));
+    if (capture->drag_started) {
+      (void)FireNoArg(lua_, *ref, "OnDragStop");
+    } else {
+      (void)FireButton(lua_, *ref, "OnMouseUp", button_name);
+    }
+    if (const auto* frame = frames_.FindFrame(capture_name);
+        frame != nullptr && IsButtonFrame(*frame)) {
+      const auto visual = ReadButtonVisualState(lua_, *ref);
+      if (!visual.disabled && !visual.locked) {
+        SetButtonVisualState(lua_, *ref, "NORMAL");
+      }
+    }
+  }
+  *capture = {};
+}
+
+void FrameInputRouter::CancelTouch() {
+  if (!touch_capture_active_) {
+    return;
+  }
+  touch_capture_active_ = false;
+  CancelPointerCapture(1u);
 }
 
 bool FrameInputRouter::HandleMouseWheel(float x, float y, float delta) {

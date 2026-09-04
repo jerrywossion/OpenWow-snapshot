@@ -58,6 +58,7 @@ TouchPoint MobileInputController::ResolvePoint(const float normalized_x,
 TouchContact* MobileInputController::BeginContact(
     const SDL_TouchFingerEvent& event) {
   if (auto* const existing = FindContact(event.fingerId); existing != nullptr) {
+    existing->previous = existing->current;
     existing->current = ResolvePoint(event.x, event.y);
     existing->pressure = event.pressure;
     return existing;
@@ -72,6 +73,7 @@ TouchContact* MobileInputController::BeginContact(
         .finger_id = event.fingerId,
         .owner = TouchOwner::kUnassigned,
         .start = point,
+        .previous = point,
         .current = point,
         .started_at_ms = event.timestamp,
         .pressure = event.pressure,
@@ -92,6 +94,7 @@ TouchContact* MobileInputController::UpdateContact(
   if (contact == nullptr) {
     return nullptr;
   }
+  contact->previous = contact->current;
   contact->current = ResolvePoint(event.x, event.y);
   contact->pressure = event.pressure;
   return contact;
@@ -117,6 +120,37 @@ const TouchContact* MobileInputController::FindContact(
   return nullptr;
 }
 
+TouchContact* MobileInputController::FindContactByOwner(
+    const TouchOwner owner) noexcept {
+  for (auto& slot : contacts_) {
+    if (slot.has_value() && slot->owner == owner) {
+      return &*slot;
+    }
+  }
+  return nullptr;
+}
+
+const TouchContact* MobileInputController::FindContactByOwner(
+    const TouchOwner owner) const noexcept {
+  for (const auto& slot : contacts_) {
+    if (slot.has_value() && slot->owner == owner) {
+      return &*slot;
+    }
+  }
+  return nullptr;
+}
+
+TouchContact* MobileInputController::FindOtherContactByOwner(
+    const TouchOwner owner, const SDL_FingerID finger_id) noexcept {
+  for (auto& slot : contacts_) {
+    if (slot.has_value() && slot->finger_id != finger_id &&
+        slot->owner == owner) {
+      return &*slot;
+    }
+  }
+  return nullptr;
+}
+
 bool MobileInputController::HasOwner(const TouchOwner owner) const noexcept {
   for (const auto& slot : contacts_) {
     if (slot.has_value() && slot->owner == owner) {
@@ -132,6 +166,7 @@ std::optional<TouchContact> MobileInputController::EndContact(
     if (!slot.has_value() || slot->finger_id != event.fingerId) {
       continue;
     }
+    slot->previous = slot->current;
     slot->current = ResolvePoint(event.x, event.y);
     slot->pressure = event.pressure;
     auto ended = std::move(slot);

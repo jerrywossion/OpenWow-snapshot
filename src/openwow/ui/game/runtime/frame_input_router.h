@@ -38,6 +38,11 @@ public:
   bool HandleMouseButtonDownByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseButtonUpByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseMove(float x, float y);
+  bool HandleTouchDown(float x, float y);
+  bool HandleTouchMove(float x, float y);
+  bool HandleTouchUp(float x, float y);
+  [[nodiscard]] bool HitTestTouchTarget(float x, float y);
+  void CancelTouch();
   bool HandleMouseWheel(float x, float y, float delta);
   bool HandleKeyDown(std::uint32_t key, bool shift_down = false, bool ctrl_down = false);
   bool HandleKeyUp(std::uint32_t key);
@@ -116,6 +121,12 @@ private:
 
   static std::size_t ButtonCaptureIndex(std::uint32_t button_flag) noexcept;
   MouseButtonCaptureState *FindCapture(std::uint32_t button_flag) noexcept;
+  bool HandlePointerDownByFlag(float x, float y,
+                               std::uint32_t button_flag, bool touch);
+  bool HandlePointerUpByFlag(float x, float y,
+                             std::uint32_t button_flag, bool touch);
+  bool HandlePointerMove(float x, float y, bool touch);
+  void CancelPointerCapture(std::uint32_t button_flag);
   void TransitionKeyboardFocus(const std::string &new_frame_name);
   void QueueEditBoxCaretRefresh(const std::string &frame_name);
   [[nodiscard]] EditBoxRegionPorts BuildEditBoxRegionPorts(
@@ -163,6 +174,7 @@ private:
   std::string edit_box_drag_select_frame_;
 
   bool application_active_{true};
+  bool touch_capture_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;
 };
 

@@ -928,6 +928,9 @@ void GlueClient::SetMode(UiMode next_mode) {
   UpdateWindowTitle();
 
   layout_dirty_ = true;
+#if defined(OPENWOW_PLATFORM_IOS)
+  RefreshMobileInputViewport();
+#endif
 }
 
 void GlueClient::SyncGlueViewportFromWindow() {

@@ -20,6 +20,7 @@
 #include "openwow/render/effects/postprocess/post_process.h"
 #include "openwow/ui/glue/editbox_input_dispatch.h"
 #include "openwow/ui/game/api/game_lua_api_movement.h"
+#include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/lua_call_helpers.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/foundation/text/utf8.h"
@@ -138,6 +139,33 @@ std::pair<int, int> ResolveInWorldMouseButtonDispatchPosition(const SDL_MouseBut
   return openwow::platform::WindowManager::Get().ResolveMouseButtonDispatchPosition(
       event.x, event.y, openwow::platform::WindowManager::Get().IsRelativeCursorModeActive());
 }
+
+#if defined(OPENWOW_PLATFORM_IOS)
+constexpr float kMobileMovementRadiusPoints = 72.0F;
+constexpr float kMobileMovementDeadZone = 0.20F;
+constexpr float kMobileCameraDragThresholdPoints = 9.0F;
+constexpr float kMobileWorldTapTolerancePoints = 12.0F;
+constexpr std::uint32_t kMobileContextPressMilliseconds = 475u;
+constexpr float kMobilePinchPointsPerWheelStep = 36.0F;
+
+float TouchDistance(const mobile::TouchPoint& first,
+                    const mobile::TouchPoint& second) {
+  const float dx = first.logical_x - second.logical_x;
+  const float dy = first.logical_y - second.logical_y;
+  return std::sqrt(dx * dx + dy * dy);
+}
+
+bool IsMobileMovementRegion(const mobile::TouchPoint& point,
+                            const mobile::ViewportMetrics& viewport) {
+  const float safe_left = viewport.safe_area_points.left;
+  const float safe_bottom = viewport.safe_area_points.bottom;
+  return point.logical_x >= safe_left &&
+         point.logical_x <= static_cast<float>(viewport.logical_width) * 0.44F &&
+         point.logical_y >= static_cast<float>(viewport.logical_height) * 0.44F &&
+         point.logical_y <=
+             static_cast<float>(viewport.logical_height) - safe_bottom;
+}
+#endif
 
 }
 
@@ -713,6 +741,147 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
 void GlueClient::RefreshMobileInputViewport() {
   mobile_input_.RefreshViewport(
       window_, openwow::platform::WindowManager::Get().GetNativeHandle());
+  if (!game_loop_.game_ui().is_initialized()) {
+    return;
+  }
+  const auto& viewport = mobile_input_.viewport();
+  (void)openwow::ui::CallLuaGlobalIfFunction(
+      game_loop_.game_ui().lua_state(), "OpenWoWMobile_ApplyMetrics",
+      static_cast<double>(viewport.drawable_width),
+      static_cast<double>(viewport.drawable_height),
+      static_cast<double>(viewport.logical_width),
+      static_cast<double>(viewport.logical_height),
+      static_cast<double>(viewport.safe_area_points.left),
+      static_cast<double>(viewport.safe_area_points.top),
+      static_cast<double>(viewport.safe_area_points.right),
+      static_cast<double>(viewport.safe_area_points.bottom));
+}
+
+void GlueClient::UpdateMobileMovement(
+    const mobile::TouchContact& contact) {
+  const float dx = contact.current.logical_x - contact.start.logical_x;
+  const float dy = contact.current.logical_y - contact.start.logical_y;
+  const float length = std::sqrt(dx * dx + dy * dy);
+  const float limited_length = std::min(length, kMobileMovementRadiusPoints);
+  const float scale = length > 0.0F ? limited_length / length : 0.0F;
+  const float normalized_x =
+      dx * scale / kMobileMovementRadiusPoints;
+  const float normalized_y =
+      dy * scale / kMobileMovementRadiusPoints;
+
+  auto set_command = [this](bool& active, const bool desired,
+                            const char* source, const char* command) {
+    if (active == desired) {
+      return;
+    }
+    if (desired) {
+      active = game_loop_.binding_input().VirtualCommandDown(
+          source, openwow::game::BindingCommand(command));
+    } else {
+      (void)game_loop_.binding_input().VirtualCommandUp(source);
+      active = false;
+    }
+  };
+
+  lua_State* const lua = game_loop_.game_ui().is_initialized()
+                             ? game_loop_.game_ui().lua_state()
+                             : nullptr;
+  std::optional<openwow::ui::game::SecureExecution::SecureScope>
+      hardware_input_scope;
+  std::optional<openwow::ui::game::SecureExecution::HardwareActionGrantScope>
+      hardware_action_grant;
+  if (lua != nullptr) {
+    hardware_input_scope.emplace(lua);
+    hardware_action_grant.emplace();
+  }
+
+  const bool outside_dead_zone = limited_length >=
+                                 kMobileMovementRadiusPoints *
+                                     kMobileMovementDeadZone;
+  set_command(mobile_move_forward_,
+              outside_dead_zone && normalized_y < -kMobileMovementDeadZone,
+              "mobile-forward", openwow::game::BindingAction::kMoveForward);
+  set_command(mobile_move_backward_,
+              outside_dead_zone && normalized_y > kMobileMovementDeadZone,
+              "mobile-backward", openwow::game::BindingAction::kMoveBackward);
+  set_command(mobile_strafe_left_,
+              outside_dead_zone && normalized_x < -kMobileMovementDeadZone,
+              "mobile-strafe-left", openwow::game::BindingAction::kStrafeLeft);
+  set_command(mobile_strafe_right_,
+              outside_dead_zone && normalized_x > kMobileMovementDeadZone,
+              "mobile-strafe-right", openwow::game::BindingAction::kStrafeRight);
+
+  if (lua != nullptr) {
+    (void)openwow::ui::CallLuaGlobalIfFunction(
+        lua, "OpenWoWMobile_SetJoystick",
+        static_cast<double>(contact.start.drawable_x),
+        static_cast<double>(contact.start.drawable_y),
+        static_cast<double>(contact.start.drawable_x + dx * scale *
+                            mobile_input_.viewport().drawable_scale_x),
+        static_cast<double>(contact.start.drawable_y + dy * scale *
+                            mobile_input_.viewport().drawable_scale_y),
+        true);
+  }
+}
+
+void GlueClient::ReleaseMobileMovement() {
+  auto release = [this](bool& active, const char* source) {
+    if (!active) {
+      return;
+    }
+    active = false;
+    (void)game_loop_.binding_input().VirtualCommandUp(source);
+  };
+
+  lua_State* const lua = game_loop_.game_ui().is_initialized()
+                             ? game_loop_.game_ui().lua_state()
+                             : nullptr;
+  std::optional<openwow::ui::game::SecureExecution::SecureScope>
+      hardware_input_scope;
+  std::optional<openwow::ui::game::SecureExecution::HardwareActionGrantScope>
+      hardware_action_grant;
+  if (lua != nullptr) {
+    hardware_input_scope.emplace(lua);
+    hardware_action_grant.emplace();
+  }
+  release(mobile_move_forward_, "mobile-forward");
+  release(mobile_move_backward_, "mobile-backward");
+  release(mobile_strafe_left_, "mobile-strafe-left");
+  release(mobile_strafe_right_, "mobile-strafe-right");
+  if (lua != nullptr) {
+    (void)openwow::ui::CallLuaGlobalIfFunction(
+        lua, "OpenWoWMobile_SetJoystick", 0.0, 0.0, 0.0, 0.0, false);
+  }
+}
+
+void GlueClient::BeginMobileCamera() {
+  if (mobile_camera_active_) {
+    return;
+  }
+  mobile_camera_active_ = true;
+  game_loop_.BeginCameraFreelook();
+  if (game_loop_.game_ui().is_initialized()) {
+    lua_State* const lua = game_loop_.game_ui().lua_state();
+    openwow::ui::game::SecureExecution::SecureScope hardware_input_scope(lua);
+    openwow::ui::game::SecureExecution::HardwareActionGrantScope
+        hardware_action_grant;
+    (void)openwow::ui::CallLuaGlobalIfFunction(lua, "MouselookStart");
+  }
+}
+
+void GlueClient::EndMobileCamera() {
+  if (!mobile_camera_active_) {
+    return;
+  }
+  mobile_camera_active_ = false;
+  if (game_loop_.game_ui().is_initialized()) {
+    lua_State* const lua = game_loop_.game_ui().lua_state();
+    openwow::ui::game::SecureExecution::SecureScope hardware_input_scope(lua);
+    openwow::ui::game::SecureExecution::HardwareActionGrantScope
+        hardware_action_grant;
+    (void)openwow::ui::CallLuaGlobalIfFunction(lua, "MouselookStop");
+  }
+  game_loop_.EndCameraFreelook();
 }
 
 void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
@@ -723,12 +892,54 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
     if (contact == nullptr) {
       return;
     }
-    if (mode_ == UiMode::kInWorld ||
-        mobile_input_.HasOwner(TouchOwner::kGlueUi)) {
-      contact->owner = TouchOwner::kIgnored;
+    if (mode_ == UiMode::kInWorld) {
+      auto* const game_ui = game_loop_.game_ui().is_initialized()
+                                ? &game_loop_.game_ui()
+                                : nullptr;
+      if (game_ui != nullptr &&
+          !mobile_input_.HasOwner(TouchOwner::kWorldUi) &&
+          game_ui->input_router().HandleTouchDown(
+              contact->current.drawable_x, contact->current.drawable_y)) {
+        contact->owner = TouchOwner::kWorldUi;
+        UpdateTextInputState();
+        return;
+      }
+      if (game_ui != nullptr &&
+          mobile_input_.HasOwner(TouchOwner::kWorldUi) &&
+          game_ui->input_router().HitTestTouchTarget(
+              contact->current.drawable_x, contact->current.drawable_y)) {
+        contact->owner = TouchOwner::kIgnored;
+        return;
+      }
+
+      if (!mobile_input_.HasOwner(TouchOwner::kMovement) &&
+          IsMobileMovementRegion(contact->current,
+                                 mobile_input_.viewport())) {
+        contact->owner = TouchOwner::kMovement;
+        UpdateMobileMovement(*contact);
+        mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
+        return;
+      }
+
+      auto* const other_world_contact =
+          mobile_input_.FindContactByOwner(TouchOwner::kWorldTap) != nullptr
+              ? mobile_input_.FindContactByOwner(TouchOwner::kWorldTap)
+              : mobile_input_.FindContactByOwner(TouchOwner::kWorldCamera);
+      contact->owner = TouchOwner::kWorldTap;
+      if (other_world_contact != nullptr) {
+        other_world_contact->owner = TouchOwner::kPinch;
+        contact->owner = TouchOwner::kPinch;
+        EndMobileCamera();
+        mobile_pinch_distance_ =
+            TouchDistance(other_world_contact->current, contact->current);
+      }
       return;
     }
 
+    if (mobile_input_.HasOwner(TouchOwner::kGlueUi)) {
+      contact->owner = TouchOwner::kIgnored;
+      return;
+    }
     contact->owner = TouchOwner::kGlueUi;
     const std::uint32_t elapsed = event.timestamp - last_mobile_glue_tap_ms_;
     const float dx = contact->current.logical_x - last_mobile_glue_tap_x_;
@@ -753,7 +964,59 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
 
   if (event.type == SDL_FINGERMOTION) {
     auto* const contact = mobile_input_.UpdateContact(event);
-    if (contact == nullptr || contact->owner != TouchOwner::kGlueUi) {
+    if (contact == nullptr) {
+      return;
+    }
+    if (contact->owner == TouchOwner::kWorldUi) {
+      if (game_loop_.game_ui().is_initialized()) {
+        (void)game_loop_.game_ui().input_router().HandleTouchMove(
+            contact->current.drawable_x, contact->current.drawable_y);
+      }
+      return;
+    }
+    if (contact->owner == TouchOwner::kMovement) {
+      UpdateMobileMovement(*contact);
+      return;
+    }
+    if (contact->owner == TouchOwner::kWorldTap) {
+      const float dx =
+          contact->current.logical_x - contact->start.logical_x;
+      const float dy =
+          contact->current.logical_y - contact->start.logical_y;
+      if (dx * dx + dy * dy >=
+          kMobileCameraDragThresholdPoints *
+              kMobileCameraDragThresholdPoints) {
+        contact->owner = TouchOwner::kWorldCamera;
+        BeginMobileCamera();
+        game_loop_.HandleMouseDelta(
+            contact->current.logical_x - contact->previous.logical_x,
+            contact->current.logical_y - contact->previous.logical_y);
+      }
+      return;
+    }
+    if (contact->owner == TouchOwner::kWorldCamera) {
+      BeginMobileCamera();
+      game_loop_.HandleMouseDelta(
+          contact->current.logical_x - contact->previous.logical_x,
+          contact->current.logical_y - contact->previous.logical_y);
+      return;
+    }
+    if (contact->owner == TouchOwner::kPinch) {
+      const auto* const other = mobile_input_.FindOtherContactByOwner(
+          TouchOwner::kPinch, contact->finger_id);
+      if (other == nullptr) {
+        return;
+      }
+      const float distance = TouchDistance(contact->current, other->current);
+      const float delta = distance - mobile_pinch_distance_;
+      if (std::fabs(delta) >= 0.25F) {
+        game_loop_.HandleScrollDelta(std::clamp(
+            delta / kMobilePinchPointsPerWheelStep, -2.0F, 2.0F));
+        mobile_pinch_distance_ = distance;
+      }
+      return;
+    }
+    if (contact->owner != TouchOwner::kGlueUi) {
       return;
     }
     SDL_Event pointer{};
@@ -772,7 +1035,70 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   }
 
   const auto ended = mobile_input_.EndContact(event);
-  if (!ended.has_value() || ended->owner != TouchOwner::kGlueUi) {
+  if (!ended.has_value()) {
+    return;
+  }
+  if (ended->owner == TouchOwner::kWorldUi) {
+    if (game_loop_.game_ui().is_initialized()) {
+      const bool handled = game_loop_.game_ui().input_router().HandleTouchUp(
+          ended->current.drawable_x, ended->current.drawable_y);
+      UpdateTextInputState();
+      if (handled) {
+        mobile::PerformHapticFeedback(mobile::HapticFeedback::kSelection);
+      }
+    }
+    return;
+  }
+  if (ended->owner == TouchOwner::kMovement) {
+    ReleaseMobileMovement();
+    return;
+  }
+  if (ended->owner == TouchOwner::kWorldCamera) {
+    EndMobileCamera();
+    return;
+  }
+  if (ended->owner == TouchOwner::kPinch) {
+    mobile_pinch_distance_ = 0.0F;
+    if (auto* const remaining =
+            mobile_input_.FindContactByOwner(TouchOwner::kPinch);
+        remaining != nullptr) {
+      remaining->owner = TouchOwner::kWorldCamera;
+      remaining->start = remaining->current;
+      remaining->previous = remaining->current;
+      remaining->started_at_ms = event.timestamp;
+      BeginMobileCamera();
+    } else {
+      EndMobileCamera();
+    }
+    return;
+  }
+  if (ended->owner == TouchOwner::kWorldTap) {
+    const float dx = ended->current.logical_x - ended->start.logical_x;
+    const float dy = ended->current.logical_y - ended->start.logical_y;
+    if (dx * dx + dy * dy <=
+        kMobileWorldTapTolerancePoints *
+            kMobileWorldTapTolerancePoints) {
+      openwow::input::InputManager::Get().SetMousePosition(
+          static_cast<int>(std::lround(ended->current.drawable_x)),
+          static_cast<int>(std::lround(ended->current.drawable_y)));
+      if (event.timestamp - ended->started_at_ms >=
+          kMobileContextPressMilliseconds) {
+        RunMouseButtonDownPrelude(
+            4u, game_loop_, character_world_runtime_.session());
+        game_loop_.OnRightClickWorld(ended->current.drawable_x,
+                                     ended->current.drawable_y);
+        mobile::PerformHapticFeedback(
+            mobile::HapticFeedback::kLightImpact);
+      } else {
+        game_loop_.OnLeftClickWorld(ended->current.drawable_x,
+                                    ended->current.drawable_y);
+        mobile::PerformHapticFeedback(
+            mobile::HapticFeedback::kSelection);
+      }
+    }
+    return;
+  }
+  if (ended->owner != TouchOwner::kGlueUi) {
     return;
   }
   SDL_Event pointer{};
@@ -797,6 +1123,17 @@ void GlueClient::CancelMobileInput() {
       contacts.begin(), contacts.end(), [](const mobile::TouchContact& contact) {
         return contact.owner == mobile::TouchOwner::kGlueUi;
       });
+  const bool had_world_ui_contact = std::any_of(
+      contacts.begin(), contacts.end(), [](const mobile::TouchContact& contact) {
+        return contact.owner == mobile::TouchOwner::kWorldUi;
+      });
+  if (had_world_ui_contact && game_loop_.game_ui().is_initialized()) {
+    game_loop_.game_ui().input_router().CancelTouch();
+  }
+  ReleaseMobileMovement();
+  EndMobileCamera();
+  mobile_pinch_distance_ = 0.0F;
+
   if (!had_glue_contact) {
     return;
   }
