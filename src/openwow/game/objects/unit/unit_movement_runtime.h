@@ -75,7 +75,8 @@ public:
                                std::uint32_t spline_flags = 0u,
                                float spline_arc_length = 0.0f,
                                std::uint32_t spline_duration_ms = 0u,
-                               bool parent_movement_active = false);
+                               bool parent_movement_active = false,
+                               std::uint32_t spline_id = 0u);
   void ClearSplineMovementPoseOwnership();
   [[nodiscard]] bool TrySettleSplineMovementPoseOwnership();
   void StopLocomotionForDeath(WorldSession &session);
@@ -362,6 +363,7 @@ public:
   bool spline_locomotion_active_{false};
   bool spline_locomotion_backward_{false};
 
+  std::uint32_t spline_locomotion_id_{0};
   std::uint32_t spline_locomotion_flags_{0};
   float spline_locomotion_arc_length_{0.0f};
   std::uint32_t spline_locomotion_duration_ms_{0};
@@ -381,6 +383,8 @@ public:
   std::int32_t move_sequence_{0};
   std::array<float, 6> speed_bounds_{};
   std::array<float, 3> ground_contact_normal_{{0.0f, 0.0f, 1.0f}};
+  bool spline_ground_projection_seeded_{false};
+  std::array<float, 3> spline_ground_projection_anchor_{};
   std::uint8_t ground_orientation_mode_{0};
 
   struct GroundAlignedMatrixMemo {

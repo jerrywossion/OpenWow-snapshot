@@ -77,19 +77,17 @@ constexpr float kWalkableNormalZ_Player = 0.64278764f;
 constexpr float kWalkableNormalZ_NPC = 0.17364818f;
 constexpr float kDefaultCollisionWidth = 0.66666669f;
 constexpr float kDefaultCollisionHeight = 2.027777671813965f;
+constexpr float kSplineGroundSeedVerticalAllowance = 0.5f;
+constexpr float kSplineGroundProbeVerticalSlack = 0.25f;
+constexpr float kSplineGroundProbeRisePerPlanarUnit = 5.671282f;
+constexpr float kSplineGroundProbeMaxVerticalAllowance = 8.0f;
+constexpr std::uint32_t kAerialSplineFlags =
+    SplineFlag::kFalling | SplineFlag::kParabolic | SplineFlag::kFlying |
+    SplineFlag::kTransportEnter | SplineFlag::kTransportExit;
 
-void InterpolateRetailGroundContactNormal(
-    const CGUnit_C& unit, std::array<float, 3>& smoothed_normal,
-    const float dt) {
-  if (g_calc_ground_pos_callback == nullptr) {
-    return;
-  }
-
-  const auto position = unit.GetPosition();
-  const CalcGroundPosCollisionResult surface = g_calc_ground_pos_callback(
-      unit, {position.x, position.y, position.z},
-      unit.Presentation().CollisionHeight() * 2.0f,
-      g_calc_ground_pos_context);
+void InterpolateRetailGroundContactNormalToward(
+    const CalcGroundPosCollisionResult &surface,
+    std::array<float, 3> &smoothed_normal, const float dt) {
   if (!surface.hit || surface.normal_z < kGroundContactInterpolationMinZ) {
     return;
   }
@@ -105,12 +103,24 @@ void InterpolateRetailGroundContactNormal(
   }
 }
 
-[[nodiscard]] render::RenderMatrix4x4 BuildGroundAlignedUnitMatrix(
-    const CGUnit_C& unit, const std::array<float, 3>& surface_normal) {
-  const Position position = unit.GetPosition();
-  const std::array<float, 3> world_position{
-      position.x, position.y, position.z};
+void InterpolateRetailGroundContactNormal(
+    const CGUnit_C& unit, std::array<float, 3>& smoothed_normal,
+    const float dt) {
+  if (g_calc_ground_pos_callback == nullptr) {
+    return;
+  }
 
+  const auto position = unit.GetPosition();
+  const CalcGroundPosCollisionResult surface = g_calc_ground_pos_callback(
+      unit, {position.x, position.y, position.z},
+      unit.Presentation().CollisionHeight() * 2.0f,
+      g_calc_ground_pos_context);
+  InterpolateRetailGroundContactNormalToward(surface, smoothed_normal, dt);
+}
+
+[[nodiscard]] render::RenderMatrix4x4 BuildGroundAlignedUnitMatrix(
+    const CGUnit_C& unit, const std::array<float, 3>& surface_normal,
+    const std::array<float, 3> &world_position) {
   return render::BuildM2AttachmentTransformMatrix(
       render::RenderVec3View{world_position},
       unit.Movement().SmoothBodyFacing(), unit.GetScale(),
@@ -908,11 +918,55 @@ float UnitPresentationRuntime::ScaledModelHeight(
 }
 
 void UnitMovementRuntime::InterpolateShadowBlobPosition(float dt) {
-  InterpolateRetailGroundContactNormal(owner_, ground_contact_normal_, dt);
-
   const Position position = owner_.GetPosition();
-  const std::array<float, 3> world_position{position.x, position.y,
-                                            position.z};
+  std::array<float, 3> world_position{position.x, position.y, position.z};
+  std::optional<CalcGroundPosCollisionResult> projected_surface;
+
+  // Keep the server spline as the logical position. Ordinary remote ground
+  // creatures only conform their published model transform to a connected
+  // collision surface, so the correction cannot leak into later movement.
+  const bool can_project_ground_spline =
+      !owner_.IsPlayer() && !owner_.IsActiveMover() &&
+      spline_locomotion_active_ && spline_coordinate_parent_.IsEmpty() &&
+      !IsSwimming() && !IsFlying() &&
+      (spline_locomotion_flags_ & kAerialSplineFlags) == 0u;
+  if (!can_project_ground_spline) {
+    spline_ground_projection_seeded_ = false;
+    spline_ground_projection_anchor_ = {};
+  } else {
+    float vertical_allowance = kSplineGroundSeedVerticalAllowance;
+    float probe_origin_z = position.z + vertical_allowance;
+    if (spline_ground_projection_seeded_) {
+      const float delta_x = position.x - spline_ground_projection_anchor_[0];
+      const float delta_y = position.y - spline_ground_projection_anchor_[1];
+      const float planar_distance =
+          std::sqrt(delta_x * delta_x + delta_y * delta_y);
+      vertical_allowance = std::clamp(
+          kSplineGroundProbeVerticalSlack +
+              planar_distance * kSplineGroundProbeRisePerPlanarUnit,
+          kSplineGroundSeedVerticalAllowance,
+          kSplineGroundProbeMaxVerticalAllowance);
+      probe_origin_z = spline_ground_projection_anchor_[2] + vertical_allowance;
+    }
+
+    const auto surface = owner_.Presentation().QueryGroundSurface(
+        {position.x, position.y, probe_origin_z}, vertical_allowance * 2.0f);
+    if (surface.hit && surface.normal_z > kWalkableNormalZ_NPC) {
+      spline_ground_projection_seeded_ = true;
+      spline_ground_projection_anchor_ = {
+          position.x, position.y, surface.ground_z};
+      world_position[2] = surface.ground_z;
+      projected_surface = surface;
+    }
+  }
+
+  if (projected_surface.has_value()) {
+    InterpolateRetailGroundContactNormalToward(
+        *projected_surface, ground_contact_normal_, dt);
+  } else {
+    InterpolateRetailGroundContactNormal(owner_, ground_contact_normal_, dt);
+  }
+
   const float body_facing = SmoothBodyFacing();
   const float scale = owner_.GetScale();
   const std::uint8_t orientation_mode =
@@ -934,7 +988,8 @@ void UnitMovementRuntime::InterpolateShadowBlobPosition(float dt) {
     memo.scale = scale;
     memo.normal = ground_contact_normal_;
     memo.orientation_mode = orientation_mode;
-    memo.matrix = BuildGroundAlignedUnitMatrix(owner_, ground_contact_normal_);
+    memo.matrix = BuildGroundAlignedUnitMatrix(
+        owner_, ground_contact_normal_, world_position);
   }
   owner_.SetVisualModelWorldTransform(memo.matrix.data());
 }
@@ -1026,8 +1081,11 @@ void UnitMovementRuntime::BlendMountTransitionPosition(
   if (owner_.Mount().TransitionNode() == nullptr)
     return;
 
-  render::RenderMatrix4x4 matrix =
-      BuildGroundAlignedUnitMatrix(owner_, ground_contact_normal_);
+  const Position position = owner_.GetPosition();
+  const std::array<float, 3> world_position{
+      position.x, position.y, position.z};
+  render::RenderMatrix4x4 matrix = BuildGroundAlignedUnitMatrix(
+      owner_, ground_contact_normal_, world_position);
 
   float target_offset[3]{};
   auto* const objects = owner_.object_manager();

@@ -2238,9 +2238,13 @@ void UnitMovementRuntime::ClearSplineMovementPoseOwnership() {
   spline_movement_pose_owned_ = false;
   spline_locomotion_active_ = false;
   spline_locomotion_backward_ = false;
+  spline_locomotion_id_ = 0u;
   spline_locomotion_flags_ = 0u;
   spline_locomotion_arc_length_ = 0.0f;
   spline_locomotion_duration_ms_ = 0u;
+  spline_ground_projection_seeded_ = false;
+  spline_ground_projection_anchor_ = {};
+  ground_aligned_matrix_memo_.valid = false;
   spline_pose_waiting_for_parent_ = false;
   spline_coordinate_parent_ = {};
   spline_coordinate_parent_seat_ = -1;
@@ -2651,7 +2655,8 @@ void UnitMovementRuntime::ApplySplineMovementPose(const Vec3 &position,
                                         const std::uint32_t spline_flags,
                                         const float spline_arc_length,
                                         const std::uint32_t spline_duration_ms,
-                                        const bool parent_movement_active) {
+                                        const bool parent_movement_active,
+                                        const std::uint32_t spline_id) {
   const MovementInfo previous_movement = owner_.position_.movement;
   const auto animation_base_flags =
       owner_.GetMovementInfo().flags & ~kDirectionalLocomotionMask;
@@ -2705,9 +2710,15 @@ void UnitMovementRuntime::ApplySplineMovementPose(const Vec3 &position,
                                                          previous_movement);
   }
   spline_movement_pose_owned_ = true;
+  if (!spline_active || spline_locomotion_id_ != spline_id) {
+    spline_ground_projection_seeded_ = false;
+    spline_ground_projection_anchor_ = {};
+    ground_aligned_matrix_memo_.valid = false;
+  }
   spline_locomotion_active_ = spline_active;
   spline_locomotion_backward_ = spline_active && moving_backward;
 
+  spline_locomotion_id_ = spline_active ? spline_id : 0u;
   spline_locomotion_flags_ = spline_active ? spline_flags : 0u;
   spline_locomotion_arc_length_ = spline_active ? spline_arc_length : 0.0f;
   spline_locomotion_duration_ms_ = spline_active ? spline_duration_ms : 0u;
@@ -4770,6 +4781,10 @@ void UnitMovementRuntime::Cleanup() {
   last_movement_update_tick_ = 0u;
   has_movement_update_tick_ = false;
   next_water_ripple_timestamp_ = 0u;
+  spline_locomotion_id_ = 0u;
+  spline_ground_projection_seeded_ = false;
+  spline_ground_projection_anchor_ = {};
+  ground_aligned_matrix_memo_.valid = false;
 }
 
 void UnitMovementRuntime::ResetState() noexcept {
@@ -4783,6 +4798,10 @@ void UnitMovementRuntime::ResetState() noexcept {
   previous_liquid_depth_ = 0.0f;
   in_water_ = false;
   next_water_ripple_timestamp_ = 0u;
+  spline_locomotion_id_ = 0u;
+  spline_ground_projection_seeded_ = false;
+  spline_ground_projection_anchor_ = {};
+  ground_aligned_matrix_memo_.valid = false;
 }
 
 }

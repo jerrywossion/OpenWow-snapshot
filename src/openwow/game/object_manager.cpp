@@ -522,7 +522,7 @@ void ObjectManager::AdvanceSplineMovement(
         spline->HasCoordinateParentBinding(), spline->GetCoordinateParent(),
         spline->GetCoordinateParentSeat(), spline->GetSplineFlags(),
         spline->GetTotalArcLength(), spline->GetDuration(),
-        spline->IsActive());
+        spline->IsActive(), spline->GetSplineId());
     if (spline->HasTriggeredAnimationTier()) {
       unit.Animation().ApplySplineAnimationTier(spline->GetAnimationId());
     }
