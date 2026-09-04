@@ -24,7 +24,7 @@ static constexpr const char* PLAYER_XP_UPDATE        = "PLAYER_XP_UPDATE";
 static constexpr const char* PLAYER_MONEY            = "PLAYER_MONEY";
 static constexpr const char* UPDATE_EXHAUSTION       = "UPDATE_EXHAUSTION";
 static constexpr const char* UNIT_QUEST_LOG_CHANGED  = "UNIT_QUEST_LOG_CHANGED";
-static constexpr const char* SPELLS_CHANGED          = "SPELLS_CHANGED";
+static constexpr const char* SKILL_LINES_CHANGED     = "SKILL_LINES_CHANGED";
 }
 
 static bool InRange(std::uint16_t field, std::uint16_t lo, std::uint16_t count) {
@@ -225,7 +225,7 @@ std::vector<FieldEvent> MapChangedFieldsToEvents(
 
       if (f >= PLAYER_SKILL_INFO_1_1 &&
           f < PLAYER_SKILL_INFO_1_1 + 128 * 3) {
-        emit(evt::SPELLS_CHANGED, false);
+        emit(evt::SKILL_LINES_CHANGED, false);
         continue;
       }
 

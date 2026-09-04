@@ -126,7 +126,7 @@ constexpr std::uint32_t kSkillFlagNoSkillUpMessage = 0x402;
 constexpr std::uint32_t kSkillCategorySecondary = 9;
 constexpr std::uint32_t kSkillCategoryProfession = 11;
 
-constexpr int kSysMsg_SkillUnlearned = 57;
+constexpr int kSysMsg_SkillGained = 57;
 constexpr int kSysMsg_SkillIncreased = 58;
 
 void RefreshActivePlayerSkillInfo(WorldSession& session) {
@@ -166,26 +166,15 @@ void OnSkillValueDescriptorChanged(WorldSession& session,
         SkillDbcHelpers::Get().FindBySkillId(
             info.race, info.player_class, info.skill_line_id);
 
-    if (race_class_info &&
+    if (skill_line_entry != nullptr && race_class_info &&
         (race_class_info->flags & kSkillFlagNoSkillUpMessage) == 0) {
-      if (info.new_adjusted_value == 0) {
-
-        if (skill_line_entry != nullptr) {
-          const std::string name(skill_line_entry->name);
-          ui::game::DisplaySystemMessage(kSysMsg_SkillUnlearned, name.c_str());
-        } else {
-          ui::game::DisplaySystemMessage(kSysMsg_SkillUnlearned);
-        }
-      } else if (info.old_raw_value > 0) {
-
-        if (skill_line_entry != nullptr) {
-          const std::string name(skill_line_entry->name);
-          ui::game::DisplaySystemMessage(
-              kSysMsg_SkillIncreased, name.c_str(),
-              static_cast<int>(info.new_adjusted_value));
-        } else {
-          ui::game::DisplaySystemMessage(kSysMsg_SkillIncreased);
-        }
+      const std::string name(skill_line_entry->name);
+      if (info.old_raw_value == 0) {
+        ui::game::DisplaySystemMessage(kSysMsg_SkillGained, name.c_str());
+      } else if (info.new_adjusted_value > 0) {
+        ui::game::DisplaySystemMessage(
+            kSysMsg_SkillIncreased, name.c_str(),
+            static_cast<int>(info.new_adjusted_value));
       }
     }
 

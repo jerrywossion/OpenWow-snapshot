@@ -2585,8 +2585,10 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
         RequestVisibleQuestgiverStatusRefresh();
         RefreshQuestRuntimeFromPlayer(false);
         dispatch.FireQuestLogUpdate();
-      } else if (std::strcmp(evt.event_name, "SPELLS_CHANGED") == 0) {
-        dispatch.FireSpellsChanged();
+      } else if (std::strcmp(evt.event_name, "SKILL_LINES_CHANGED") == 0) {
+        if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
+          dispatch.FireEvent(ui::game::events::SKILL_LINES_CHANGED);
+        }
       }
     }
   }
