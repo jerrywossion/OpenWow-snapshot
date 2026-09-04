@@ -1191,7 +1191,8 @@ void WorldScene::PrepareFrame(const render::api::RendererContext* renderer_conte
       .near_clip = 0.5f,
       .far_clip = render_camera.far_clip,
       .low_detail_far_clip =
-          render_camera.far_clip * render_camera.horizon_far_clip_scale};
+          render_camera.streaming_distance *
+          render_camera.horizon_far_clip_scale};
   presentation_snapshot_ = world_map_.PublishPresentationSnapshot(
       presentation_camera, render_camera.far_clip);
   presentation_snapshot_.shadows = shadow_settings_;

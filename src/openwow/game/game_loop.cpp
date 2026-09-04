@@ -227,6 +227,10 @@ bool CanPerformInventoryMutation() {
 
 constexpr float kWorldCameraNearClip = openwow::world::kWorldCameraNearClipDistance;
 constexpr float kWorldCameraFallbackFarClip = 350.0f;
+constexpr float kWorldStreamingDistanceMinimum = 183.333328f;
+constexpr float kWorldStreamingDistanceLowMaximum = 791.666687f;
+constexpr float kWorldStreamingDistanceHighMaximum = 1583.333374f;
+constexpr std::uint64_t kWorldStreamingHighMemoryThreshold = 1ull << 30u;
 constexpr std::uint8_t kStandStateSit = 1;
 constexpr std::uint8_t kWorldShadowViewCount = 4;
 constexpr std::uint8_t kWorldSceneOpaqueViewCount = 8;
@@ -252,6 +256,26 @@ float ResolveWorldHorizonFarClipScale() {
                           : 4.0f;
   return std::isfinite(scale) && scale >= 3.0f && scale <= 6.0f ? scale
                                                                 : 6.0f;
+}
+
+float ResolveWorldStreamingDistance(const float far_clip,
+                                    const std::uint32_t map_id) {
+  const bool uses_legacy_map_policy =
+      map_id < 530u || map_id == 543u || map_id == 575u;
+  bool use_high_maximum = false;
+  if (uses_legacy_map_policy) {
+    const auto &cvars = openwow::ui::game::CVarSystem::Instance();
+    use_high_maximum = cvars.Exists("farClipOverride") &&
+                       cvars.GetCVarFloat("farClipOverride") >= 1.0f;
+  } else {
+    use_high_maximum =
+        openwow::platform::OS_GetPhysicalMemory() >
+        kWorldStreamingHighMemoryThreshold;
+  }
+  return std::clamp(
+      far_clip, kWorldStreamingDistanceMinimum,
+      use_high_maximum ? kWorldStreamingDistanceHighMaximum
+                       : kWorldStreamingDistanceLowMaximum);
 }
 
 constexpr std::uint8_t kWorldUiOffscreenViewCount = 128;
@@ -5425,10 +5449,13 @@ void GameLoop::RenderWorld(float dt) {
   }
   const WorldSceneRenderViews render_views = ResolveWorldSceneRenderViews(renderer_context_);
   const auto &pose = world_scene_.camera().frame_pose();
+  const float camera_far_clip = ResolveWorldCameraFarClip();
   const WorldSceneRenderCamera render_camera{
       .position = pose.position,
       .forward = pose.forward,
-      .far_clip = ResolveWorldCameraFarClip(),
+      .far_clip = camera_far_clip,
+      .streaming_distance = ResolveWorldStreamingDistance(
+          camera_far_clip, world_scene_.world_map().map_id()),
       .horizon_far_clip_scale = ResolveWorldHorizonFarClipScale(),
   };
   const auto &cvars = openwow::ui::game::CVarSystem::Instance();
