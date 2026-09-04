@@ -1076,7 +1076,7 @@ void WorldMap::RefreshLightingEnvironment() {
     const auto resolved = lighting_.ResolveEnvironment(
         player_x_, player_y_, player_z_, time_of_day_,
         screen_effect_light_param_slot_override_,
-        WeatherLightingBlendFactor(weather_),
+        WeatherLightParamBlendFactor(weather_),
         use_underwater_light_params, liquid_darkening,
         suppress_local_lighting_);
     const world::SkyColors &colors = resolved.sky;
@@ -1160,7 +1160,7 @@ void WorldMap::UpdateDayNightLightEnvironmentForFrame(
   light_env.WriteFloat(16u, far_clip);
   light_env.WriteFloat(17u, static_cast<float>(tick_ms) * 0.001f);
   light_env.WriteFloat(18u, last_frame_delta_seconds_);
-  light_env.WriteFloat(19u, WeatherLightingBlendFactor(weather_));
+  light_env.WriteFloat(19u, WeatherDayNightFactor(weather_));
   openwow::game::DayNight_WriteOutdoorFogBand(
       light_env,
       openwow::game::DayNightFogBand{
@@ -3087,11 +3087,12 @@ void WorldMap::Update(float dt) {
   light_env_elapsed_seconds_ += last_frame_delta_seconds_;
   weather_clock_ += static_cast<std::uint32_t>(
       last_frame_delta_seconds_ * 1000.0f);
-  const float previous_weather_blend = WeatherLightingBlendFactor(weather_);
+  const float previous_weather_blend =
+      WeatherLightParamBlendFactor(weather_);
   UpdateWeather(weather_, {.now = weather_clock_,
                            .position = {player_x_, player_y_, player_z_},
                            .indoors = !player_is_outdoors_});
-  if (WeatherLightingBlendFactor(weather_) != previous_weather_blend) {
+  if (WeatherLightParamBlendFactor(weather_) != previous_weather_blend) {
     RefreshLightingEnvironment();
   }
 }

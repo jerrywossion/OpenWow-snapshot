@@ -56,7 +56,8 @@ void SetWeather(WeatherState& state, WeatherKind kind, float density,
                 const data::dbc::WeatherEntry* row, bool smooth,
                 float transition_value, std::uint32_t now);
 void UpdateWeather(WeatherState& state, const WeatherUpdate& update);
-[[nodiscard]] float WeatherLightingBlendFactor(const WeatherState& state);
+[[nodiscard]] float WeatherDayNightFactor(const WeatherState& state);
+[[nodiscard]] float WeatherLightParamBlendFactor(const WeatherState& state);
 void ResetWeather(WeatherState& state);
 
 }

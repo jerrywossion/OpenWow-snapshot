@@ -112,8 +112,12 @@ void UpdateWeather(WeatherState& state, const WeatherUpdate& update) {
                  elapsed, 5.0f, 4.0f);
 }
 
-float WeatherLightingBlendFactor(const WeatherState& state) {
+float WeatherDayNightFactor(const WeatherState& state) {
   return state.sky_overlay * state.transition_value;
+}
+
+float WeatherLightParamBlendFactor(const WeatherState& state) {
+  return std::clamp(WeatherDayNightFactor(state) * 4.0f, 0.0f, 1.0f);
 }
 
 void ResetWeather(WeatherState& state) {

@@ -14,8 +14,15 @@
 namespace openwow::render {
 namespace {
 
-constexpr std::size_t kMaximumPrimaryParticles = 6144;
-constexpr std::size_t kMaximumRainSplashes = 6144;
+// The original particle manager stores weather particles in linked packets.
+// 6144 is the capacity of one packet, not a global weather-system limit.
+constexpr std::size_t kPrimaryPacketCapacity = 6144u;
+constexpr std::size_t kMaximumActivePrimaryPackets = 32u;
+constexpr std::size_t kMaximumPrimaryParticles =
+    kPrimaryPacketCapacity * kMaximumActivePrimaryPackets;
+constexpr std::size_t kMaximumActiveRainSplashPackets = 4u;
+constexpr std::size_t kMaximumRainSplashes =
+    kPrimaryPacketCapacity * kMaximumActiveRainSplashPackets;
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kPointFallbackHalfSize = 1.0f / 12.0f;
@@ -292,11 +299,11 @@ bool WeatherRenderer::Initialize() {
   sampler_ = bgfx::createUniform("s_weatherTex", bgfx::UniformType::Sampler);
 
   primary_vertices_ = bgfx::createDynamicVertexBuffer(
-      static_cast<std::uint32_t>(kMaximumPrimaryParticles * 6u), layout_,
+      static_cast<std::uint32_t>(kPrimaryPacketCapacity * 6u), layout_,
       BGFX_BUFFER_ALLOW_RESIZE);
 
   rain_splash_vertices_ = bgfx::createDynamicVertexBuffer(
-      static_cast<std::uint32_t>(kMaximumRainSplashes * 3u), layout_,
+      static_cast<std::uint32_t>(kPrimaryPacketCapacity * 3u), layout_,
       BGFX_BUFFER_ALLOW_RESIZE);
 
   mist_vertices_ = bgfx::createDynamicVertexBuffer(
