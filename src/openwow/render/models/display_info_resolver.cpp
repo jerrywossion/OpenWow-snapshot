@@ -82,6 +82,7 @@ CreatureDisplayVisual DisplayInfoResolver::ResolveCreatureDisplay(
   if (!(visual.model_scale > 0.0f)) {
     visual.model_scale = 1.0f;
   }
+  visual.mount_height = model->mount_height;
   visual.model_opacity =
       std::clamp(static_cast<float>(display->model_alpha) *
                      (1.0f / 255.0f),

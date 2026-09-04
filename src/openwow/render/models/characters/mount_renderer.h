@@ -17,9 +17,20 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace openwow::render {
+
+struct MountM2PresentationEvent {
+  game::ObjectHandle owner;
+  m2::M2TriggeredEvent event;
+};
+
+struct MountSpatialState {
+  RenderMatrix4x4 world_transform{kRenderIdentityMatrix4x4};
+  float mount_height{0.0f};
+};
 
 struct MountInstance {
   game::ObjectHandle rider;
@@ -33,13 +44,22 @@ struct MountInstance {
   std::uint32_t render_ready_latched_instance_id{0};
 
   AnimationState animation;
+  std::uint64_t animation_request_serial{0u};
+  std::uint64_t completed_animation_request_serial{0u};
+  float animation_playback_rate{1.0f};
+  std::uint32_t movement_flags{0u};
+  float locomotion_speed{0.0f};
 
   RenderMatrix4x4 rider_attachment_transform{};
+  RenderMatrix4x4 mount_world_transform{kRenderIdentityMatrix4x4};
   bool rider_attachment_transform_valid{false};
   bool rider_attachment_failure_reported{false};
+  bool mount_world_transform_valid{false};
+  bool event_callback_installed{false};
 
   float mount_scale{1.0f};
   float mount_opacity{1.0f};
+  float mount_height{0.0f};
 
   std::array<std::string, 3> display_texture_paths{};
   std::optional<CreatureDisplayParticleColors> display_particle_colors;
@@ -78,6 +98,15 @@ class MountRenderer {
     camera_position_ = {x, y, z};
   }
 
+  void BindM2EventSink(
+      std::function<void(const MountM2PresentationEvent&)> sink) {
+    m2_event_sink_ = std::move(sink);
+  }
+  void BindAnimationCompletionSink(
+      std::function<void(const game::UnitAnimationCompletionEvent&)> sink) {
+    animation_completion_sink_ = std::move(sink);
+  }
+
   void SetMount(game::ObjectGuid guid, std::uint32_t mount_display_id);
 
   void ClearMount(game::ObjectGuid guid);
@@ -106,6 +135,12 @@ class MountRenderer {
   [[nodiscard]] bool HasRiderAttachmentTransform(
       game::ObjectGuid guid) const;
 
+  [[nodiscard]] bool QueryMountSpatialState(
+      game::ObjectGuid guid, MountSpatialState& out) const;
+
+  [[nodiscard]] std::uint32_t QueryMountM2InstanceId(
+      game::ObjectHandle rider) const noexcept;
+
   void SyncFromSnapshot(const game::ObjectPresentationSnapshot& objects);
 
  private:
@@ -114,6 +149,7 @@ class MountRenderer {
   void LoadModelForMount(MountInstance& inst);
   void ApplyDisplayOverrides(MountInstance& inst);
   void ApplyVisibleSubmeshes(MountInstance& inst);
+  void ApplyM2EventCallback(MountInstance& inst);
 
   [[nodiscard]] bool PrepareMountPose(
       MountInstance& inst, const game::ObjectPresentationRecord& unit);
@@ -128,7 +164,7 @@ class MountRenderer {
   std::vector<std::uint32_t> render_batch_draw_ordinals_scratch_;
   std::vector<m2::M2RenderInstanceResult> render_batch_results_scratch_;
 
-  static game::CharacterLocomotionAnimation SelectMountAnimation(
+  static game::CharacterLocomotionAnimation SelectMountLocomotionAnimation(
       const game::ObjectPresentationRecord& unit);
 
   static constexpr std::uint32_t kRiderAttachmentLookupIndex = 0u;
@@ -141,6 +177,9 @@ class MountRenderer {
       mounts_;
 
   std::function<std::vector<std::uint8_t>(const std::string&)> file_loader_;
+  std::function<void(const MountM2PresentationEvent&)> m2_event_sink_;
+  std::function<void(const game::UnitAnimationCompletionEvent&)>
+      animation_completion_sink_;
 
   WorldM2SceneState world_m2_scene_state_{};
   RenderVec3 camera_position_{};

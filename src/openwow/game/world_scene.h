@@ -41,6 +41,7 @@ class BowstringRenderer;
 class ChatBubblePresenter;
 struct DoodadCollisionTriangle;
 struct GameObjectM2PresentationEvent;
+struct MountM2PresentationEvent;
 class MissileTrajectoryRenderer;
 class NameplateRenderer;
 class ObjectRenderer;
@@ -312,7 +313,9 @@ class WorldScene final
 
   bool frame_prepared_{false};
   std::vector<UnitAnimationCompletionEvent> unit_animation_completions_;
+  std::vector<UnitAnimationCompletionEvent> mount_animation_completions_;
   std::vector<render::GameObjectM2PresentationEvent> game_object_m2_events_;
+  std::vector<render::MountM2PresentationEvent> mount_m2_events_;
   std::deque<render::SpellVisualM2PresentationEvent> spell_visual_m2_events_;
   std::deque<render::SpellVisualDeferredImpactCommand>
       spell_visual_deferred_impacts_;

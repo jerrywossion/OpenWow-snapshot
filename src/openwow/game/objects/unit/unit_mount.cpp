@@ -6,13 +6,30 @@
 #include "openwow/game/spell_visual_system.h"
 #include "openwow/game/object_effect_system.h"
 #include "openwow/game/objects/unit/unit_spell_visual_runtime.h"
-#include "openwow/render/m2/m2_system.h"
 #include "openwow/ui/game/script_event_dispatch.h"
 
 #include <cstddef>
+#include <cmath>
 #include <cstring>
 
 namespace openwow::game {
+
+namespace {
+
+[[nodiscard]] float ResolveMountDisplayScale(
+    const CGUnit_C &owner, const std::uint32_t display_id) noexcept {
+  const auto *const dbc = owner.dbc_loader();
+  const auto *const display =
+      dbc != nullptr
+          ? dbc->creature_display_info().LookupEntry(display_id)
+          : nullptr;
+  return display != nullptr && std::isfinite(display->scale) &&
+                 display->scale > 0.0f
+             ? display->scale
+             : 1.0f;
+}
+
+}
 
 UnitMountComponent &CGUnit_C::Mount() noexcept { return mount_; }
 
@@ -55,7 +72,9 @@ bool UnitMountComponent::HasCompletedTransition() const {
 
 void UnitMountComponent::InitializeFromDescriptor(
     const CGUnit_C &owner) noexcept {
-  SetCachedDisplayForSpell(DisplayId(owner));
+  const std::uint32_t display_id = DisplayId(owner);
+  SetCachedDisplayForSpell(display_id);
+  SetDisplayScale(ResolveMountDisplayScale(owner, display_id));
   SetPendingDisplayChange(std::nullopt);
 }
 
@@ -106,6 +125,9 @@ void UnitMountComponent::Dismount(CGUnit_C &owner,
     return;
   }
   SetModelDefaultAnimationId(std::nullopt);
+  SetDisplayScale(1.0f);
+  SetOverlayM2InstanceId(0u);
+  owner.Animation().InvalidateDeferredStandSelection();
   owner.State().ClearSpellStateFlags(0x00882004u);
   owner.Presentation().RefreshActiveDisplayRuntimeState();
   static_cast<void>(update_spell_visuals);
@@ -129,35 +151,20 @@ void UnitMountComponent::ApplyDisplayChange(
     Dismount(owner, mount_display_id == 0u);
   }
   SetCachedDisplayForSpell(mount_display_id);
+  SetDisplayScale(ResolveMountDisplayScale(owner, mount_display_id));
   owner.Presentation().RefreshActiveDisplayRuntimeState();
   if (mount_display_id != 0u && previous_display == 0u) {
     AddHardcodedOneShotEffect(session, owner, HardcodedEffectId::kMountPoof);
   }
 
+  owner.Animation().InvalidateDeferredStandSelection();
   owner.Animation().RefreshSelectedStandAnimation(session, 0u, ~0u);
   owner.Presentation().RefreshModelBoundsAndEffects();
   ui::game::ScriptEventDispatch::Get().FireUnitModel(owner.GetGuid().GetRawValue());
   owner.SpellVisuals().UpdateObjectEffect();
 }
 
-void UnitMountComponent::ReleaseOverlayM2Instance(CGUnit_C &owner) {
-  if (OverlayM2InstanceId() == 0u) {
-    return;
-  }
-  auto &system = *owner.m2_system();
-  const auto instance_id = OverlayM2InstanceId();
-  auto status = render::m2::M2ResultStatus::kReady;
-  status = render::m2::MergeM2ResultStatus(
-      status, system.ClearAnimationChangedCallback(instance_id));
-  status = render::m2::MergeM2ResultStatus(
-      status, system.ClearTriggeredEventCallback(instance_id));
-  status = render::m2::MergeM2ResultStatus(
-      status, system.ClearReplacementColors(instance_id));
-  status = render::m2::MergeM2ResultStatus(
-      status, system.DestroyInstance(instance_id));
-  if (render::m2::IsTerminalM2ResultStatus(status)) {
-    SetModelDefaultAnimationId(std::nullopt);
-  }
+void UnitMountComponent::ClearOverlayM2InstanceBinding() noexcept {
   SetOverlayM2InstanceId(0u);
   SetModelDefaultAnimationId(std::nullopt);
 }

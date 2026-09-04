@@ -928,6 +928,10 @@ ObjectPresentationSnapshot ObjectManager::PublishPresentationSnapshot(
                          : nullptr;
     const std::uint32_t mount_display_id =
         unit != nullptr ? unit->Mount().CachedDisplayForSpell() : 0u;
+    const auto mount_animation =
+        unit != nullptr
+            ? unit->Animation().GetMountPlaybackRequest()
+            : UnitAnimationRuntime::MountPlaybackRequest{};
     std::uint32_t relation_mask = 0u;
     if (unit != nullptr && active_player != nullptr) {
 
@@ -968,6 +972,9 @@ ObjectPresentationSnapshot ObjectManager::PublishPresentationSnapshot(
         .level = object->GetLevel(),
         .movement_flags = object->GetMovementInfo().flags,
         .mount_display_id = mount_display_id,
+        .mount_animation_id = mount_animation.animation_id,
+        .mount_animation_looping = mount_animation.looping,
+        .mount_animation_serial = mount_animation.serial,
         .unit_flags = unit != nullptr ? unit->State().GetUnitFlags() : 0u,
         .unit_flags2 = unit != nullptr ? unit->State().GetUnitFlags2() : 0u,
         .creature_type =

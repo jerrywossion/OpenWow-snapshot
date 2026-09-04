@@ -12,10 +12,62 @@
 #include "openwow/render/api/math/render_matrix_math.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <numeric>
 
 namespace openwow::render {
+
+namespace {
+
+[[nodiscard]] constexpr bool IsSpeedScaledMountAnimation(
+    const std::uint32_t animation_id) noexcept {
+  switch (animation_id) {
+  case AnimId::kWalk:
+  case AnimId::kRun:
+  case AnimId::kShuffleLeft:
+  case AnimId::kShuffleRight:
+  case AnimId::kWalkBackwards:
+  case AnimId::kJumpStart:
+  case AnimId::kJump:
+  case AnimId::kJumpEnd:
+  case AnimId::kSwim:
+  case AnimId::kSwimLeft:
+  case AnimId::kSwimRight:
+  case AnimId::kSwimBackwards:
+  case AnimId::kStealthWalk:
+  case AnimId::kFly:
+  case AnimId::kSprint:
+  case AnimId::kJumpLandRun:
+  case AnimId::kStealthRun:
+    return true;
+  default:
+    return false;
+  }
+}
+
+[[nodiscard]] float ResolveMountAnimationPlaybackRate(
+    const m2::M2System& system, const MountInstance& instance) {
+  constexpr std::uint32_t kDirectionalLocomotionFlags =
+      game::kMoveFlagForward | game::kMoveFlagBackward |
+      game::kMoveFlagStrafeLeft | game::kMoveFlagStrafeRight |
+      game::kMoveFlagAscending | game::kMoveFlagDescending;
+  if (instance.m2_model_id == 0u ||
+      !IsSpeedScaledMountAnimation(instance.animation.current_anim()) ||
+      (instance.movement_flags & kDirectionalLocomotionFlags) == 0u ||
+      !(instance.locomotion_speed > 0.0f)) {
+    return 1.0f;
+  }
+  const auto sequence = system.QueryModelAnimationSequence(
+      instance.m2_model_id, instance.animation.current_anim());
+  if (sequence.status != m2::M2ResultStatus::kReady ||
+      !sequence.has_sequence || sequence.sequence.move_speed == 0.0f) {
+    return 1.0f;
+  }
+  return instance.locomotion_speed / std::abs(sequence.sequence.move_speed);
+}
+
+}
 
 MountRenderer::~MountRenderer() {
   Shutdown();
@@ -76,11 +128,17 @@ void MountRenderer::SetMount(game::ObjectGuid guid,
   ClearM2Binding(inst);
   inst.mount_model_path.clear();
   inst.animation.Reset();
+  inst.animation_request_serial = 0u;
+  inst.completed_animation_request_serial = 0u;
+  inst.animation_playback_rate = 1.0f;
+  inst.movement_flags = 0u;
+  inst.locomotion_speed = 0.0f;
   inst.display_texture_paths = {};
   inst.display_particle_colors.reset();
   inst.display_geoset_data = 0u;
   inst.mount_scale = 1.0f;
   inst.mount_opacity = 1.0f;
+  inst.mount_height = 0.0f;
 }
 
 void MountRenderer::ClearMount(game::ObjectGuid guid) {
@@ -114,6 +172,8 @@ void MountRenderer::SyncFromSnapshot(
     }
 
     const std::uint32_t mount_display = unit->mount_display_id;
+    inst.movement_flags = unit->locomotion.movement_flags;
+    inst.locomotion_speed = unit->locomotion.current_speed;
     if (mount_display == 0) {
       stale.push_back(guid);
     } else if (mount_display != inst.mount_display_id) {
@@ -124,11 +184,15 @@ void MountRenderer::SyncFromSnapshot(
       ClearM2Binding(inst);
       inst.mount_model_path.clear();
       inst.animation.Reset();
+      inst.animation_request_serial = 0u;
+      inst.completed_animation_request_serial = 0u;
+      inst.animation_playback_rate = 1.0f;
       inst.display_texture_paths = {};
       inst.display_particle_colors.reset();
       inst.display_geoset_data = 0u;
       inst.mount_scale = 1.0f;
       inst.mount_opacity = 1.0f;
+      inst.mount_height = 0.0f;
     }
   }
 
@@ -145,7 +209,10 @@ void MountRenderer::SyncFromSnapshot(
     const std::uint32_t mount_display = unit.mount_display_id;
     if (mount_display != 0 && mounts_.find(guid) == mounts_.end()) {
       SetMount(guid, mount_display);
-      mounts_.at(guid).rider = unit.handle;
+      auto& mount = mounts_.at(guid);
+      mount.rider = unit.handle;
+      mount.movement_flags = unit.locomotion.movement_flags;
+      mount.locomotion_speed = unit.locomotion.current_speed;
     }
   }
 }
@@ -165,6 +232,8 @@ void MountRenderer::ClearM2Binding(MountInstance& inst) {
   inst.mount_loaded = false;
   inst.rider_attachment_transform_valid = false;
   inst.rider_attachment_failure_reported = false;
+  inst.mount_world_transform_valid = false;
+  inst.event_callback_installed = false;
   inst.display_overrides_applied = false;
   inst.visible_submeshes_applied = false;
 }
@@ -261,6 +330,30 @@ void MountRenderer::ApplyVisibleSubmeshes(MountInstance& inst) {
   }
 }
 
+void MountRenderer::ApplyM2EventCallback(MountInstance& inst) {
+  if (inst.event_callback_installed || inst.m2_instance_id == 0u ||
+      m2_event_sink_ == nullptr) {
+    return;
+  }
+  const auto status = m2_system_.SetTriggeredEventCallback(
+      inst.m2_instance_id,
+      [this, owner = inst.rider](const m2::M2TriggeredEvent& event) {
+        if (m2_event_sink_ != nullptr) {
+          m2_event_sink_({.owner = owner, .event = event});
+        }
+      });
+  if (status == m2::M2ResultStatus::kReady) {
+    inst.event_callback_installed = true;
+  } else if (m2::IsTerminalM2ResultStatus(status)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "MountRenderer: animation event callback failed display=" +
+            std::to_string(inst.mount_display_id) +
+            " status=" + m2::M2ResultStatusName(status));
+    ClearM2Binding(inst);
+  }
+}
+
 void MountRenderer::Update(float dt, int max_loads_per_frame) {
   if (!initialized_) return;
 
@@ -275,6 +368,7 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
       inst.mount_model_path = visual.model_path;
       inst.mount_scale = visual.model_scale;
       inst.mount_opacity = visual.model_opacity;
+      inst.mount_height = visual.mount_height;
       inst.display_texture_paths = visual.texture_paths;
       inst.display_particle_colors = visual.particle_colors;
       inst.display_geoset_data = visual.geoset_data;
@@ -289,6 +383,7 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
 
     ApplyDisplayOverrides(inst);
     ApplyVisibleSubmeshes(inst);
+    ApplyM2EventCallback(inst);
 
     std::uint32_t anim_duration_ms = 0u;
     if (inst.m2_model_id != 0u) {
@@ -303,7 +398,24 @@ void MountRenderer::Update(float dt, int max_loads_per_frame) {
         anim_duration_ms = sequence.sequence.duration_ms;
       }
     }
-    inst.animation.Update(dt, anim_duration_ms);
+    inst.animation_playback_rate =
+        ResolveMountAnimationPlaybackRate(system, inst);
+    inst.animation.Update(dt * inst.animation_playback_rate, anim_duration_ms);
+    if (!inst.animation.is_looping() && inst.animation.DidAnimationComplete() &&
+        inst.animation_request_serial != 0u &&
+        inst.completed_animation_request_serial !=
+            inst.animation_request_serial) {
+      inst.completed_animation_request_serial =
+          inst.animation_request_serial;
+      if (animation_completion_sink_ != nullptr) {
+        animation_completion_sink_({
+            .owner = inst.rider,
+            .animation_id = static_cast<std::uint16_t>(
+                inst.animation.current_anim()),
+            .request_serial = inst.animation_request_serial,
+        });
+      }
+    }
   }
 }
 
@@ -469,7 +581,7 @@ void MountRenderer::RefreshRiderAttachmentTransform(MountInstance& inst) {
   }
 }
 
-game::CharacterLocomotionAnimation MountRenderer::SelectMountAnimation(
+game::CharacterLocomotionAnimation MountRenderer::SelectMountLocomotionAnimation(
     const game::ObjectPresentationRecord& unit) {
 
   game::CharacterLocomotionState state = unit.locomotion;
@@ -510,21 +622,36 @@ bool MountRenderer::PrepareMountInstance(MountInstance& inst,
 bool MountRenderer::PrepareMountPose(
     MountInstance& inst, const game::ObjectPresentationRecord& unit) {
   inst.rider_attachment_transform_valid = false;
+  inst.mount_world_transform_valid = false;
   if (inst.m2_instance_id == 0u) {
     return false;
   }
 
-  const auto locomotion = SelectMountAnimation(unit);
-  inst.animation.SetAnimation(locomotion.animation_id, locomotion.looping);
+  const bool request_changed =
+      inst.animation_request_serial != unit.mount_animation_serial;
+  if (request_changed) {
+    inst.animation.Restart(unit.mount_animation_id,
+                           unit.mount_animation_looping);
+    inst.animation_request_serial = unit.mount_animation_serial;
+    inst.completed_animation_request_serial = 0u;
+  } else if (inst.completed_animation_request_serial ==
+             unit.mount_animation_serial) {
+    const auto locomotion = SelectMountLocomotionAnimation(unit);
+    inst.animation.SetAnimation(locomotion.animation_id, locomotion.looping);
+  }
+  inst.animation_playback_rate =
+      ResolveMountAnimationPlaybackRate(m2_system_, inst);
   const auto model_matrix = BuildM2ModelInstanceTransform(
       unit.x, unit.y, unit.z, unit.facing, inst.mount_scale);
+  inst.mount_world_transform = model_matrix;
 
   auto status = m2_system_.SetWorldTransformMatrix(inst.m2_instance_id,
                                                    model_matrix);
   status = m2::MergeM2ResultStatus(
       status, m2_system_.SetAnimationSample(
                   inst.m2_instance_id, inst.animation.current_anim(),
-                  inst.animation.current_time_ms()));
+                  inst.animation.current_time_ms(),
+                  inst.animation_playback_rate, false, request_changed));
   if (m2::IsTerminalM2ResultStatus(status)) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
@@ -538,6 +665,7 @@ bool MountRenderer::PrepareMountPose(
     return false;
   }
 
+  inst.mount_world_transform_valid = true;
   RefreshRiderAttachmentTransform(inst);
   return inst.rider_attachment_transform_valid;
 }
@@ -585,6 +713,27 @@ bool MountRenderer::HasRiderAttachmentTransform(
   const auto it = mounts_.find(guid);
   return it != mounts_.end() &&
          it->second.rider_attachment_transform_valid;
+}
+
+bool MountRenderer::QueryMountSpatialState(
+    const game::ObjectGuid guid, MountSpatialState& out) const {
+  const auto it = mounts_.find(guid);
+  if (it == mounts_.end() || !it->second.mount_world_transform_valid ||
+      it->second.m2_instance_id == 0u ||
+      !std::isfinite(it->second.mount_height)) {
+    return false;
+  }
+  out.world_transform = it->second.mount_world_transform;
+  out.mount_height = it->second.mount_height;
+  return true;
+}
+
+std::uint32_t MountRenderer::QueryMountM2InstanceId(
+    const game::ObjectHandle rider) const noexcept {
+  const auto it = mounts_.find(rider.guid);
+  return it != mounts_.end() && it->second.rider == rider
+             ? it->second.m2_instance_id
+             : 0u;
 }
 
 }

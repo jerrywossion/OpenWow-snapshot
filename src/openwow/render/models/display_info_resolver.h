@@ -20,6 +20,7 @@ struct CreatureDisplayVisual {
   std::string model_path;
   float model_scale{1.0f};
   float model_opacity{1.0f};
+  float mount_height{0.0f};
   std::array<std::string, 3> texture_paths{};
   std::optional<CreatureDisplayParticleColors> particle_colors;
   std::uint32_t geoset_data{0u};

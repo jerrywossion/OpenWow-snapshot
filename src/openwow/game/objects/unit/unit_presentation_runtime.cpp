@@ -1424,6 +1424,7 @@ void UnitPresentationRuntime::RefreshActiveDisplayRuntimeState() {
 }
 
 void UnitPresentationRuntime::ResetRuntimeState() {
+  model_misc_flags_ = 0u;
   owner_.ClearObjectBoundingBox();
   footprint_.SetTextureId(0xFFFFFFFFu);
   footprint_.SetTerrainTypeId(0xFFFFFFFFu);
@@ -2130,6 +2131,7 @@ void UnitPresentationRuntime::OnModelLoaded(WorldSession &session,
   }
 
   if (instance_id != 0 && instance_id == owner_.GetPrimaryM2InstanceId()) {
+    model_misc_flags_ |= kModelAnimSequencesReadyBit;
     owner_.Animation().SetAnimationBoneAvailability(false, false);
 
     auto &m2_system = *owner_.m2_system();

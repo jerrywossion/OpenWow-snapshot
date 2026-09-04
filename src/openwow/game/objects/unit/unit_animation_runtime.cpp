@@ -697,6 +697,9 @@ bool UnitAnimationRuntime::UpdateCachedAnimationTier(
 void UnitAnimationRuntime::ResetInternalEmoteStorage() noexcept {
 
   emote_internal_flags_ = kConstructedEmoteInternalFlags;
+  mount_playback_request_ = {};
+  pending_deferred_animation_id_ = -1;
+  stand_selector_refresh_pending_ = false;
 
   for (auto &slot : emote_slots_) {
     slot = 0u;
@@ -1624,6 +1627,7 @@ bool UnitAnimationRuntime::RequestPlayback(const std::uint16_t animation_id,
   bool rider_substituted = false;
   if (owner_.GetUInt32(UNIT_FIELD_MOUNTDISPLAYID) != 0u &&
       IsMountModelBehavior(resolved_behavior)) {
+    CommitMountPlaybackRequest(resolved_row, looping, restart);
     submit_row = kRiderMountAnimationId;
     resolved_row = kRiderMountAnimationId;
     resolved_behavior = ResolveAnimationBehaviorId(owner_, resolved_row);
@@ -1657,6 +1661,20 @@ void UnitAnimationRuntime::SubmitRawPlayback(const std::uint16_t animation_id,
                         true, zero_blend);
 }
 
+void UnitAnimationRuntime::CommitMountPlaybackRequest(
+    const std::uint16_t animation_id, const bool looping,
+    const bool restart) {
+  if (!restart && mount_playback_request_.animation_id == animation_id &&
+      mount_playback_request_.looping == looping) {
+    return;
+  }
+  mount_playback_request_.animation_id = animation_id;
+  mount_playback_request_.looping = looping;
+  if (++mount_playback_request_.serial == 0u) {
+    mount_playback_request_.serial = 1u;
+  }
+}
+
 void UnitAnimationRuntime::CommitPlaybackRequest(
     const std::uint16_t animation_id, const bool looping,
     const bool upper_body_only, const bool bypass_alias_resolution,
@@ -1667,8 +1685,8 @@ void UnitAnimationRuntime::CommitPlaybackRequest(
   const std::uint16_t previous_row = playback_request_.animation_id;
   const bool previous_upper = playback_request_.upper_body_only;
   const auto interrupt = [this](const std::uint16_t displaced_row) {
-    ClearSequenceEndFlagBits(ResolveAnimationBehaviorId(owner_, displaced_row),
-                             displaced_row);
+    ClearSequenceEndFlagBits(
+        ResolveAnimationBehaviorId(owner_, displaced_row));
   };
   if (upper_body_only) {
 
@@ -1740,12 +1758,7 @@ void UnitAnimationRuntime::ApplySubmitFunnelFlagBits(
 }
 
 void UnitAnimationRuntime::ClearSequenceEndFlagBits(
-    const std::uint32_t finished_behavior,
-    const std::uint16_t finished_animation_id) {
-  if (deferred_animation_satisfied_id_ ==
-      static_cast<std::int32_t>(finished_animation_id)) {
-    deferred_animation_satisfied_id_ = -1;
-  }
+    const std::uint32_t finished_behavior) {
   switch (finished_behavior) {
   case kJumpEndBehaviorId:
   case kJumpLandRunBehaviorId:
@@ -2167,6 +2180,19 @@ void UnitAnimationRuntime::HandlePlaybackCompletion(
                         animation_id, animation_id);
 }
 
+void UnitAnimationRuntime::HandleMountPlaybackCompletion(
+    const WorldSession &session, const std::uint64_t request_serial,
+    const std::uint16_t animation_id) {
+  if (owner_.GetUInt32(UNIT_FIELD_MOUNTDISPLAYID) == 0u ||
+      mount_playback_request_.serial != request_serial ||
+      mount_playback_request_.animation_id != animation_id ||
+      mount_playback_request_.looping) {
+    return;
+  }
+  HandleAnimSequenceEnd(session, static_cast<std::uint32_t>(current_anim_group_),
+                        animation_id, animation_id);
+}
+
 bool UnitAnimationRuntime::IsPlayingUsingAnimation() const {
   if (!owner_.Presentation().EnsureModelReady()) {
     return false;
@@ -2399,11 +2425,6 @@ void UnitAnimationRuntime::ApplySelectedStandAnimation(
     const std::uint16_t animation_id,
     const std::uint32_t animation_flags) {
 
-  if (pending_deferred_animation_id_ != -1 &&
-      pending_deferred_animation_id_ == static_cast<std::int32_t>(animation_id)) {
-    deferred_animation_satisfied_id_ = static_cast<std::int32_t>(animation_id);
-  }
-
   if (!IsPrimaryM2ModelStreamedFor(owner_)) {
     pending_deferred_animation_id_ = static_cast<std::int32_t>(animation_id);
     return;
@@ -2573,18 +2594,31 @@ void UnitAnimationRuntime::RunPendingStandSelectorRefresh(
   }
   stand_selector_refresh_pending_ = false;
   RefreshSelectedStandAnimation(session, 0u, ~0u);
+  if (IsRestPoseStaleForFlags(ResolveSelectorMovementFlags())) {
+    stand_selector_refresh_pending_ = true;
+  }
 }
 
 bool UnitAnimationRuntime::IsRestPoseStaleForFlags(
     const std::uint32_t movement_flags) const {
 
+  if (IsAnimationPoseStaleForFlags(playback_request_.animation_id,
+                                   movement_flags)) {
+    return true;
+  }
+  return playback_request_.upper_body_only &&
+         playback_request_.base_animation_id != kNoAnimationRow &&
+         IsAnimationPoseStaleForFlags(playback_request_.base_animation_id,
+                                      movement_flags);
+}
+
+bool UnitAnimationRuntime::IsAnimationPoseStaleForFlags(
+    const std::uint16_t animation_id,
+    const std::uint32_t movement_flags) const {
+
   if ((movement_flags & (kMoveFlagFalling | kMoveFlagFallingFar)) != 0u) {
-    const auto current = GetCurrentAnimationId();
-    const bool preserve =
-        current.has_value() &&
-        IsMovementStandPreservingBehaviorId(
-            ResolveAnimationBehaviorId(owner_, *current));
-    return !preserve;
+    return !IsMovementStandPreservingBehaviorId(
+        ResolveAnimationBehaviorId(owner_, animation_id));
   }
 
   const bool aquatic =
@@ -2592,7 +2626,7 @@ bool UnitAnimationRuntime::IsRestPoseStaleForFlags(
   const bool has_directional =
       (movement_flags & (kMoveFlagForward | kMoveFlagBackward |
                          kMoveFlagStrafeLeft | kMoveFlagStrafeRight)) != 0u;
-  switch (playback_request_.animation_id) {
+  switch (animation_id) {
   case render::AnimId::kWalk:
   case render::AnimId::kRun:
   case render::AnimId::kWalkBackwards:
@@ -2600,6 +2634,11 @@ bool UnitAnimationRuntime::IsRestPoseStaleForFlags(
   case render::AnimId::kSprint:
 
     return aquatic || !has_directional;
+  case render::AnimId::kShuffleLeft:
+  case render::AnimId::kShuffleRight:
+    return (movement_flags & (kMoveFlagTurnLeft | kMoveFlagTurnRight)) == 0u &&
+           (emote_internal_flags_ &
+            (kEmoteFlagTurnInPlaceLeft | kEmoteFlagTurnInPlaceRight)) == 0u;
   case render::AnimId::kSwim:
   case render::AnimId::kSwimLeft:
   case render::AnimId::kSwimRight:
@@ -2614,6 +2653,10 @@ bool UnitAnimationRuntime::IsRestPoseStaleForFlags(
     return aquatic;
   case render::AnimId::kSwimIdle:
     return !aquatic;
+  case render::AnimId::kHover:
+    return (movement_flags & (kMoveFlagFlying | kMoveFlagHover)) == 0u;
+  case render::AnimId::kMount:
+    return owner_.GetUInt32(UNIT_FIELD_MOUNTDISPLAYID) == 0u;
   default:
     return false;
   }
@@ -3691,15 +3734,15 @@ void UnitAnimationRuntime::RefreshSelectedStandAnimation(
     if (pending_deferred_animation_id_ != -1 &&
         IsValidUnitAnimationId(
             static_cast<std::uint32_t>(pending_deferred_animation_id_))) {
-      ApplySelectedStandAnimation(
-          static_cast<std::uint16_t>(pending_deferred_animation_id_),
-          animation_flags);
-      return;
+      const auto pending_animation_id =
+          static_cast<std::uint16_t>(pending_deferred_animation_id_);
+      if (!IsAnimationPoseStaleForFlags(
+              pending_animation_id, ResolveSelectorMovementFlags())) {
+        ApplySelectedStandAnimation(pending_animation_id, animation_flags);
+        return;
+      }
+      pending_deferred_animation_id_ = -1;
     }
-    if (deferred_animation_satisfied_id_ != -1) {
-      return;
-    }
-
     std::uint16_t idle_animation_id = 0u;
     if (ResolveIdleStandAnimation(session, &idle_animation_id)) {
       ApplySelectedStandAnimation(idle_animation_id, animation_flags);
@@ -3996,8 +4039,7 @@ void UnitAnimationRuntime::HandleAnimSequenceEnd(const WorldSession &session,
   }
 
   const auto finished_behavior = ResolveAnimationBehaviorId(owner_, emote_state);
-  ClearSequenceEndFlagBits(finished_behavior,
-                           static_cast<std::uint16_t>(emote_state));
+  ClearSequenceEndFlagBits(finished_behavior);
   if (previous_selected_stand_animation_id_.has_value() &&
       previous_selected_stand_animation_id_.value() == static_cast<std::uint16_t>(emote_state))
     previous_selected_stand_animation_id_.reset();
@@ -4055,6 +4097,8 @@ void UnitAnimationRuntime::ResetEmoteState() {
         kEmoteInternalFlagUseSpellVisualStartAnimation);
   ClearSelectedStandAnimationState();
   current_anim_group_ = -1;
+  pending_deferred_animation_id_ = -1;
+  stand_selector_refresh_pending_ = true;
 }
 
 void UnitAnimationRuntime::ResetDeathPlaybackForAliveTransition(

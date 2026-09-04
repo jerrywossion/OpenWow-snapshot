@@ -1100,6 +1100,11 @@ ObjectRenderer::QueryPrimaryM2InstanceId(const game::ObjectHandle handle) const 
   return instance != instances_.end() ? instance->second.m2_instance_id : 0u;
 }
 
+std::uint32_t ObjectRenderer::QueryMountM2InstanceId(
+    const game::ObjectHandle handle) const noexcept {
+  return mount_renderer_.QueryMountM2InstanceId(handle);
+}
+
 bool ObjectRenderer::IsCharacterAppearancePrepared(const game::ObjectGuid guid) const {
   const auto *const instance = FindInstance(guid);
   if (instance == nullptr || !instance->character_appearance_declared ||
@@ -1252,6 +1257,20 @@ bool ObjectRenderer::QueryModelSpatialState(const game::ObjectGuid guid,
   out->world_transform = world_transform;
   out->local_bounds = spatial.spatial.local_bounds;
   out->local_bounding_sphere = spatial.spatial.local_bounding_sphere;
+  if (it->is_mounted) {
+    MountSpatialState mount_spatial{};
+    if (mount_renderer_.QueryMountSpatialState(guid, mount_spatial)) {
+      const float rider_height = out->local_bounds[5] - out->local_bounds[2];
+      if (rider_height > 0.0f && std::isfinite(rider_height)) {
+        const float vertical_offset =
+            mount_spatial.mount_height - rider_height * 0.5f;
+        out->local_bounds[2] += vertical_offset;
+        out->local_bounds[5] += vertical_offset;
+        out->local_bounding_sphere[2] += vertical_offset;
+      }
+      out->world_transform = mount_spatial.world_transform;
+    }
+  }
   out->world_bounds.fill(0.0f);
   out->world_bounding_sphere.fill(0.0f);
   PopulateWorldSpatialState(out);

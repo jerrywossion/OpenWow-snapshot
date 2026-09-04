@@ -485,6 +485,14 @@ public:
       std::function<void(const GameObjectM2PresentationEvent &)> sink) {
     game_object_m2_event_sink_ = std::move(sink);
   }
+  void BindMountM2EventSink(
+      std::function<void(const MountM2PresentationEvent &)> sink) {
+    mount_renderer_.BindM2EventSink(std::move(sink));
+  }
+  void BindMountAnimationCompletionSink(
+      std::function<void(const game::UnitAnimationCompletionEvent &)> sink) {
+    mount_renderer_.BindAnimationCompletionSink(std::move(sink));
+  }
 
   void SetFileLoader(std::function<std::vector<std::uint8_t>(const std::string &)> loader);
 
@@ -586,6 +594,9 @@ public:
                                                 bool visible);
 
   [[nodiscard]] std::uint32_t QueryPrimaryM2InstanceId(game::ObjectHandle handle) const noexcept;
+
+  [[nodiscard]] std::uint32_t QueryMountM2InstanceId(
+      game::ObjectHandle handle) const noexcept;
 
   [[nodiscard]] bool IsCharacterAppearancePrepared(game::ObjectGuid guid) const;
 

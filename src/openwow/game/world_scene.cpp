@@ -689,6 +689,14 @@ WorldScene::WorldScene(render::TextureManager& texture_manager,
       [this](const render::GameObjectM2PresentationEvent& event) {
         game_object_m2_events_.push_back(event);
       });
+  object_renderer_->BindMountM2EventSink(
+      [this](const render::MountM2PresentationEvent& event) {
+        mount_m2_events_.push_back(event);
+      });
+  object_renderer_->BindMountAnimationCompletionSink(
+      [this](const UnitAnimationCompletionEvent& event) {
+        mount_animation_completions_.push_back(event);
+      });
 
   object_renderer_->SetAreaSceneReadinessResolver(
       [this](const render::RenderInstance& instance)
@@ -877,6 +885,8 @@ WorldScene::~WorldScene() {
   if (object_renderer_) {
     object_renderer_->BindUnitAnimationCompletionSink({});
     object_renderer_->BindGameObjectM2EventSink({});
+    object_renderer_->BindMountM2EventSink({});
+    object_renderer_->BindMountAnimationCompletionSink({});
   }
   world_presentation_scene_.BindWmoDoodadM2EventSink({});
   world_frame_.BindPickingScene(nullptr, nullptr);
@@ -1702,6 +1712,19 @@ void WorldScene::PublishObjectPresentation(
     unit->Animation().HandlePlaybackCompletion(
         world_session, completion.request_serial, completion.animation_id);
   }
+  auto mount_completions = std::move(mount_animation_completions_);
+  mount_animation_completions_.clear();
+  for (const auto& completion : mount_completions) {
+    const auto current_handle =
+        obj_mgr.GetObjectHandle(completion.owner.guid);
+    auto* const unit = obj_mgr.GetMutableUnit(completion.owner.guid);
+    if (unit == nullptr || !current_handle.has_value() ||
+        *current_handle != completion.owner) {
+      continue;
+    }
+    unit->Animation().HandleMountPlaybackCompletion(
+        world_session, completion.request_serial, completion.animation_id);
+  }
   object_presentation_snapshot_ =
       obj_mgr.PublishPresentationSnapshot(world_session);
   object_presentation_snapshot_.has_active_targeting_spell =
@@ -1739,6 +1762,20 @@ void WorldScene::SynchronizeObjectModelBindings(
     ObjectManager& obj_mgr, WorldSession& world_session) {
   if (!object_renderer_) {
     return;
+  }
+
+  auto mount_events = std::move(mount_m2_events_);
+  mount_m2_events_.clear();
+  for (const auto& event : mount_events) {
+    const auto current_handle = obj_mgr.GetObjectHandle(event.owner.guid);
+    if (!current_handle.has_value() || *current_handle != event.owner) {
+      continue;
+    }
+    UnitAnimationRuntime::AnimationEventCallback(
+        world_session, obj_mgr, event.owner.guid.GetRawValue(), 0u,
+        event.event.identifier, static_cast<std::int32_t>(event.event.data),
+        event.event.world_position.data(),
+        static_cast<std::int32_t>(event.event.bone));
   }
 
   auto game_object_events = std::move(game_object_m2_events_);
@@ -1786,6 +1823,14 @@ void WorldScene::SynchronizeObjectModelBindings(
       if (instance_id != 0u && object->IsUnit()) {
         static_cast<CGUnit_C*>(object)->Presentation().OnModelLoaded(
             world_session, instance_id);
+      }
+    }
+    if (object->IsUnit()) {
+      auto& unit = *static_cast<CGUnit_C*>(object);
+      const std::uint32_t mount_instance_id =
+          object_renderer_->QueryMountM2InstanceId(record.handle);
+      if (unit.Mount().OverlayM2InstanceId() != mount_instance_id) {
+        unit.Mount().SetOverlayM2InstanceId(mount_instance_id);
       }
     }
     if (object->IsGameObject()) {
@@ -2201,7 +2246,9 @@ void WorldScene::ClearObjectPresentation() {
   visible_entity_bounding_spheres_.clear();
   frame_prepared_ = false;
   unit_animation_completions_.clear();
+  mount_animation_completions_.clear();
   game_object_m2_events_.clear();
+  mount_m2_events_.clear();
   spell_visual_m2_events_.clear();
   spell_visual_deferred_impacts_.clear();
   for (const auto& [_, handles] : spell_visual_m2_sound_handles_) {
