@@ -249,28 +249,24 @@ void AppendRainDrop(const RenderVec3& center, const RenderVec3& velocity,
       {Add(center, Scale(trail, kRainDropTrailLength)), color, {0.5f, 0.0f}});
 }
 
-void AppendRainSplash(const RenderVec3& center, const RenderVec3& raw_normal,
-                      const RenderVec3& right, const RenderVec3& up,
+void AppendRainSplash(const RenderVec3& center, const RenderVec3& right,
+                      const RenderVec3& up,
                       const RenderVec3& camera, const float age,
                       const std::uint32_t color,
                       std::vector<WeatherVertex>& vertices) {
-  const RenderVec3 normal = NormalizeOr(raw_normal, {0.0f, 0.0f, 1.0f});
-  const RenderVec3 tangent = NormalizeOr(
-      Subtract(right, Scale(normal, Dot(right, normal))),
-      NormalizeOr(Cross(normal, up), right));
-  const RenderVec3 bitangent = NormalizeOr(Cross(normal, tangent), up);
   const float frame = std::min(3.0f, std::floor(age * 4.0f * 3.99f));
   const float uv_u = frame * 0.25f;
-  const RenderVec3 to_camera =
-      NormalizeOr(Subtract(camera, center), normal);
-  const float row = std::floor(
-      (1.0f - std::max(0.0f, Dot(normal, to_camera))) * 3.99f);
+  const RenderVec3 to_camera = Subtract(camera, center);
+  const float distance = Length(to_camera);
+  const float view_elevation =
+      distance > 1.0e-6f ? std::max(0.0f, to_camera[2] / distance) : 1.0f;
+  const float row = std::floor((1.0f - view_elevation) * 3.99f);
   const float uv_v = row * 0.25f;
-  vertices.push_back({Add(center, Scale(tangent, -1.0f / 12.0f)), color,
+  vertices.push_back({Add(center, Scale(right, -1.0f / 12.0f)), color,
                       {uv_u, uv_v + 0.25f}});
-  vertices.push_back({Add(center, Scale(bitangent, 1.0f / 6.0f)), color,
+  vertices.push_back({Add(center, Scale(up, 1.0f / 6.0f)), color,
                       {uv_u + 0.125f, uv_v + 0.04296875f}});
-  vertices.push_back({Add(center, Scale(tangent, 1.0f / 12.0f)), color,
+  vertices.push_back({Add(center, Scale(right, 1.0f / 12.0f)), color,
                       {uv_u + 0.25f, uv_v + 0.25f}});
 }
 
@@ -695,7 +691,6 @@ void WeatherRenderer::AdvancePrimary(const float dt, const RenderVec3& camera) {
               Scale(NormalizeOr(particle.collision_normal,
                                 {0.0f, 0.0f, 1.0f}),
                     0.015f)),
-          .normal = particle.collision_normal,
           .age = 0.0f});
     }
     if (particle.age >= particle.lifetime ||
@@ -859,8 +854,8 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     std::vector<WeatherVertex> output;
     output.reserve(rain_splash_particles_.size() * 3u);
     for (const auto& splash : rain_splash_particles_) {
-      AppendRainSplash(splash.position, splash.normal, right, up, camera,
-                       splash.age, 0x80808080u, output);
+      AppendRainSplash(splash.position, right, up, camera, splash.age,
+                       0x80808080u, output);
     }
     bgfx::update(rain_splash_vertices_, 0,
                  bgfx::copy(output.data(), static_cast<std::uint32_t>(

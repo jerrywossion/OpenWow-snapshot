@@ -74,7 +74,6 @@ class WeatherRenderer {
 
   struct RainSplashParticle {
     RenderVec3 position{};
-    RenderVec3 normal{0.0f, 0.0f, 1.0f};
     float age{};
   };
 
