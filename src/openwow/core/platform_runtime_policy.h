@@ -15,6 +15,8 @@ struct PlatformRuntimePolicy {
   bool glow_enabled{true};
   std::uint32_t resource_worker_limit{4u};
   std::uint32_t glue_texture_worker_limit{4u};
+  std::uint32_t texture_uploads_per_frame{8u};
+  std::uint32_t glue_texture_uploads_per_frame{128u};
   std::uint32_t transient_vertex_buffer_bytes{32u * 1024u * 1024u};
   std::uint32_t transient_index_buffer_bytes{8u * 1024u * 1024u};
   float world_render_scale{1.0f};
@@ -38,6 +40,8 @@ struct PlatformRuntimePolicy {
       .glow_enabled = false,
       .resource_worker_limit = 2u,
       .glue_texture_worker_limit = 2u,
+      .texture_uploads_per_frame = 4u,
+      .glue_texture_uploads_per_frame = 8u,
       .transient_vertex_buffer_bytes = 16u * 1024u * 1024u,
       .transient_index_buffer_bytes = 4u * 1024u * 1024u,
       .world_render_scale = 0.75f,

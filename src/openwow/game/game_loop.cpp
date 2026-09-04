@@ -2654,7 +2654,8 @@ void GameLoop::Tick(float dt) {
   if (!initialized_)
     return;
 
-  static_cast<void>(texture_manager_.PumpPreparedUploads(8u));
+  static_cast<void>(texture_manager_.PumpPreparedUploads(
+      openwow::core::GetPlatformRuntimePolicy().texture_uploads_per_frame));
 
   if (const auto *session = world_session(); session != nullptr) {
     VoiceChat_ScheduledUpdate(*session, sound_runtime_.sound_engine(),

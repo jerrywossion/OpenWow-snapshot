@@ -694,7 +694,9 @@ void GlueBgfxRenderer::RenderGlue(openwow::ui::glue::GlueWidgetRuntime& widgets,
   impl_->m2_system.SetParticleDensity(settings.particle_density);
   impl_->textures.BeginFrame();
 
-  (void)impl_->textures.PumpPreparedUploads(128);
+  (void)impl_->textures.PumpPreparedUploads(
+      openwow::core::GetPlatformRuntimePolicy()
+          .glue_texture_uploads_per_frame);
   const std::uint32_t resolved_delta_ms =
       ResolveGlueFrameDeltaMs(impl_->frame_delta_state, now_ms, delta_ms);
 
