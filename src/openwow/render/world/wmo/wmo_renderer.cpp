@@ -1177,7 +1177,8 @@ const WmoSubmitTelemetry& WmoRenderer::Render(
     const std::uint16_t viewport_height,
     occlusion::OcclusionDepthBuffer* const occlusion,
     bgfx::Encoder* const encoder,
-    const bool shadow_caster_pass) {
+    const bool shadow_caster_pass,
+    const WmoGroupRenderFilter group_filter) {
   WmoSubmitTelemetry& telemetry = submit_telemetry_;
   telemetry.view_id = view_id;
   telemetry.viewport_width = viewport_width;
@@ -1526,6 +1527,12 @@ const WmoSubmitTelemetry& WmoRenderer::Render(
           world::WmoGroupPublicationStatus::kNoGeometry) {
         record_telemetry.skip_reasons |= kWmoSubmitSkipGpuNotReady;
       }
+      return;
+    }
+
+    if (group_filter == WmoGroupRenderFilter::kExteriorOnly &&
+        (gpu.flags & data::wmo::kMogpExterior) == 0u) {
+      record_telemetry.skip_reasons |= kWmoSubmitSkipGroupFilter;
       return;
     }
 

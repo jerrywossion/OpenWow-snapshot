@@ -85,6 +85,7 @@ struct WorldSceneRenderCamera {
   std::array<float, 3> position{};
   std::array<float, 3> forward{1.0f, 0.0f, 0.0f};
   float far_clip{350.0f};
+  float horizon_far_clip_scale{4.0f};
 };
 
 [[nodiscard]] WorldSceneRenderCamera BuildWorldSceneRenderCamera(

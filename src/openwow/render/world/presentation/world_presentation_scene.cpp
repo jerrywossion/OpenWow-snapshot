@@ -41,6 +41,12 @@ namespace {
 template <typename>
 inline constexpr bool kUnhandledWorldPresentationCommand = false;
 
+constexpr float kRetailLowDetailNearOverlap = 50.0f;
+constexpr float kRetailLowDetailDepthMinimum = 511.0f / 512.0f;
+constexpr float kRetailLowDetailDepthMaximum = 1023.0f / 1024.0f;
+constexpr float kRetailSkyDepthMinimum = kRetailLowDetailDepthMaximum;
+constexpr float kRetailSkyDepthMaximum = 1.0f;
+
 }
 
 struct WorldPresentationScene::ModelResource {
@@ -682,6 +688,34 @@ void WorldPresentationScene::Render(
   env.sky = sky_colors;
   const auto& pos = snapshot.camera.position;
 
+  const float low_detail_near_clip =
+      snapshot.camera.far_clip - kRetailLowDetailNearOverlap;
+  RenderMatrix4x4 low_detail_projection = snapshot.camera.projection;
+  const float low_detail_depth_range =
+      snapshot.camera.low_detail_far_clip - low_detail_near_clip;
+  low_detail_projection[10] =
+      (low_detail_near_clip + snapshot.camera.low_detail_far_clip) /
+      low_detail_depth_range;
+  low_detail_projection[14] =
+      (-2.0f * low_detail_near_clip * snapshot.camera.low_detail_far_clip) /
+      low_detail_depth_range;
+  const RenderMatrix4x4 low_detail_gpu_projection =
+      RemapCanonicalProjectionDepthRange(
+          RenderMatrix4x4View{low_detail_projection},
+          kRetailLowDetailDepthMinimum, kRetailLowDetailDepthMaximum);
+  const ViewProjection low_detail_matrices = ViewProjection::CopyOf(
+      snapshot.camera.view.data(), low_detail_gpu_projection.data(),
+      matrices.homogeneous_depth());
+  const auto low_detail_gpu = low_detail_matrices.AsBgfxColumnMajor();
+  const RenderMatrix4x4 sky_gpu_projection =
+      RemapCanonicalProjectionDepthRange(
+          RenderMatrix4x4View{snapshot.camera.projection},
+          kRetailSkyDepthMinimum, kRetailSkyDepthMaximum);
+  const ViewProjection sky_matrices = ViewProjection::CopyOf(
+      snapshot.camera.view.data(), sky_gpu_projection.data(),
+      matrices.homogeneous_depth());
+  const auto sky_gpu = sky_matrices.AsBgfxColumnMajor();
+
   bgfx::setViewMode(views.scene, bgfx::ViewMode::Default);
 
   bgfx::setViewTransform(views.scene, gpu.view.data(), gpu.projection.data());
@@ -691,6 +725,18 @@ void WorldPresentationScene::Render(
   bgfx::setViewTransform(views.wmo, matrices.bgfx_view().data(),
                          matrices.bgfx_projection().data());
   bgfx::setViewClear(views.wmo, BGFX_CLEAR_NONE);
+
+  bgfx::setViewMode(views.low_detail, bgfx::ViewMode::Sequential);
+  bgfx::setViewRect(views.low_detail, 0, 0, screen_width, screen_height);
+  bgfx::setViewTransform(views.low_detail, low_detail_gpu.view.data(),
+                         low_detail_gpu.projection.data());
+  bgfx::setViewClear(views.low_detail, BGFX_CLEAR_NONE);
+
+  bgfx::setViewMode(views.doodads, bgfx::ViewMode::Sequential);
+  bgfx::setViewRect(views.doodads, 0, 0, screen_width, screen_height);
+  bgfx::setViewTransform(views.doodads, matrices.bgfx_view().data(),
+                         matrices.bgfx_projection().data());
+  bgfx::setViewClear(views.doodads, BGFX_CLEAR_NONE);
 
   bgfx::setViewMode(views.alpha, bgfx::ViewMode::DepthAscending);
   bgfx::setViewRect(views.alpha, 0, 0, screen_width, screen_height);
@@ -733,8 +779,12 @@ void WorldPresentationScene::Render(
         static_cast<std::uint16_t>(sky_scissor_bottom - sky_scissor_y));
   }
 
-  const DrawSortDepth terrain_sort_depth{.camera_position = snapshot.camera.position,
-                                         .far_clip = snapshot.camera.far_clip};
+  const DrawSortDepth terrain_sort_depth{
+      .camera_position = snapshot.camera.position,
+      .far_clip = snapshot.camera.far_clip};
+  const DrawSortDepth low_detail_sort_depth{
+      .camera_position = snapshot.camera.position,
+      .far_clip = snapshot.camera.low_detail_far_clip};
   sky_->Update(0.0f, snapshot.time_of_day_hours);
   sky_->SetTimeOfDay(snapshot.time_of_day_hours);
   sky_->SetColors(sky_colors);
@@ -744,13 +794,22 @@ void WorldPresentationScene::Render(
     .spell_visual_tint_blend = static_cast<std::uint8_t>(
         std::clamp(snapshot.spell_visual_tint_blend, 0.0f, 255.0f))});
 
-  const bool render_distant_terrain =
-      snapshot.distant_terrain_enabled &&
+  const bool render_low_detail_world =
       openwow::world::CWorld_HasRenderFlag(
           openwow::world::WorldRenderFlag::kTerrainLowDetail);
+  const bool render_distant_terrain =
+      snapshot.distant_terrain_enabled && render_low_detail_world;
 
   const bool render_terrain = snapshot.environment.terrain_visible;
   world::Frustum terrain_frustum = frustum;
+  world::Frustum low_detail_frustum{};
+  world::Frustum low_detail_terrain_frustum{};
+  const world::Matrix4 low_detail_view_projection = world::Multiply(
+      std::span<const float, 16>{snapshot.camera.view},
+      std::span<const float, 16>{low_detail_projection});
+  low_detail_frustum.ExtractFromViewProj(
+      std::span<const float, 16>{low_detail_view_projection});
+  low_detail_terrain_frustum = low_detail_frustum;
   if (render_terrain) {
     const auto& terrain_rect = snapshot.environment.terrain_clip_rect;
     const bool full_window = terrain_rect.min_x <= -1.0f &&
@@ -765,10 +824,14 @@ void WorldPresentationScene::Render(
       terrain_frustum.ExtractFromViewProjWindow(
           std::span<const float, 16>{view_projection}, terrain_rect.min_x,
           terrain_rect.min_y, terrain_rect.max_x, terrain_rect.max_y);
+      low_detail_terrain_frustum.ExtractFromViewProjWindow(
+          std::span<const float, 16>{low_detail_view_projection},
+          terrain_rect.min_x, terrain_rect.min_y, terrain_rect.max_x,
+          terrain_rect.max_y);
     }
   }
   if (render_distant_terrain) {
-    distant_->SetFrustum(&terrain_frustum);
+    distant_->SetFrustum(&low_detail_terrain_frustum);
   }
   terrain_->SetFrustum(&terrain_frustum);
 
@@ -789,16 +852,17 @@ void WorldPresentationScene::Render(
       return;
     }
 
-    sky_->Render(views.sky, gpu.view.data(), gpu.projection.data(),
+    sky_->Render(views.sky, sky_gpu.view.data(), sky_gpu.projection.data(),
                  pos[0], pos[1], pos[2]);
 
-    sky_->RenderZoneSkybox(views.sky, gpu.view.data(), gpu.projection.data(),
+    sky_->RenderZoneSkybox(views.sky, sky_gpu.view.data(),
+                           sky_gpu.projection.data(),
                            pos[0], pos[1], pos[2]);
   };
 
   const auto encode_distant_terrain = [&](bgfx::Encoder* const encoder) {
     if (render_terrain && render_distant_terrain) {
-      distant_->Render(views.scene, env, terrain_sort_depth, encoder);
+      distant_->Render(views.low_detail, env, low_detail_sort_depth, encoder);
     }
   };
   const auto encode_detailed_terrain = [&](bgfx::Encoder* const encoder) {
@@ -861,9 +925,31 @@ void WorldPresentationScene::Render(
     }
   };
 
+  const auto encode_low_detail_world = [&](bgfx::Encoder* const encoder) {
+    if (!render_low_detail_world) {
+      return;
+    }
+    encode_distant_terrain(encoder);
+    for (const ResolvedWmoPlacement& placement : wmo_placement_scratch_) {
+      const auto& item = *placement.item;
+      auto& renderer = *placement.renderer;
+      renderer.SetFogParams(env.fog);
+      renderer.SetSunDirection(env.surface_to_light[0], env.surface_to_light[1],
+                               env.surface_to_light[2]);
+      renderer.SetLightingPalette(env.wmo);
+      renderer.SetNightGlowIntensity(snapshot.wmo_night_glow);
+      renderer.SetFrustum(&low_detail_frustum);
+      static_cast<void>(renderer.Render(
+          views.low_detail, low_detail_gpu.view.data(),
+          low_detail_gpu.projection.data(), item.transform, nullptr, {},
+          screen_width, screen_height, nullptr, encoder, false,
+          WmoGroupRenderFilter::kExteriorOnly));
+    }
+  };
+
   const auto encode_doodad_opaque = [&] {
     doodads_->SetWorldM2SceneState(env.models);
-    doodads_->Render(views.scene, gpu.view.data(), gpu.projection.data(), &frustum,
+    doodads_->Render(views.doodads, gpu.view.data(), gpu.projection.data(), &frustum,
       pos[0], pos[1], pos[2], snapshot.camera.forward,
       m2::M2RenderPassScope::kOpaqueOnly);
   };
@@ -898,10 +984,10 @@ void WorldPresentationScene::Render(
   if constexpr (!kParallelWorldEncode) {
 
     render_sky();
-    encode_distant_terrain(nullptr);
     encode_detailed_terrain(nullptr);
     resolve_wmo_placements();
     encode_wmo(nullptr);
+    encode_low_detail_world(nullptr);
     encode_doodad_opaque();
     encode_detail_doodads();
     encode_doodad_alpha();
@@ -953,14 +1039,12 @@ void WorldPresentationScene::Render(
             terrain_encoder_exhausted = true;
             return;
           }
-          encode_distant_terrain(encoder);
           encode_detailed_terrain(encoder);
           bgfx::end(encoder);
         });
   }
 
   if (!dispatch_terrain_job) {
-    encode_distant_terrain(nullptr);
     encode_detailed_terrain(nullptr);
   }
   render_sky();
@@ -979,15 +1063,15 @@ void WorldPresentationScene::Render(
     encode_wmo(nullptr);
   }
 
-  encode_water_and_weather();
-
   if (terrain_wait_group) {
     terrain_wait_group->Wait();
     if (terrain_encoder_exhausted) {
-      encode_distant_terrain(nullptr);
       encode_detailed_terrain(nullptr);
     }
   }
+
+  encode_low_detail_world(nullptr);
+  encode_water_and_weather();
 }
 
 void WorldPresentationScene::RenderShadows(

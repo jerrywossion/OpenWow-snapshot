@@ -229,7 +229,7 @@ constexpr float kWorldCameraNearClip = openwow::world::kWorldCameraNearClipDista
 constexpr float kWorldCameraFallbackFarClip = 350.0f;
 constexpr std::uint8_t kStandStateSit = 1;
 constexpr std::uint8_t kWorldShadowViewCount = 4;
-constexpr std::uint8_t kWorldSceneOpaqueViewCount = 6;
+constexpr std::uint8_t kWorldSceneOpaqueViewCount = 8;
 
 constexpr std::uint8_t kWorldSceneAlphaViewCount = 4;
 constexpr std::uint8_t kWorldWaterViewCount = 1;
@@ -243,6 +243,15 @@ float ResolveWorldCameraFarClip() {
       cvars.Exists("farclip") ? cvars.GetCVarFloat("farclip") : kWorldCameraFallbackFarClip;
   return std::isfinite(far_clip) && far_clip > kWorldCameraNearClip ? far_clip
                                                                     : kWorldCameraFallbackFarClip;
+}
+
+float ResolveWorldHorizonFarClipScale() {
+  const auto &cvars = openwow::ui::game::CVarSystem::Instance();
+  const float scale = cvars.Exists("horizonFarclipScale")
+                          ? cvars.GetCVarFloat("horizonFarclipScale")
+                          : 4.0f;
+  return std::isfinite(scale) && scale >= 3.0f && scale <= 6.0f ? scale
+                                                                : 6.0f;
 }
 
 constexpr std::uint8_t kWorldUiOffscreenViewCount = 128;
@@ -565,9 +574,15 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                                              1, OffsetViewId(scene_opaque, 1)),
               .wmo = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 2,
                                            OffsetViewId(scene_opaque, 2)),
-              .detail_doodads = ResolveFrameGraphView(
+              .low_detail = ResolveFrameGraphView(
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 3,
+                  OffsetViewId(scene_opaque, 3)),
+              .doodads = ResolveFrameGraphView(
                   renderer_context, rapi::FrameGraphPassId::SceneOpaque, 5,
                   OffsetViewId(scene_opaque, 5)),
+              .detail_doodads = ResolveFrameGraphView(
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 7,
+                  OffsetViewId(scene_opaque, 7)),
               .alpha = scene_alpha,
               .reflection =
                   ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Reflection,
@@ -583,9 +598,9 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                                                0, particle_base),
           },
       .blob_shadows = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque,
-                                            3, OffsetViewId(scene_opaque, 3)),
-      .objects = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 4,
-                                       OffsetViewId(scene_opaque, 4)),
+                                            4, OffsetViewId(scene_opaque, 4)),
+      .objects = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 6,
+                                       OffsetViewId(scene_opaque, 6)),
       .mounts = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneAlpha, 1,
                                       OffsetViewId(scene_alpha, 1)),
       .particles = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Particles, 1,
@@ -623,13 +638,15 @@ float ResolvePlayerAnimationProgress(const CGPlayer_C &player, void *context) {
   return loop->world_scene().object_renderer().GetAnimationProgress(player.GetGuid());
 }
 
-std::array<std::uint8_t, 14>
+std::array<std::uint8_t, 16>
 BuildWorldSceneFramebufferViewList(const WorldSceneRenderViews &views) {
   return {
-      views.world.sky,   views.world.scene,   views.world.wmo,        views.world.alpha,
-      views.world.water, views.world.weather, views.blob_shadows,     views.objects,
-      views.world.detail_doodads, views.mounts, views.particles,
-      views.selection_circle, views.water_particulates,
+      views.world.sky,        views.world.scene,   views.world.wmo,
+      views.world.low_detail, views.blob_shadows,   views.world.doodads,
+      views.objects,          views.world.detail_doodads,
+      views.world.alpha,      views.world.water,   views.world.weather,
+      views.mounts,           views.particles,     views.selection_circle,
+      views.water_particulates,
 
       views.unit_names,
   };
@@ -5412,6 +5429,7 @@ void GameLoop::RenderWorld(float dt) {
       .position = pose.position,
       .forward = pose.forward,
       .far_clip = ResolveWorldCameraFarClip(),
+      .horizon_far_clip_scale = ResolveWorldHorizonFarClipScale(),
   };
   const auto &cvars = openwow::ui::game::CVarSystem::Instance();
   world::ShadowPresentationSettings shadow_settings =

@@ -23,6 +23,7 @@ struct CameraSnapshot {
   std::array<float, 24> frustum_planes{};
   float near_clip{0.5f};
   float far_clip{350.0f};
+  float low_detail_far_clip{1400.0f};
 };
 
 struct WorldPresentationItem {

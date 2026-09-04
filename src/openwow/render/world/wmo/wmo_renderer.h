@@ -164,6 +164,11 @@ enum class WmoLightingMode : std::uint8_t {
   Interior,
 };
 
+enum class WmoGroupRenderFilter : std::uint8_t {
+  kAll,
+  kExteriorOnly,
+};
+
 [[nodiscard]] WmoLightingMode ResolveRetailWmoLightingMode(
     std::uint32_t group_flags, WmoBatchMesh::Region region,
     std::uint32_t material_flags, bool unified_render_path) noexcept;
@@ -176,6 +181,7 @@ enum WmoSubmitSkipReason : std::uint32_t {
   kWmoSubmitSkipGpuNotReady = 1u << 3u,
   kWmoSubmitSkipFrustum = 1u << 4u,
   kWmoSubmitSkipEmptyBatch = 1u << 5u,
+  kWmoSubmitSkipGroupFilter = 1u << 6u,
 
   kWmoSubmitSkipBatchAlreadySubmitted = 1u << 7u,
   kWmoSubmitSkipOcclusion = 1u << 8u,
@@ -259,7 +265,8 @@ public:
       std::uint16_t viewport_height = 0,
       occlusion::OcclusionDepthBuffer* occlusion = nullptr,
       bgfx::Encoder *encoder = nullptr,
-      bool shadow_caster_pass = false);
+      bool shadow_caster_pass = false,
+      WmoGroupRenderFilter group_filter = WmoGroupRenderFilter::kAll);
 
   void RenderCollisionGeometry(uint8_t view_id, const float *view_mtx, const float *proj_mtx,
                                const RenderMatrix4x4 &model_mtx,
