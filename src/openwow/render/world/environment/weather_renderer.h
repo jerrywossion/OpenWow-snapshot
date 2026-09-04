@@ -93,14 +93,12 @@ class WeatherRenderer {
   bgfx::DynamicVertexBufferHandle primary_vertices_ = BGFX_INVALID_HANDLE;
   std::string primary_bound_texture_path_;
   TextureLease primary_texture_lease_;
-  bgfx::TextureHandle primary_texture_ = BGFX_INVALID_HANDLE;
 
   float mist_spawn_credit_{};
   std::vector<MistParticle> mist_particles_;
   bgfx::DynamicVertexBufferHandle mist_vertices_ = BGFX_INVALID_HANDLE;
   world::WeatherKind mist_bound_kind_{world::WeatherKind::kNone};
   TextureLease mist_texture_lease_;
-  bgfx::TextureHandle mist_texture_ = BGFX_INVALID_HANDLE;
 
   bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
   bgfx::UniformHandle sampler_ = BGFX_INVALID_HANDLE;

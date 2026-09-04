@@ -590,7 +590,7 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
 
         world::SetWeather(weather_, value.type, value.density,
                           value.row ? &*value.row : nullptr, value.smooth,
-                          value.row ? value.row->effect_color_r : 1.0f,
+                          value.row ? value.row->transition_value : 1.0f,
                           weather_clock_);
       } else if constexpr (std::is_same_v<T, world::SpawnWaterRippleCommand>) {
         if (water_) water_->SpawnWaterRipple(value);

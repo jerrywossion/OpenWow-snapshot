@@ -183,49 +183,46 @@ bool WeatherRenderer::Initialize() {
     return false;
   }
 
-  primary_texture_ = texture_manager_.GetWhiteTexture();
-  mist_texture_ = texture_manager_.GetWhiteTexture();
   return true;
 }
 
 void WeatherRenderer::RefreshPrimaryTexture(const world::WeatherState& weather) {
-  if (weather.texture == primary_bound_texture_path_) {
-    return;
-  }
-  primary_bound_texture_path_ = weather.texture;
-  if (primary_bound_texture_path_.empty()) {
-
+  if (weather.texture != primary_bound_texture_path_) {
+    primary_bound_texture_path_ = weather.texture;
     primary_texture_lease_ = {};
-    primary_texture_ = texture_manager_.GetWhiteTexture();
+    if (!primary_bound_texture_path_.empty()) {
+      static_cast<void>(texture_manager_.QueueTextureLoad(
+          primary_bound_texture_path_, TextureLoadFailurePolicy::kStrict,
+          TextureLoadPriority::kDemand));
+    }
+  }
+  if (primary_bound_texture_path_.empty() || primary_texture_lease_.valid()) {
     return;
   }
-  primary_texture_lease_ = texture_manager_.AcquireTextureAsync(
-      primary_bound_texture_path_, TextureLoadFailurePolicy::kCheckerPlaceholder,
-      TextureLoadPriority::kDemand);
-  primary_texture_ = primary_texture_lease_
-                         ? BgfxTextureLeaseAccess::Get(primary_texture_lease_)
-                         : texture_manager_.GetWhiteTexture();
+  primary_texture_lease_ =
+      texture_manager_.AcquireCachedTextureStrict(primary_bound_texture_path_);
 }
 
 void WeatherRenderer::RefreshMistTexture(const world::WeatherKind kind) {
-  if (kind == mist_bound_kind_) {
-    return;
-  }
-  mist_bound_kind_ = kind;
-  if (kind == world::WeatherKind::kNone) {
+  if (kind != mist_bound_kind_) {
+    mist_bound_kind_ = kind;
     mist_texture_lease_ = {};
-    mist_texture_ = texture_manager_.GetWhiteTexture();
+    if (kind != world::WeatherKind::kNone) {
+      const char* path = kind == world::WeatherKind::kSandstorm
+                             ? "textures\\Weather\\WeatherMistGrainy01.blp"
+                             : "textures\\Weather\\SnowMist01.blp";
+      static_cast<void>(texture_manager_.QueueTextureLoad(
+          path, TextureLoadFailurePolicy::kStrict,
+          TextureLoadPriority::kDemand));
+    }
+  }
+  if (kind == world::WeatherKind::kNone || mist_texture_lease_.valid()) {
     return;
   }
-
   const char* path = kind == world::WeatherKind::kSandstorm
-                          ? "textures\\Weather\\WeatherMistGrainy01.blp"
-                          : "textures\\Weather\\SnowMist01.blp";
-  mist_texture_lease_ = texture_manager_.AcquireTextureAsync(
-      path, TextureLoadFailurePolicy::kCheckerPlaceholder,
-      TextureLoadPriority::kDemand);
-  mist_texture_ = mist_texture_lease_ ? BgfxTextureLeaseAccess::Get(mist_texture_lease_)
-                                     : texture_manager_.GetWhiteTexture();
+                         ? "textures\\Weather\\WeatherMistGrainy01.blp"
+                         : "textures\\Weather\\SnowMist01.blp";
+  mist_texture_lease_ = texture_manager_.AcquireCachedTextureStrict(path);
 }
 
 void WeatherRenderer::SpawnPrimary(const float dt, const RenderVec3& camera,
@@ -448,7 +445,13 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
   bgfx::setViewTransform(view_id, view.data(), projection.data());
 
-  if (!primary_particles_.empty()) {
+  const bgfx::TextureHandle primary_texture =
+      weather.kind == world::WeatherKind::kSandstorm
+          ? texture_manager_.GetWhiteTexture()
+          : primary_texture_lease_.valid()
+                ? BgfxTextureLeaseAccess::Get(primary_texture_lease_)
+                : bgfx::TextureHandle{bgfx::kInvalidHandle};
+  if (!primary_particles_.empty() && bgfx::isValid(primary_texture)) {
     std::vector<WeatherVertex> output;
     output.reserve(primary_particles_.size() * 6u);
 
@@ -463,7 +466,7 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
     draw.setVertexBuffer(0, primary_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
-    draw.setTexture(0, sampler_, primary_texture_);
+    draw.setTexture(0, sampler_, primary_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
         BGFX_STATE_DEPTH_TEST_LESS |
@@ -473,7 +476,11 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     draw.submit(view_id, program_);
   }
 
-  if (!mist_particles_.empty()) {
+  const bgfx::TextureHandle mist_texture =
+      mist_texture_lease_.valid()
+          ? BgfxTextureLeaseAccess::Get(mist_texture_lease_)
+          : bgfx::TextureHandle{bgfx::kInvalidHandle};
+  if (!mist_particles_.empty() && bgfx::isValid(mist_texture)) {
     std::vector<WeatherVertex> output;
     output.reserve(mist_particles_.size() * 6u);
 
@@ -497,7 +504,7 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
     draw.setVertexBuffer(0, mist_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
-    draw.setTexture(0, sampler_, mist_texture_);
+    draw.setTexture(0, sampler_, mist_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
         BGFX_STATE_DEPTH_TEST_LESS |
@@ -519,10 +526,8 @@ void WeatherRenderer::Reset() {
 void WeatherRenderer::Shutdown() {
   Reset();
   primary_texture_lease_ = {};
-  primary_texture_ = BGFX_INVALID_HANDLE;
   primary_bound_texture_path_.clear();
   mist_texture_lease_ = {};
-  mist_texture_ = BGFX_INVALID_HANDLE;
   mist_bound_kind_ = world::WeatherKind::kNone;
   if (bgfx::isValid(primary_vertices_)) {
     bgfx::destroy(primary_vertices_);

@@ -462,10 +462,10 @@ struct WeatherEntry {
   std::uint32_t id;
   std::uint32_t ambience_id;
   std::uint32_t effect_type;
+  float transition_value;
   float effect_color_r;
   float effect_color_g;
   float effect_color_b;
-  std::uint32_t transition_sky_box;
   std::string_view effect_texture;
 
   static WeatherEntry Load(const DbcFile &f, std::uint32_t row);
