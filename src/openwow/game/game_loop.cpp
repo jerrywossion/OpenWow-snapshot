@@ -233,7 +233,7 @@ constexpr float kWorldStreamingDistanceHighMaximum = 1583.333374f;
 constexpr std::uint64_t kWorldStreamingHighMemoryThreshold = 1ull << 30u;
 constexpr std::uint8_t kStandStateSit = 1;
 constexpr std::uint8_t kWorldShadowViewCount = 4;
-constexpr std::uint8_t kWorldSceneOpaqueViewCount = 8;
+constexpr std::uint8_t kWorldSceneOpaqueViewCount = 9;
 
 constexpr std::uint8_t kWorldSceneAlphaViewCount = 4;
 constexpr std::uint8_t kWorldWaterViewCount = 1;
@@ -594,19 +594,23 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                   ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::ShadowDepth, 0),
               .sky = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 0,
                                            scene_opaque),
-              .scene = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque,
-                                             1, OffsetViewId(scene_opaque, 1)),
-              .wmo = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 2,
-                                           OffsetViewId(scene_opaque, 2)),
               .low_detail = ResolveFrameGraphView(
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 1,
+                  OffsetViewId(scene_opaque, 1)),
+              .foreground_depth_reset = ResolveFrameGraphView(
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 2,
+                  OffsetViewId(scene_opaque, 2)),
+              .scene = ResolveFrameGraphView(
                   renderer_context, rapi::FrameGraphPassId::SceneOpaque, 3,
                   OffsetViewId(scene_opaque, 3)),
+              .wmo = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 4,
+                                           OffsetViewId(scene_opaque, 4)),
               .doodads = ResolveFrameGraphView(
-                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 5,
-                  OffsetViewId(scene_opaque, 5)),
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 6,
+                  OffsetViewId(scene_opaque, 6)),
               .detail_doodads = ResolveFrameGraphView(
-                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 7,
-                  OffsetViewId(scene_opaque, 7)),
+                  renderer_context, rapi::FrameGraphPassId::SceneOpaque, 8,
+                  OffsetViewId(scene_opaque, 8)),
               .alpha = scene_alpha,
               .reflection =
                   ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Reflection,
@@ -622,9 +626,9 @@ ResolveWorldSceneRenderViews(const openwow::render::api::RendererContext *render
                                                0, particle_base),
           },
       .blob_shadows = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque,
-                                            4, OffsetViewId(scene_opaque, 4)),
-      .objects = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 6,
-                                       OffsetViewId(scene_opaque, 6)),
+                                            5, OffsetViewId(scene_opaque, 5)),
+      .objects = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneOpaque, 7,
+                                       OffsetViewId(scene_opaque, 7)),
       .mounts = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::SceneAlpha, 1,
                                       OffsetViewId(scene_alpha, 1)),
       .particles = ResolveFrameGraphView(renderer_context, rapi::FrameGraphPassId::Particles, 1,
@@ -662,14 +666,17 @@ float ResolvePlayerAnimationProgress(const CGPlayer_C &player, void *context) {
   return loop->world_scene().object_renderer().GetAnimationProgress(player.GetGuid());
 }
 
-std::array<std::uint8_t, 16>
+std::array<std::uint8_t, 17>
 BuildWorldSceneFramebufferViewList(const WorldSceneRenderViews &views) {
   return {
-      views.world.sky,        views.world.scene,   views.world.wmo,
-      views.world.low_detail, views.blob_shadows,   views.world.doodads,
+      views.world.sky,        views.world.low_detail,
+      views.world.foreground_depth_reset,
+      views.world.scene,      views.world.wmo,
+      views.blob_shadows,     views.world.doodads,
       views.objects,          views.world.detail_doodads,
-      views.world.alpha,      views.world.water,   views.world.weather,
-      views.mounts,           views.particles,     views.selection_circle,
+      views.world.alpha,      views.world.water,
+      views.world.weather,    views.mounts,
+      views.particles,        views.selection_circle,
       views.water_particulates,
 
       views.unit_names,

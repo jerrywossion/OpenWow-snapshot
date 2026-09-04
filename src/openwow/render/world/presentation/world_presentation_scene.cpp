@@ -42,10 +42,6 @@ template <typename>
 inline constexpr bool kUnhandledWorldPresentationCommand = false;
 
 constexpr float kRetailLowDetailNearOverlap = 50.0f;
-constexpr float kRetailLowDetailDepthMinimum = 511.0f / 512.0f;
-constexpr float kRetailLowDetailDepthMaximum = 1023.0f / 1024.0f;
-constexpr float kRetailSkyDepthMinimum = kRetailLowDetailDepthMaximum;
-constexpr float kRetailSkyDepthMaximum = 1.0f;
 
 }
 
@@ -699,22 +695,10 @@ void WorldPresentationScene::Render(
   low_detail_projection[14] =
       (-2.0f * low_detail_near_clip * snapshot.camera.low_detail_far_clip) /
       low_detail_depth_range;
-  const RenderMatrix4x4 low_detail_gpu_projection =
-      RemapCanonicalProjectionDepthRange(
-          RenderMatrix4x4View{low_detail_projection},
-          kRetailLowDetailDepthMinimum, kRetailLowDetailDepthMaximum);
   const ViewProjection low_detail_matrices = ViewProjection::CopyOf(
-      snapshot.camera.view.data(), low_detail_gpu_projection.data(),
+      snapshot.camera.view.data(), low_detail_projection.data(),
       matrices.homogeneous_depth());
   const auto low_detail_gpu = low_detail_matrices.AsBgfxColumnMajor();
-  const RenderMatrix4x4 sky_gpu_projection =
-      RemapCanonicalProjectionDepthRange(
-          RenderMatrix4x4View{snapshot.camera.projection},
-          kRetailSkyDepthMinimum, kRetailSkyDepthMaximum);
-  const ViewProjection sky_matrices = ViewProjection::CopyOf(
-      snapshot.camera.view.data(), sky_gpu_projection.data(),
-      matrices.homogeneous_depth());
-  const auto sky_gpu = sky_matrices.AsBgfxColumnMajor();
 
   bgfx::setViewMode(views.scene, bgfx::ViewMode::Default);
 
@@ -730,7 +714,24 @@ void WorldPresentationScene::Render(
   bgfx::setViewRect(views.low_detail, 0, 0, screen_width, screen_height);
   bgfx::setViewTransform(views.low_detail, low_detail_gpu.view.data(),
                          low_detail_gpu.projection.data());
-  bgfx::setViewClear(views.low_detail, BGFX_CLEAR_NONE);
+  // bgfx does not expose the viewport minZ/maxZ interval used by the retail
+  // client. Preserve the real low-detail projection so clipping remains
+  // correct, then isolate its depth from the foreground with depth-only view
+  // boundaries. Color is retained, so the low-detail world remains behind the
+  // normal world without admitting geometry outside either projection.
+  bgfx::setViewClear(views.low_detail, BGFX_CLEAR_DEPTH, 0x00000000u,
+                     1.0f, 0u);
+  bgfx::touch(views.low_detail);
+
+  bgfx::setViewMode(views.foreground_depth_reset,
+                    bgfx::ViewMode::Sequential);
+  bgfx::setViewRect(views.foreground_depth_reset, 0, 0, screen_width,
+                    screen_height);
+  bgfx::setViewTransform(views.foreground_depth_reset, gpu.view.data(),
+                         gpu.projection.data());
+  bgfx::setViewClear(views.foreground_depth_reset, BGFX_CLEAR_DEPTH,
+                     0x00000000u, 1.0f, 0u);
+  bgfx::touch(views.foreground_depth_reset);
 
   bgfx::setViewMode(views.doodads, bgfx::ViewMode::Sequential);
   bgfx::setViewRect(views.doodads, 0, 0, screen_width, screen_height);
@@ -852,11 +853,11 @@ void WorldPresentationScene::Render(
       return;
     }
 
-    sky_->Render(views.sky, sky_gpu.view.data(), sky_gpu.projection.data(),
+    sky_->Render(views.sky, gpu.view.data(), gpu.projection.data(),
                  pos[0], pos[1], pos[2]);
 
-    sky_->RenderZoneSkybox(views.sky, sky_gpu.view.data(),
-                           sky_gpu.projection.data(),
+    sky_->RenderZoneSkybox(views.sky, gpu.view.data(),
+                           gpu.projection.data(),
                            pos[0], pos[1], pos[2]);
   };
 

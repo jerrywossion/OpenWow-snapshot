@@ -71,8 +71,6 @@ constexpr std::size_t kMaxQueuedSpellVisualImpacts = 4096u;
 constexpr std::uint32_t kEffectSoundModeLoop = 0x00000001u;
 constexpr std::uint32_t kEffectSoundDoNotBindToOwner = 0x00200000u;
 constexpr std::uint32_t kLocalImpactPlaybackPriority = 110u;
-constexpr float kRetailNormalWorldDepthMinimum = 0.0f;
-constexpr float kRetailNormalWorldDepthMaximum = 0.94f;
 
 }
 
@@ -1265,12 +1263,8 @@ void WorldScene::Render(const render::api::RendererContext* renderer_context,
   const bool homogeneous_depth =
       renderer_context == nullptr ||
       renderer_context->Capabilities().homogeneous_depth;
-  const render::RenderMatrix4x4 normal_world_projection =
-      render::RemapCanonicalProjectionDepthRange(
-          render::RenderMatrix4x4View{proj_mtx, 16u},
-          kRetailNormalWorldDepthMinimum, kRetailNormalWorldDepthMaximum);
   const render::ViewProjection matrices = render::ViewProjection::CopyOf(
-      view_mtx, normal_world_projection.data(), homogeneous_depth);
+      view_mtx, proj_mtx, homogeneous_depth);
   const render::BgfxColumnMajorViewProjection bgfx_matrices =
       matrices.AsBgfxColumnMajor();
 
@@ -2401,12 +2395,8 @@ void WorldScene::RenderWaterParticulates(const render::api::RendererContext* ren
   const bool homogeneous_depth =
       renderer_context == nullptr ||
       renderer_context->Capabilities().homogeneous_depth;
-  const render::RenderMatrix4x4 normal_world_projection =
-      render::RemapCanonicalProjectionDepthRange(
-          render::RenderMatrix4x4View{proj_mtx, 16u},
-          kRetailNormalWorldDepthMinimum, kRetailNormalWorldDepthMaximum);
   const auto matrices = render::ViewProjection::CopyOf(
-      view_mtx, normal_world_projection.data(), homogeneous_depth);
+      view_mtx, proj_mtx, homogeneous_depth);
   const auto bgfx_matrices = matrices.AsBgfxColumnMajor();
 
   (void)render::ConfigureRendererContextView(

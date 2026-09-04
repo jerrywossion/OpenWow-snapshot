@@ -4,31 +4,8 @@
 #include "openwow/render/api/math/render_matrix_math.h"
 
 #include <algorithm>
-#include <cmath>
 
 namespace openwow::render {
-
-[[nodiscard]] inline RenderMatrix4x4 RemapCanonicalProjectionDepthRange(
-    const RenderMatrix4x4View projection, const float minimum_depth,
-    const float maximum_depth) noexcept {
-  RenderMatrix4x4 remapped{};
-  std::copy(projection.begin(), projection.end(), remapped.begin());
-  if (!std::isfinite(minimum_depth) || !std::isfinite(maximum_depth) ||
-      minimum_depth < 0.0f || maximum_depth > 1.0f ||
-      minimum_depth >= maximum_depth) {
-    return remapped;
-  }
-
-  const float scale = maximum_depth - minimum_depth;
-  const float bias = minimum_depth + maximum_depth - 1.0f;
-  for (std::size_t row = 0; row < 4u; ++row) {
-    const std::size_t row_offset = row * 4u;
-    remapped[row_offset + 2u] =
-        scale * projection[row_offset + 2u] +
-        bias * projection[row_offset + 3u];
-  }
-  return remapped;
-}
 
 struct BgfxColumnMajorViewProjection {
   RenderMatrix4x4View view;
