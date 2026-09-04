@@ -251,21 +251,27 @@ void AppendRainDrop(const RenderVec3& center, const RenderVec3& velocity,
 
 void AppendRainSplash(const RenderVec3& center, const RenderVec3& raw_normal,
                       const RenderVec3& right, const RenderVec3& up,
-                      const float age, const std::uint32_t color,
+                      const RenderVec3& camera, const float age,
+                      const std::uint32_t color,
                       std::vector<WeatherVertex>& vertices) {
   const RenderVec3 normal = NormalizeOr(raw_normal, {0.0f, 0.0f, 1.0f});
   const RenderVec3 tangent = NormalizeOr(
       Subtract(right, Scale(normal, Dot(right, normal))),
       NormalizeOr(Cross(normal, up), right));
   const RenderVec3 bitangent = NormalizeOr(Cross(normal, tangent), up);
-  const float frame = std::min(3.0f, std::floor(age * 16.0f));
+  const float frame = std::min(3.0f, std::floor(age * 4.0f * 3.99f));
   const float uv_u = frame * 0.25f;
+  const RenderVec3 to_camera =
+      NormalizeOr(Subtract(camera, center), normal);
+  const float row = std::floor(
+      (1.0f - std::max(0.0f, Dot(normal, to_camera))) * 3.99f);
+  const float uv_v = row * 0.25f;
   vertices.push_back({Add(center, Scale(tangent, -1.0f / 12.0f)), color,
-                      {uv_u, 0.25f}});
+                      {uv_u, uv_v + 0.25f}});
   vertices.push_back({Add(center, Scale(bitangent, 1.0f / 6.0f)), color,
-                      {uv_u + 0.125f, 0.04296875f}});
+                      {uv_u + 0.125f, uv_v + 0.04296875f}});
   vertices.push_back({Add(center, Scale(tangent, 1.0f / 12.0f)), color,
-                      {uv_u + 0.25f, 0.25f}});
+                      {uv_u + 0.25f, uv_v + 0.25f}});
 }
 
 }
@@ -297,6 +303,8 @@ bool WeatherRenderer::Initialize() {
   program_ =
       CreateEmbeddedProgram(ShaderProgramId::Weather, bgfx::getRendererType());
   sampler_ = bgfx::createUniform("s_weatherTex", bgfx::UniformType::Sampler);
+  weather_params_ =
+      bgfx::createUniform("u_weatherParams", bgfx::UniformType::Vec4);
 
   primary_vertices_ = bgfx::createDynamicVertexBuffer(
       static_cast<std::uint32_t>(kPrimaryPacketCapacity * 6u), layout_,
@@ -310,6 +318,7 @@ bool WeatherRenderer::Initialize() {
       static_cast<std::uint32_t>(kMistCapacity * 6u), layout_,
       BGFX_BUFFER_ALLOW_RESIZE);
   initialized_ = bgfx::isValid(program_) && bgfx::isValid(sampler_) &&
+                 bgfx::isValid(weather_params_) &&
                  bgfx::isValid(primary_vertices_) &&
                  bgfx::isValid(rain_splash_vertices_) &&
                  bgfx::isValid(mist_vertices_);
@@ -827,6 +836,10 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
     draw.setVertexBuffer(0, primary_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
+    const std::array<float, 4> weather_params{
+        kind_ == world::WeatherKind::kSandstorm ? 1.0f : 0.0f,
+        0.0f, 0.0f, 0.0f};
+    draw.setUniform(weather_params_, weather_params.data());
     draw.setTexture(0, sampler_, primary_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
@@ -846,16 +859,16 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
     std::vector<WeatherVertex> output;
     output.reserve(rain_splash_particles_.size() * 3u);
     for (const auto& splash : rain_splash_particles_) {
-      const float opacity =
-          0.5f * (1.0f - splash.age / kRainSplashLifetime);
-      AppendRainSplash(splash.position, splash.normal, right, up, splash.age,
-                       ScaleAlpha(active_color_abgr_, opacity), output);
+      AppendRainSplash(splash.position, splash.normal, right, up, camera,
+                       splash.age, 0x80808080u, output);
     }
     bgfx::update(rain_splash_vertices_, 0,
                  bgfx::copy(output.data(), static_cast<std::uint32_t>(
                                                output.size() * sizeof(WeatherVertex))));
     draw.setVertexBuffer(0, rain_splash_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
+    constexpr std::array<float, 4> kTexturedWeatherParams{};
+    draw.setUniform(weather_params_, kTexturedWeatherParams.data());
     draw.setTexture(0, sampler_, rain_splash_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
@@ -894,6 +907,8 @@ void WeatherRenderer::Render(const std::uint8_t view_id,
 
     draw.setVertexBuffer(0, mist_vertices_, 0,
                          static_cast<std::uint32_t>(output.size()));
+    constexpr std::array<float, 4> kTexturedWeatherParams{};
+    draw.setUniform(weather_params_, kTexturedWeatherParams.data());
     draw.setTexture(0, sampler_, mist_texture);
     draw.setState(
         BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
@@ -935,6 +950,9 @@ void WeatherRenderer::Shutdown() {
   if (bgfx::isValid(sampler_)) {
     bgfx::destroy(sampler_);
   }
+  if (bgfx::isValid(weather_params_)) {
+    bgfx::destroy(weather_params_);
+  }
   if (bgfx::isValid(program_)) {
     bgfx::destroy(program_);
   }
@@ -942,6 +960,7 @@ void WeatherRenderer::Shutdown() {
   rain_splash_vertices_ = BGFX_INVALID_HANDLE;
   mist_vertices_ = BGFX_INVALID_HANDLE;
   sampler_ = BGFX_INVALID_HANDLE;
+  weather_params_ = BGFX_INVALID_HANDLE;
   program_ = BGFX_INVALID_HANDLE;
   initialized_ = false;
 }

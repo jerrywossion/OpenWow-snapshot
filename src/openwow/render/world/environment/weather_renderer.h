@@ -127,6 +127,7 @@ class WeatherRenderer {
 
   bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
   bgfx::UniformHandle sampler_ = BGFX_INVALID_HANDLE;
+  bgfx::UniformHandle weather_params_ = BGFX_INVALID_HANDLE;
   bgfx::VertexLayout layout_{};
   bool initialized_{};
 };
