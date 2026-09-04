@@ -223,6 +223,7 @@ class WorldScene final
   [[nodiscard]] std::uint64_t DoodadCollisionRevision() const noexcept;
 
   [[nodiscard]] bool IsDoodadWorldEntryLoadDrained() const;
+  [[nodiscard]] bool IsTerrainWorldEntryLoadDrained() const;
 
   [[nodiscard]] render::ParticleSystem& particles() { return particles_; }
   [[nodiscard]] const render::ParticleSystem& particles() const { return particles_; }

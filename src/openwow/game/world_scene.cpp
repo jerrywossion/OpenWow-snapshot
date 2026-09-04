@@ -86,6 +86,10 @@ bool WorldScene::IsDoodadWorldEntryLoadDrained() const {
   return world_presentation_scene_.IsDoodadWorldEntryLoadDrained();
 }
 
+bool WorldScene::IsTerrainWorldEntryLoadDrained() const {
+  return world_presentation_scene_.IsTerrainWorldEntryLoadDrained();
+}
+
 std::uint64_t WorldScene::DoodadCollisionRevision() const noexcept {
   return world_presentation_scene_.DoodadCollisionRevision();
 }

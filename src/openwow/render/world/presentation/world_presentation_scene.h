@@ -92,6 +92,7 @@ class WorldPresentationScene final {
   [[nodiscard]] std::uint64_t DoodadCollisionRevision() const noexcept;
 
   [[nodiscard]] bool IsDoodadWorldEntryLoadDrained() const;
+  [[nodiscard]] bool IsTerrainWorldEntryLoadDrained() const;
 
   [[nodiscard]] const occlusion::OcclusionDepthBuffer& occlusion_buffer()
       const noexcept {
@@ -100,6 +101,7 @@ class WorldPresentationScene final {
 
  private:
   struct ModelResource;
+  struct PendingTerrainTile;
   struct PendingWmoGroup;
   struct ModelInstance {
     std::string resource_key;
@@ -119,6 +121,13 @@ class WorldPresentationScene final {
   };
 
   void ResetMap();
+  void QueueTerrainTilePreparation(
+      const world::PublishTerrainTileCommand& command);
+  void RetireTerrainTilePreparation(std::int32_t tile_x,
+                                    std::int32_t tile_y);
+  void DrainRetiredTerrainTilePreparations(bool wait);
+  void StartQueuedTerrainTilePreparation();
+  void PumpPreparedTerrainTiles();
   void QueueWmoGroupPreparation(
       const world::PublishWorldModelGroupCommand& command);
   void StartQueuedWmoGroupPreparations();
@@ -143,6 +152,8 @@ class WorldPresentationScene final {
   world::WeatherState weather_;
   std::unordered_map<std::string, std::unique_ptr<ModelResource>> models_;
   std::unordered_map<std::uint64_t, ModelInstance> instances_;
+  std::vector<std::unique_ptr<PendingTerrainTile>> pending_terrain_tiles_;
+  std::vector<std::unique_ptr<PendingTerrainTile>> retired_terrain_tiles_;
   std::map<std::pair<std::string, std::uint32_t>,
            std::unique_ptr<PendingWmoGroup>> pending_wmo_groups_;
   LoadFileCallback load_file_;

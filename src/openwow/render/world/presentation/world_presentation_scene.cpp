@@ -57,6 +57,20 @@ struct WorldPresentationScene::ModelResource {
   std::unordered_map<std::uint32_t, DoodadGroup> groups;
 };
 
+struct WorldPresentationScene::PendingTerrainTile {
+  struct Prepared {
+    PreparedTerrainTile terrain;
+    PreparedTerrainMaterialTextures materials;
+    std::chrono::milliseconds preparation_time{};
+    std::int32_t tile_x{};
+    std::int32_t tile_y{};
+  };
+
+  std::future<Prepared> future;
+  world::PublishTerrainTileCommand command;
+  bool started{false};
+};
+
 struct WorldPresentationScene::PendingWmoGroup {
   struct Prepared {
     world::PublishWorldModelGroupCommand command;
@@ -130,6 +144,10 @@ bool WorldPresentationScene::IsDoodadWorldEntryLoadDrained() const {
   return !doodads_ || doodads_->IsWorldEntryLoadDrained();
 }
 
+bool WorldPresentationScene::IsTerrainWorldEntryLoadDrained() const {
+  return pending_terrain_tiles_.empty();
+}
+
 void WorldPresentationScene::BindWmoDoodadM2EventSink(
     std::function<void(const WmoDoodadM2PresentationEvent&)> sink) {
   wmo_doodad_m2_event_sink_ = std::move(sink);
@@ -139,6 +157,12 @@ void WorldPresentationScene::BindWmoDoodadM2EventSink(
 }
 
 void WorldPresentationScene::ResetMap() {
+  for (auto& pending : pending_terrain_tiles_) {
+    if (pending && pending->started) {
+      retired_terrain_tiles_.push_back(std::move(pending));
+    }
+  }
+  pending_terrain_tiles_.clear();
   pending_wmo_groups_.clear();
   for (auto& [key, model] : models_) {
     (void)key;
@@ -155,6 +179,177 @@ void WorldPresentationScene::ResetMap() {
   if (sky_) sky_->Reset();
   if (weather_renderer_) weather_renderer_->Reset();
   world::ResetWeather(weather_);
+}
+
+void WorldPresentationScene::QueueTerrainTilePreparation(
+    const world::PublishTerrainTileCommand& command) {
+  if (!command.adt) {
+    return;
+  }
+
+  RetireTerrainTilePreparation(command.tile_x, command.tile_y);
+  auto pending = std::make_unique<PendingTerrainTile>();
+  pending->command = command;
+  pending_terrain_tiles_.push_back(std::move(pending));
+}
+
+void WorldPresentationScene::RetireTerrainTilePreparation(
+    const std::int32_t tile_x, const std::int32_t tile_y) {
+  auto pending = std::find_if(
+      pending_terrain_tiles_.begin(), pending_terrain_tiles_.end(),
+      [tile_x, tile_y](const auto& entry) {
+        return entry && entry->command.tile_x == tile_x &&
+               entry->command.tile_y == tile_y;
+      });
+  if (pending == pending_terrain_tiles_.end()) {
+    return;
+  }
+  if ((*pending)->started) {
+    retired_terrain_tiles_.push_back(std::move(*pending));
+  }
+  pending_terrain_tiles_.erase(pending);
+}
+
+void WorldPresentationScene::DrainRetiredTerrainTilePreparations(
+    const bool wait) {
+  auto retired = retired_terrain_tiles_.begin();
+  while (retired != retired_terrain_tiles_.end()) {
+    PendingTerrainTile& pending = **retired;
+    if (!pending.future.valid()) {
+      retired = retired_terrain_tiles_.erase(retired);
+      continue;
+    }
+    if (!wait && pending.future.wait_for(std::chrono::seconds(0)) !=
+                     std::future_status::ready) {
+      ++retired;
+      continue;
+    }
+    try {
+      static_cast<void>(pending.future.get());
+    } catch (const std::exception& exception) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "WorldPresentationScene: retired terrain preparation failed tile=(" +
+              std::to_string(pending.command.tile_x) + "," +
+              std::to_string(pending.command.tile_y) + ") reason=" +
+              exception.what());
+    } catch (...) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "WorldPresentationScene: retired terrain preparation failed tile=(" +
+              std::to_string(pending.command.tile_x) + "," +
+              std::to_string(pending.command.tile_y) +
+              ") reason=unknown exception");
+    }
+    retired = retired_terrain_tiles_.erase(retired);
+  }
+}
+
+void WorldPresentationScene::StartQueuedTerrainTilePreparation() {
+  if (std::ranges::any_of(pending_terrain_tiles_, [](const auto& pending) {
+        return pending && pending->started;
+      }) ||
+      !retired_terrain_tiles_.empty()) {
+    return;
+  }
+
+  const auto pending = std::find_if(
+      pending_terrain_tiles_.begin(), pending_terrain_tiles_.end(),
+      [](const auto& entry) { return entry && !entry->started; });
+  if (pending == pending_terrain_tiles_.end()) {
+    return;
+  }
+
+  PendingTerrainTile& entry = **pending;
+  const auto adt = entry.command.adt;
+  const auto tile_x = entry.command.tile_x;
+  const auto tile_y = entry.command.tile_y;
+  const auto big_alpha = entry.command.big_alpha;
+  const auto loader = load_file_;
+  try {
+    entry.future = std::async(
+        std::launch::async,
+        [adt, tile_x, tile_y, big_alpha, loader]() mutable {
+          const auto started = std::chrono::steady_clock::now();
+          PendingTerrainTile::Prepared prepared{
+              .tile_x = tile_x,
+              .tile_y = tile_y,
+          };
+          prepared.terrain = PrepareAdtTerrainTile(
+              *adt, static_cast<std::uint32_t>(tile_x),
+              static_cast<std::uint32_t>(tile_y), big_alpha,
+              openwow::core::GetPlatformRuntimePolicy()
+                  .terrain_alpha_map_dimension);
+          prepared.materials =
+              PrepareTerrainMaterialTextures(prepared.terrain, loader);
+          prepared.preparation_time =
+              std::chrono::duration_cast<std::chrono::milliseconds>(
+                  std::chrono::steady_clock::now() - started);
+          return prepared;
+        });
+    entry.started = true;
+  } catch (const std::exception& exception) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "WorldPresentationScene: terrain preparation scheduling failed tile=(" +
+            std::to_string(tile_x) + "," + std::to_string(tile_y) +
+            ") reason=" + exception.what());
+  } catch (...) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "WorldPresentationScene: terrain preparation scheduling failed tile=(" +
+            std::to_string(tile_x) + "," + std::to_string(tile_y) +
+            ") reason=unknown exception");
+  }
+}
+
+void WorldPresentationScene::PumpPreparedTerrainTiles() {
+  auto pending = std::find_if(
+      pending_terrain_tiles_.begin(), pending_terrain_tiles_.end(),
+      [](const auto& entry) { return entry && entry->started; });
+  if (pending == pending_terrain_tiles_.end() ||
+      !(*pending)->future.valid() ||
+      (*pending)->future.wait_for(std::chrono::seconds(0)) !=
+          std::future_status::ready) {
+    return;
+  }
+
+  const auto tile_x = (*pending)->command.tile_x;
+  const auto tile_y = (*pending)->command.tile_y;
+  try {
+    auto prepared = (*pending)->future.get();
+    const auto commit_started = std::chrono::steady_clock::now();
+    if (terrain_) {
+      terrain_->UploadPreparedAdt(prepared.terrain, prepared.materials,
+                                  prepared.tile_x, prepared.tile_y);
+    }
+    const auto commit_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - commit_started);
+    if (prepared.preparation_time >= std::chrono::milliseconds(100) ||
+        commit_time >= std::chrono::milliseconds(16)) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "WorldPresentationScene: slow terrain pipeline tile=(" +
+              std::to_string(prepared.tile_x) + "," +
+              std::to_string(prepared.tile_y) + ") preparation_ms=" +
+              std::to_string(prepared.preparation_time.count()) +
+              " commit_ms=" + std::to_string(commit_time.count()));
+    }
+  } catch (const std::exception& exception) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "WorldPresentationScene: terrain preparation failed tile=(" +
+            std::to_string(tile_x) + "," + std::to_string(tile_y) +
+            ") reason=" + exception.what());
+  } catch (...) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "WorldPresentationScene: terrain preparation failed tile=(" +
+            std::to_string(tile_x) + "," + std::to_string(tile_y) +
+            ") reason=unknown exception");
+  }
+  pending_terrain_tiles_.erase(pending);
 }
 
 void WorldPresentationScene::QueueWmoGroupPreparation(
@@ -372,6 +567,7 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
 void WorldPresentationScene::Shutdown() {
   if (!terrain_) return;
   ResetMap();
+  DrainRetiredTerrainTilePreparations(true);
 
   if (wmo_shader_warm_up_) {
     wmo_shader_warm_up_->Shutdown();
@@ -458,6 +654,8 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
     ResetMap();
   }
   generation_ = batch.generation;
+  DrainRetiredTerrainTilePreparations(false);
+  PumpPreparedTerrainTiles();
   PumpPreparedWmoGroups(acknowledgment);
   for (auto& command : batch.commands) {
     std::visit([this, &acknowledgment,
@@ -470,16 +668,20 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
         if (distant_ && value.wdl) distant_->LoadWdl(*value.wdl);
       } else if constexpr (std::is_same_v<T, world::PublishTerrainTileCommand>) {
         if (terrain_ && value.adt) {
-
-          const auto prepared = PrepareAdtTerrainTile(
-              *value.adt, static_cast<std::uint32_t>(value.tile_x),
-              static_cast<std::uint32_t>(value.tile_y), value.big_alpha,
-              openwow::core::GetPlatformRuntimePolicy()
-                  .terrain_alpha_map_dimension);
-          const auto materials =
-              PrepareTerrainMaterialTextures(prepared, load_file_);
-          terrain_->UploadPreparedAdt(prepared, materials, value.tile_x,
-                                      value.tile_y);
+          if (openwow::core::GetPlatformRuntimePolicy()
+                  .constrained_mobile_runtime) {
+            QueueTerrainTilePreparation(value);
+          } else {
+            const auto prepared = PrepareAdtTerrainTile(
+                *value.adt, static_cast<std::uint32_t>(value.tile_x),
+                static_cast<std::uint32_t>(value.tile_y), value.big_alpha,
+                openwow::core::GetPlatformRuntimePolicy()
+                    .terrain_alpha_map_dimension);
+            const auto materials =
+                PrepareTerrainMaterialTextures(prepared, load_file_);
+            terrain_->UploadPreparedAdt(prepared, materials, value.tile_x,
+                                        value.tile_y);
+          }
         }
         if (doodads_ && value.adt)
           doodads_->LoadFromAdt(*value.adt, value.tile_x, value.tile_y);
@@ -489,6 +691,7 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
           water_->ReplaceOwnedWaterHeightfields(value.owner, *value.liquids);
         if (distant_) distant_->SetDetailedTile(value.tile_x, value.tile_y, true);
       } else if constexpr (std::is_same_v<T, world::RemoveTerrainTileCommand>) {
+        RetireTerrainTilePreparation(value.tile_x, value.tile_y);
         if (terrain_) terrain_->RemoveAdt(value.tile_x, value.tile_y);
         if (doodads_) doodads_->UnloadTile(value.tile_x, value.tile_y);
         if (detail_doodads_)
@@ -600,6 +803,7 @@ world::WorldPresentationAcknowledgment WorldPresentationScene::Consume(
       }
     }, command);
   }
+  StartQueuedTerrainTilePreparation();
   StartQueuedWmoGroupPreparations();
   return acknowledgment;
 }

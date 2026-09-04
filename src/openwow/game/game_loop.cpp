@@ -4711,6 +4711,7 @@ void GameLoop::RefreshLoadingWorldEntryState(float dt) {
 void GameLoop::TryAcknowledgeReadyWorldTransfer() {
   if (world_session() == nullptr ||
       !world_scene_.world_map().IsWorldEntryStreamingComplete() ||
+      !world_scene_.IsTerrainWorldEntryLoadDrained() ||
       !world_scene_.IsDoodadWorldEntryLoadDrained()) {
     return;
   }
@@ -4762,6 +4763,7 @@ LoadingScreenWorldEntryGateState GameLoop::BuildLoadingScreenWorldEntryGateState
 
   state.critical_visible_world_surface_ready =
       world_scene_.world_map().IsWorldEntryStreamingComplete() &&
+      world_scene_.IsTerrainWorldEntryLoadDrained() &&
       world_scene_.IsDoodadWorldEntryLoadDrained();
 
   const auto transport_guid = active_player->GetTransportGUID();
