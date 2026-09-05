@@ -2215,19 +2215,33 @@ bool GameLoop::StartWorldUiRuntime(const openwow::ui::game::WorldUiGeneration ge
     }
 
 #if defined(OPENWOW_PLATFORM_IOS)
-    if (!game_ui_.LoadToc(
-            "/Interface/OpenWoW/MobileUI/OpenWoWMobileUI.toc",
-            &framexml_log)) {
-      openwow::diagnostics::Log(
-          openwow::diagnostics::LogLevel::kError,
-          "iOS world UI initialization failed while loading the internal "
-          "mobile interaction layer");
-      return false;
-    }
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kInfo,
-        "iOS internal mobile interaction layer loaded");
+    const bool load_mobile_hud = true;
+#elif defined(__APPLE__)
+    const bool load_mobile_hud =
+        openwow::ui::game::CVarSystem::Instance().GetCVarBool("mobileHudPreview");
+#else
+    const bool load_mobile_hud = false;
 #endif
+    if (load_mobile_hud) {
+      if (!game_ui_.LoadToc(
+              "/Interface/OpenWoW/MobileUI/OpenWoWMobileUI.toc",
+              &framexml_log)) {
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kError,
+            "World UI initialization failed while loading "
+            "/Interface/OpenWoW/MobileUI/OpenWoWMobileUI.toc");
+        return false;
+      }
+#if defined(OPENWOW_PLATFORM_IOS)
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kInfo,
+          "iOS internal mobile interaction layer loaded");
+#else
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kInfo,
+          "macOS mobile HUD preview loaded (mobileHudPreview=1)");
+#endif
+    }
 
     (void)PumpWorldEntryProtocolControlPackets();
 

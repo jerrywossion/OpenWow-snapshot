@@ -28,8 +28,10 @@ all release movement, camera and UI capture explicitly.
 
 ## Mobile HUD
 
-The right-side HUD is loaded only in iOS world sessions from the internal
-`Interface/OpenWoW/MobileUI` TOC. It is never loaded by desktop builds.
+The right-side HUD is loaded in iOS world sessions from the internal
+`Interface/OpenWoW/MobileUI` TOC. macOS can opt into the same layer with the
+`mobileHudPreview` CVar; it is off by default on macOS. Other desktop builds do
+not load it.
 
 - iPhone and iPad share a six-action thumb fan with a deliberate 6+6 layer
   switch. The first slot on each layer is a 68-point primary target; five
@@ -66,6 +68,66 @@ The original FrameXML remains loaded and unchanged underneath the mobile HUD.
 External keyboard, mouse/trackpad and controller routes stay active. Virtual
 movement uses independent source ownership, so releasing one input device does
 not cancel the same command still held by another.
+
+## Iterate the HUD on macOS
+
+Build and install the normal Release application using [BUILDING.md](BUILDING.md).
+In world, enable the preview with these two chat commands:
+
+```text
+/console mobileHudPreview 1
+/reload
+```
+
+The setting is saved in the normal client configuration. To disable it, run
+`/console mobileHudPreview 0` followed by `/reload`. The switch is consumed
+when the world UI starts or reloads; it does not create or destroy frames in
+the middle of a Lua callback. iOS continues to load its HUD unconditionally.
+The existing reload lifecycle recreates FrameXML/Lua while retaining the
+current world session, so preview changes do not require another login or
+world load.
+
+For source iteration, close the running client, then start the installed app
+with the existing override-root environment variable. From the repository
+root, run:
+
+```sh
+OPENWOW_ENHANCED_ASSETS="$PWD/assets/overrides" \
+  ./build/macos-app/OpenWoW.app/Contents/MacOS/openwow-client
+```
+
+Edit `assets/overrides/Interface/OpenWoW/MobileUI/OpenWoWMobileUI.lua`, save,
+and run `/reload` in game. The UI loader starts a fresh source-cache lifetime
+and reads the changed file from the mounted directory; Lua, XML and TOC edits
+do not require a build or reinstall. The environment variable must point to
+the whole `assets/overrides` root, not its `MobileUI` subdirectory. Without it,
+an installed app reads its packaged overrides, which change only after an
+install. C++ changes still require compilation and restarting the app.
+
+Use a landscape window sized in macOS logical points, for example about
+844 by 390 for a phone layout or 1194 by 834 for a tablet layout. HUD sizes use
+those window points, while drawing and mouse hit testing use framebuffer
+pixels; Retina scaling is accounted for. Resizing and UI reload republish
+the viewport metrics. Desktop safe-area insets are zero. This previews the
+shared layout, labels, action layers, cooldowns and panel interactions;
+device safe areas, multi-touch ownership, haptics and thumb reach still need
+an iOS device. Desktop keyboard and mouse keep their usual behavior.
+
+For user acceptance, use `build/macos-app/OpenWoW.app` with build-12340 Data,
+the `zhCN` locale archive chain and the configured compatible realm. In world,
+enable the preview and verify that the HUD appears; check both action layers,
+the utility drawer and Touch/Hide, resize the window, then change a Lua label
+or spacing and reload to confirm the source edit appears without leaving the
+world. Disable and reload to verify the mobile frames disappear. If the HUD
+was previously hidden, restore it with the minimap's Touch/触控 launcher.
+
+The log should contain `macOS mobile HUD preview loaded (mobileHudPreview=1)`
+after each enabled UI start. Verify that `Override content root:` names the
+source directory for live editing. For failures, return the latest session
+and reload span from the resolved user-data root's `logs/openwow-client.log`
+(normally `~/Library/Application Support/OpenWoW/logs/openwow-client.log`),
+including the first `OpenWoWMobile` or FrameXML/Lua error and its context.
+These visual, interaction and reload checks remain user acceptance items.
 
 ## Device acceptance
 

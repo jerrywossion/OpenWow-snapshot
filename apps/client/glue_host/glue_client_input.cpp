@@ -20,6 +20,7 @@
 #include "openwow/render/effects/postprocess/post_process.h"
 #include "openwow/ui/glue/editbox_input_dispatch.h"
 #include "openwow/ui/game/api/game_lua_api_movement.h"
+#include "openwow/ui/game/cvar_system.h"
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/lua_call_helpers.h"
 #include "openwow/foundation/diagnostics/logging.h"
@@ -736,6 +737,30 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
     return;
   }
 }
+
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
+void GlueClient::RefreshMobileHudPreviewViewport() {
+  if (!game_loop_.game_ui().is_initialized() ||
+      !openwow::ui::game::CVarSystem::Instance().GetCVarBool("mobileHudPreview")) {
+    return;
+  }
+  int logical_width = 0;
+  int logical_height = 0;
+  SDL_GetWindowSize(window_, &logical_width, &logical_height);
+  if (logical_width <= 0 || logical_height <= 0 ||
+      layout_width_ <= 0 || layout_height_ <= 0) {
+    return;  // A minimized window has no preview surface.
+  }
+  // Use the same point-to-framebuffer conversion as iOS. The desktop window
+  // supplies its own logical size and has no device safe-area insets.
+  (void)openwow::ui::CallLuaGlobalIfFunction(
+      game_loop_.game_ui().lua_state(), "OpenWoWMobile_ApplyMetrics",
+      static_cast<double>(layout_width_),
+      static_cast<double>(layout_height_),
+      static_cast<double>(logical_width),
+      static_cast<double>(logical_height), 0.0, 0.0, 0.0, 0.0);
+}
+#endif
 
 #if defined(OPENWOW_PLATFORM_IOS)
 void GlueClient::RefreshMobileInputViewport() {

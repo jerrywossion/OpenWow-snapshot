@@ -203,6 +203,8 @@ class GlueClient {
   void ReleaseMobileMovement();
   void BeginMobileCamera();
   void EndMobileCamera();
+#elif defined(__APPLE__)
+  void RefreshMobileHudPreviewViewport();
 #endif
   void UpdateInWorldMouseButtonState(std::uint8_t button, bool pressed);
   void ReleaseInWorldInput();

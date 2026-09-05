@@ -300,6 +300,16 @@ void RegisterIosPerformanceProfile(openwow::ui::game::CVarSystem &cvars) {
 #endif
 }
 
+void RegisterMobileHudPreview(openwow::ui::game::CVarSystem &cvars) {
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
+  cvars.RegisterCVar("mobileHudPreview", "0",
+                     openwow::ui::game::CVarFlags::Archive,
+                     "Preview the iOS HUD on macOS (requires UI reload)");
+#else
+  (void)cvars;
+#endif
+}
+
 void ApplyIosPerformanceProfile(openwow::ui::game::CVarSystem &cvars) {
 #if defined(OPENWOW_PLATFORM_IOS)
   if (!cvars.GetCVarBool("iosPerformanceProfile")) {
@@ -948,6 +958,9 @@ void GlueClient::RefreshLayout() {
   int height = 0;
   GetDrawableSize(window_, &width, &height);
   if (width == layout_width_ && height == layout_height_) {
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
+    RefreshMobileHudPreviewViewport();
+#endif
     return;
   }
   layout_width_ = width;
@@ -965,6 +978,9 @@ void GlueClient::RefreshLayout() {
   game_loop_.SetScreenSize(drawable_w, drawable_h);
 
   FireGlueEvent("DISPLAY_SIZE_CHANGED", {});
+#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
+  RefreshMobileHudPreviewViewport();
+#endif
 }
 
 void GlueClient::DispatchPendingScrollRangeChangedEvents() {
@@ -1530,6 +1546,7 @@ bool GlueClient::InitCVars() {
   openwow::core::ida::GxCVarRegister();
   cvar_sys.RegisterDefaults();
   RegisterIosPerformanceProfile(cvar_sys);
+  RegisterMobileHudPreview(cvar_sys);
   openwow::core::MemoryStorm_RegisterConsoleCommands();
   gamma_controller_.Register(cvar_sys, window_);
   openwow::render::RegisterTextureFilteringModeCVarCallback(cvar_sys);
