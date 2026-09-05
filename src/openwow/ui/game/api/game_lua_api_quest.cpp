@@ -2715,7 +2715,7 @@ int LuaGetQuestLogCompletionText(lua_State *L) {
   const auto &raw_text =
       (HasFlag(tmpl->flags, ::openwow::game::QuestFlags::kObjText) ||
        tmpl->completed_text.empty())
-          ? tmpl->details
+          ? tmpl->objectives
           : tmpl->completed_text;
 
   const auto expanded = ExpandQuestDialogText(*session, raw_text, false);
