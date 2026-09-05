@@ -14,6 +14,7 @@
 #include "openwow/game/objects/cgunit.h"
 #include "openwow/game/query_cache.h"
 #include "openwow/game/quest_dialog_close.h"
+#include "openwow/game/taxi_map_frame.h"
 #include "openwow/game/world_session.h"
 #include "openwow/ui/game/game_events.h"
 #include "openwow/ui/game/game_ui_core.h"
@@ -275,8 +276,7 @@ void CloseNpcInteractionTarget(game::WorldSession& session,
                              NpcInteractionFeedback::Suppress);
   } else if (session.taxi().IsTaxiMapOpen() &&
              session.taxi().GetFlightMasterGuid() == unit_guid) {
-    session.taxi().CloseTaxiMap();
-    ScriptEventDispatch::Get().FireTaxiMapClosed();
+    game::TaxiMapFrame_Close(session);
   } else if (gossip.has_trainer() &&
              gossip.trainer().trainer_guid.GetRawValue() == unit_guid) {
     CloseTrainerInteraction(session, unit, cause,

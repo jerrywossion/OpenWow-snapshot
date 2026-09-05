@@ -133,7 +133,15 @@ void HandleGossipMessagePacket(
     const net::wotlk::WorldPacket& pkt) {
   const std::uint64_t previous_gossip_guid =
       gossip.has_gossip() ? gossip.gossip().npc_guid.GetRawValue() : 0;
-  if (!gossip.HandleGossipMessage(pkt.payload.data(), pkt.payload.size())) {
+  if (!gossip.HandleGossipMessage(
+          pkt.payload.data(), pkt.payload.size(),
+          [&](const ObjectGuid npc) {
+            if (!npc.IsEmpty()) {
+              ui::game::SetNpcInteractionTarget(npc);
+            } else if (close_interaction) {
+              close_interaction(previous_gossip_guid);
+            }
+          })) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
         "interaction reject malformed SMSG_GOSSIP_MESSAGE bytes=" +
@@ -142,11 +150,6 @@ void HandleGossipMessagePacket(
   }
 
   const auto& dialog = gossip.gossip();
-  if (!dialog.npc_guid.IsEmpty()) {
-    ui::game::SetNpcInteractionTarget(dialog.npc_guid);
-  } else if (close_interaction) {
-    close_interaction(previous_gossip_guid);
-  }
   if (queries.HasNpcText(dialog.title_text_id)) {
     if (prepare_gossip_text && prepare_gossip_text()) {
       ui::game::ScriptEventDispatch::Get().FireGossipShow();
@@ -186,26 +189,33 @@ void HandleNpcTextUpdatePacket(
 }
 
 void HandleTrainerListPacket(
-    GossipManager& gossip, const std::function<void()>& update_greeting,
+    GossipManager& gossip, const std::function<bool()>& prepare_trainer,
     const net::wotlk::WorldPacket& pkt) {
-  if (!gossip.HandleTrainerList(pkt.payload.data(), pkt.payload.size())) {
+  if (!gossip.HandleTrainerList(pkt.payload.data(), pkt.payload.size(),
+                              ui::game::SetNpcInteractionTarget)) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
         "interaction reject malformed SMSG_TRAINER_LIST bytes=" +
             std::to_string(pkt.payload.size()));
     return;
   }
-  if (update_greeting) {
-    update_greeting();
+  if (!prepare_trainer()) {
+    return;
   }
-  ui::game::SetNpcInteractionTarget(gossip.trainer().trainer_guid);
   ui::game::ScriptEventDispatch::Get().FireTrainerShow();
 }
 
 void HandleMerchantListPacket(ObjectManager& objects, GossipManager& gossip,
                               QueryCache& queries,
                               const net::wotlk::WorldPacket& pkt) {
-  if (!gossip.HandleListInventory(pkt.payload.data(), pkt.payload.size())) {
+  if (!gossip.HandleListInventory(
+          pkt.payload.data(), pkt.payload.size(),
+          [&](const ObjectGuid vendor) {
+            queries.CancelItemTemplateCallbacks(
+                MerchantInteraction::ItemInfoRefreshCallbackKey());
+            TutorialSystem::Instance().TriggerTutorial(kMerchantTutorialId);
+            ui::game::SetNpcInteractionTarget(vendor);
+          })) {
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
         "interaction reject malformed SMSG_LIST_INVENTORY bytes=" +
@@ -216,15 +226,13 @@ void HandleMerchantListPacket(ObjectManager& objects, GossipManager& gossip,
   switch (gossip.merchant().last_list_result()) {
     case VendorListResult::kItems:
     case VendorListResult::kNoInventory: {
-      queries.CancelItemTemplateCallbacks(
-          MerchantInteraction::ItemInfoRefreshCallbackKey());
       gossip.merchant().ResetItemInfoRefresh();
-      TutorialSystem::Instance().TriggerTutorial(kMerchantTutorialId);
-
-      if (gossip.merchant().active()) {
-        ui::game::SetNpcInteractionTarget(gossip.merchant().snapshot().vendor_guid);
-      }
-
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kInfo,
+          "interaction publish SMSG_LIST_INVENTORY guid=" +
+              gossip.merchant().snapshot().vendor_guid.ToString() + " items=" +
+              std::to_string(gossip.merchant().snapshot().items.size()) +
+              " stage=MERCHANT_SHOW");
       ui::game::ScriptEventDispatch::Get().FireMerchantShow();
       return;
     }

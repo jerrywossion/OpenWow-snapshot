@@ -386,7 +386,7 @@ int LuaTakeTaxiNode(lua_State* L) {
 
 int LuaCloseTaxiMap(lua_State* L) {
   if (auto* session = GetWorldSession(L); session != nullptr) {
-    openwow::game::TaxiMapFrame_Close(session->taxi());
+    openwow::game::TaxiMapFrame_Close(*session);
   }
   return 0;
 }

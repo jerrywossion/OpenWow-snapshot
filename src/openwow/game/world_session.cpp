@@ -1980,7 +1980,7 @@ bool WorldSession::HandlePacket(const net::wotlk::WorldPacket &pkt) {
     return true;
   case Op::SMSG_TRAINER_LIST:
     HandleTrainerListPacket(
-        gossip_, [this]() { Trainer_UpdateGreetingText(*this); }, pkt);
+        gossip_, [this]() { return Trainer_PrepareFrameState(*this); }, pkt);
     return true;
   case Op::SMSG_LIST_INVENTORY:
     HandleMerchantListPacket(objects(), gossip_, query_cache_, pkt);

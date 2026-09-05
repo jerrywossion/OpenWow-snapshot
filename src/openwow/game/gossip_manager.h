@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -76,9 +77,14 @@ struct TrainerList {
 
 class GossipManager {
  public:
-  bool HandleGossipMessage(const std::uint8_t* data, std::size_t len);
-  bool HandleTrainerList(const std::uint8_t* data, std::size_t len);
-  bool HandleListInventory(const std::uint8_t* data, std::size_t len);
+  // Called only after successful decoding, while the previous service still
+  // owns its state so that interaction-close callbacks observe the old data.
+  bool HandleGossipMessage(const std::uint8_t* data, std::size_t len,
+                          const std::function<void(ObjectGuid)>& before_publish);
+  bool HandleTrainerList(const std::uint8_t* data, std::size_t len,
+                        const std::function<void(ObjectGuid)>& before_publish);
+  bool HandleListInventory(const std::uint8_t* data, std::size_t len,
+                          const std::function<void(ObjectGuid)>& before_publish);
 
   [[nodiscard]] static net::wotlk::WorldPacket BuildGossipHello(
       const ObjectGuid& npc);

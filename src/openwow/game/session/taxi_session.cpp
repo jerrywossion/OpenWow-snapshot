@@ -147,33 +147,39 @@ void WorldSession::HandleShowTaxiNodes(const net::wotlk::WorldPacket &pkt) {
     return;
   }
 
-  const auto previous_taxi = taxi_;
-  const auto previous_taxi_guid = previous_taxi.GetFlightMasterGuid();
+  auto incoming_taxi = taxi_;
+  const auto previous_taxi_guid = taxi_.GetFlightMasterGuid();
   auto &taxi_system = TaxiSystem::Get();
   const bool taxi_map_was_open = taxi_system.IsTaxiMapOpen();
 
-  auto result = taxi_.HandleShowTaxiNodes(pkt.payload.data(), pkt.payload.size());
+  auto result = incoming_taxi.HandleShowTaxiNodes(pkt.payload.data(), pkt.payload.size());
   switch (result) {
   case TaxiShowResult::kOpenMap: {
     if (taxi_map_was_open && previous_taxi_guid != 0 &&
-        previous_taxi_guid == taxi_.GetFlightMasterGuid()) {
-      taxi_ = previous_taxi;
+        previous_taxi_guid == incoming_taxi.GetFlightMasterGuid()) {
       break;
     }
 
     if (taxi_map_was_open && previous_taxi_guid != 0 &&
-        previous_taxi_guid != taxi_.GetFlightMasterGuid()) {
-      taxi_system.CloseTaxiMap();
-      ui::game::ScriptEventDispatch::Get().FireTaxiMapClosed();
+        previous_taxi_guid != incoming_taxi.GetFlightMasterGuid()) {
+      TaxiMapFrame_Close(*this);
     }
 
+    taxi_ = std::move(incoming_taxi);
     if (const auto *dbc = GetDbcLoader()) {
       if (const auto state = BuildTaxiMapOpenRuntimeSlice(*dbc, *this);
           state.has_value()) {
-        taxi_system.OpenTaxiMap(taxi_.GetCurrentNode());
-        taxi_system.CacheDisplaySlice(*state);
         auto interaction_guid = taxi_.GetFlightMasterGuid();
         ui::game::SetNpcInteractionTarget(ObjectGuid(interaction_guid));
+        taxi_system.OpenTaxiMap(taxi_.GetCurrentNode());
+        taxi_system.CacheDisplaySlice(*state);
+        openwow::diagnostics::Log(
+            openwow::diagnostics::LogLevel::kInfo,
+            "interaction publish SMSG_SHOWTAXINODES guid=" +
+                std::to_string(interaction_guid) + " currentNode=" +
+                std::to_string(taxi_.GetCurrentNode()) + " nodes=" +
+                std::to_string(state->nodes.size()) +
+                " stage=TAXIMAP_OPENED");
         ui::game::ScriptEventDispatch::Get().FireTaxiMapOpened();
         TutorialSystem::Instance().TriggerTutorial(0x22u);
         break;
@@ -199,19 +205,15 @@ void WorldSession::HandleShowTaxiNodes(const net::wotlk::WorldPacket &pkt) {
 
     ui::game::CloseGossipInteraction(*this);
 
-    taxi_ = previous_taxi;
     break;
   case TaxiShowResult::kConsoleDump:
-    LogRetailTaxiNodeConsoleDump(taxi_.last_display(), GetDbcLoader());
-
-    taxi_ = previous_taxi;
+    LogRetailTaxiNodeConsoleDump(incoming_taxi.last_display(), GetDbcLoader());
     break;
   case TaxiShowResult::kParseError:
     openwow::diagnostics::Log(
         openwow::diagnostics::LogLevel::kWarn,
         "interaction reject malformed SMSG_SHOWTAXINODES bytes=" +
             std::to_string(pkt.payload.size()) + " stage=taxi-snapshot");
-    taxi_ = previous_taxi;
     break;
   }
 }
@@ -236,7 +238,7 @@ void WorldSession::HandleActivateTaxiReply(const net::wotlk::WorldPacket &pkt) {
     return;
 
   if (reply == 0) {
-    TaxiMapFrame_Close(taxi_);
+    TaxiMapFrame_Close(*this);
   } else {
     ui::game::DisplaySystemMessage(kTaxiReplySystemMessages[reply]);
   }

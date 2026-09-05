@@ -17,7 +17,8 @@ constexpr std::uint8_t kMaxVendorItems = 150;
 }
 
 bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
-                                        std::size_t len) {
+                                        std::size_t len,
+                                        const std::function<void(ObjectGuid)>& before_publish) {
   PacketReader r(data, len);
   GossipDialogData d;
   if (!r.ReadGuid(d.npc_guid)) return false;
@@ -81,6 +82,7 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
     q.is_repeatable = repeatable != 0;
   }
 
+  before_publish(d.npc_guid);
   gossip_ = std::move(d);
   gossip_guid_ = gossip_->npc_guid;
   display_text_.clear();
@@ -88,7 +90,8 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
 }
 
 bool GossipManager::HandleTrainerList(const std::uint8_t* data,
-                                      std::size_t len) {
+                                      std::size_t len,
+                                      const std::function<void(ObjectGuid)>& before_publish) {
   PacketReader r(data, len);
   TrainerList t;
   if (!r.ReadGuid(t.trainer_guid)) return false;
@@ -120,13 +123,15 @@ bool GossipManager::HandleTrainerList(const std::uint8_t* data,
 
   if (!r.ReadCString(t.greeting)) return false;
 
+  before_publish(t.trainer_guid);
   trainer_ = std::move(t);
   trainer_type_ = trainer_->trainer_type;
   return true;
 }
 
 bool GossipManager::HandleListInventory(const std::uint8_t* data,
-                                        std::size_t len) {
+                                        std::size_t len,
+                                        const std::function<void(ObjectGuid)>& before_publish) {
   PacketReader r(data, len);
   VendorList v;
   if (!r.ReadGuid(v.vendor_guid)) return false;
@@ -141,6 +146,7 @@ bool GossipManager::HandleListInventory(const std::uint8_t* data,
 
     switch (reason) {
       case 0:
+        before_publish(v.vendor_guid);
         merchant_.ObserveSnapshot(std::move(v),
                                   VendorListResult::kNoInventory);
         return true;
@@ -176,6 +182,7 @@ bool GossipManager::HandleListInventory(const std::uint8_t* data,
     }
     vi.max_count = max_count;
   }
+  before_publish(v.vendor_guid);
   merchant_.ObserveSnapshot(std::move(v), VendorListResult::kItems);
   return true;
 }
