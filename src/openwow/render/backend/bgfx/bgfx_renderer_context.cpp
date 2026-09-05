@@ -592,6 +592,16 @@ class BgfxRendererContext final : public api::RendererContext {
     frame_active_ = true;
 
     const bgfx::Caps* const caps = bgfx::getCaps();
+    // Frame graphs allocate view IDs again for each frame. bgfx retains view
+    // state, so a reused ID must not inherit another pass's framebuffer,
+    // scissor, clear operation, ordering mode, or transform.
+    if (caps != nullptr) {
+      for (std::uint16_t view = 0; view < caps->limits.maxViews; ++view) {
+        bgfx::resetView(view);
+      }
+    }
+    bgfx::setViewRect(0, 0, 0, bgfx::BackbufferRatio::Equal);
+    bgfx::setViewClear(0, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x1a1412ff, 1.0f, 0);
     const std::uint32_t granted_encoders =
         caps != nullptr ? caps->limits.maxEncoders : 0u;
     s_frame_encoders_available.store(
