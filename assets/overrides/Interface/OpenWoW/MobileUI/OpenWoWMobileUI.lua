@@ -1,13 +1,13 @@
 local state = {
     layer = 1,
-    wide = false,
     drawableWidth = 1,
     drawableHeight = 1,
     logicalWidth = 844,
     logicalHeight = 390,
     actionButtons = {},
-    hiddenButtons = {},
 }
+
+RegisterForSave("OpenWoWMobileHUDShown")
 
 local locale = GetLocale and GetLocale() or "enUS"
 local L
@@ -18,6 +18,12 @@ if locale == "zhCN" then
         interact = "交互",
         jump = "跳跃",
         drawer = "功能",
+        close = "返回",
+        hide = "收起",
+        show = "触控",
+        hideHint = "隐藏触控 HUD，露出原生界面",
+        showHint = "显示触控 HUD",
+        gestureHint = "移动、镜头与世界点击手势始终可用。",
         character = "人物",
         spellbook = "法术",
         talents = "天赋",
@@ -34,6 +40,12 @@ else
         interact = "Use",
         jump = "Jump",
         drawer = "Menu",
+        close = "Back",
+        hide = "Hide",
+        show = "Touch",
+        hideHint = "Hide the touch HUD to access the original UI",
+        showHint = "Show the touch HUD",
+        gestureHint = "Movement, camera and world-tap gestures remain available.",
         character = "Hero",
         spellbook = "Spells",
         talents = "Talents",
@@ -47,10 +59,9 @@ end
 
 local root = CreateFrame("Frame", "OpenWoWMobileRoot", UIParent)
 root:SetAllPoints(UIParent)
-root:SetFrameStrata("HIGH")
+root:SetFrameStrata("MEDIUM")
 
 local actionCluster = CreateFrame("Frame", "OpenWoWMobileActionCluster", root)
-actionCluster:SetFrameStrata("HIGH")
 
 local function AddPanelBackground(frame, alpha)
     local background = frame:CreateTexture(nil, "BACKGROUND")
@@ -58,8 +69,6 @@ local function AddPanelBackground(frame, alpha)
     background:SetTexture(0.015, 0.02, 0.03, alpha or 0.72)
     frame.background = background
 end
-
-AddPanelBackground(actionCluster, 0.34)
 
 local function AddButtonVisuals(button, iconPath)
     local background = button:CreateTexture(nil, "BACKGROUND")
@@ -96,7 +105,7 @@ local function RunMobileBinding(binding)
     RunBinding(binding, "up")
 end
 
-for index = 1, 12 do
+for index = 1, 6 do
     local button = CreateFrame("Button", "OpenWoWMobileAction" .. index, actionCluster)
     button.displayIndex = index
     AddButtonVisuals(button)
@@ -122,24 +131,8 @@ for index = 1, 12 do
     state.actionButtons[index] = button
 end
 
-for index = 1, 6 do
-    local button = CreateFrame("Button", "OpenWoWMobileHiddenAction" .. index, root)
-    button.displayIndex = index
-    AddButtonVisuals(button)
-    button.border:SetVertexColor(0.62, 0.68, 0.78, 0.85)
-    local cooldown = CreateFrame("Cooldown", nil, button)
-    cooldown:SetPoint("TOPLEFT", button.icon, "TOPLEFT", 0, 0)
-    cooldown:SetPoint("BOTTOMRIGHT", button.icon, "BOTTOMRIGHT", 0, 0)
-    button.cooldown = cooldown
-    button:EnableMouse(false)
-    state.hiddenButtons[index] = button
-end
-
-local utilityRow = CreateFrame("Frame", "OpenWoWMobileUtilityRow", root)
-utilityRow:SetFrameStrata("HIGH")
-
 local utilityPanel = CreateFrame("Frame", "OpenWoWMobileUtilityPanel", root)
-utilityPanel:SetFrameStrata("DIALOG")
+utilityPanel:EnableMouse(true)
 AddPanelBackground(utilityPanel, 0.9)
 utilityPanel:Hide()
 
@@ -156,30 +149,39 @@ local function CreateLabeledButton(name, parent, label, iconPath, callback)
 end
 
 local targetButton = CreateLabeledButton(
-    "OpenWoWMobileTargetButton", utilityRow, L.enemy,
+    "OpenWoWMobileTargetButton", actionCluster, L.enemy,
     "Interface\\Icons\\Ability_Hunter_SniperShot",
     function() TargetNearestEnemy() end)
 local friendlyButton = CreateLabeledButton(
-    "OpenWoWMobileFriendlyButton", utilityRow, L.friendly,
+    "OpenWoWMobileFriendlyButton", actionCluster, L.friendly,
     "Interface\\Icons\\Spell_Holy_PrayerOfHealing02",
     function() TargetNearestFriend() end)
 local interactButton = CreateLabeledButton(
-    "OpenWoWMobileInteractButton", utilityRow, L.interact,
+    "OpenWoWMobileInteractButton", actionCluster, L.interact,
     "Interface\\Icons\\INV_Misc_Hand_01",
     function() InteractUnit("target") end)
 local jumpButton = CreateLabeledButton(
-    "OpenWoWMobileJumpButton", utilityRow, L.jump,
+    "OpenWoWMobileJumpButton", actionCluster, L.jump,
     "Interface\\Icons\\Ability_Rogue_Sprint",
     function() RunMobileBinding("JUMP") end)
-local drawerButton = CreateLabeledButton(
-    "OpenWoWMobileDrawerButton", utilityRow, L.drawer,
+local drawerButton
+local function SetDrawerShown(shown)
+    if shown then
+        actionCluster:Hide()
+        utilityPanel:Show()
+        drawerButton.label:SetText(L.close)
+    else
+        utilityPanel:Hide()
+        actionCluster:Show()
+        drawerButton.label:SetText(L.drawer)
+    end
+end
+
+drawerButton = CreateLabeledButton(
+    "OpenWoWMobileDrawerButton", root, L.drawer,
     "Interface\\Icons\\INV_Misc_Gear_01",
     function()
-        if utilityPanel:IsShown() then
-            utilityPanel:Hide()
-        else
-            utilityPanel:Show()
-        end
+        SetDrawerShown(not utilityPanel:IsShown())
     end)
 
 local utilityDefinitions = {
@@ -199,25 +201,55 @@ for index, definition in ipairs(utilityDefinitions) do
         "OpenWoWMobileUtility" .. index, utilityPanel,
         definition[1], definition[2],
         function()
-            utilityPanel:Hide()
+            SetDrawerShown(false)
             RunMobileBinding(binding)
         end)
 end
 
 local layerButton = CreateLabeledButton(
-    "OpenWoWMobileLayerButton", root, "1 / 2",
+    "OpenWoWMobileLayerButton", actionCluster, "1–6",
     "Interface\\Icons\\INV_Misc_Rune_01",
     function()
         state.layer = state.layer == 1 and 2 or 1
         OpenWoWMobile_RefreshActions()
     end)
 
-local targetName = root:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-targetName:SetJustifyH("RIGHT")
-targetName:SetTextColor(1.0, 0.82, 0.45)
+-- The launcher must outlive the hidden HUD and a hidden minimap. Anchor to the
+-- map when it is visible, but keep ownership with UIParent.
+local toggleButton = CreateLabeledButton(
+    "OpenWoWMobileToggleButton", UIParent, L.hide,
+    "Interface\\Icons\\INV_Misc_EngGizmos_19",
+    function()
+        OpenWoWMobileHUDShown = not root:IsShown()
+        OpenWoWMobile_ApplyVisibility()
+        GameTooltip:Hide()
+    end)
+toggleButton:SetFrameStrata("MEDIUM")
+toggleButton:SetFrameLevel(Minimap:GetFrameLevel() + 8)
+toggleButton:SetClampedToScreen(true)
+toggleButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText(root:IsShown() and L.hideHint or L.showHint)
+    GameTooltip:AddLine(L.gestureHint, 1, 1, 1, true)
+    GameTooltip:Show()
+end)
+toggleButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+function OpenWoWMobile_ApplyVisibility()
+    SetDrawerShown(false)
+    if OpenWoWMobileHUDShown == false then
+        root:Hide()
+        toggleButton.label:SetText(L.show)
+        toggleButton.border:SetVertexColor(0.55, 0.7, 0.9, 1)
+    else
+        root:Show()
+        toggleButton.label:SetText(L.hide)
+        toggleButton.border:SetVertexColor(1, 0.78, 0.2, 1)
+        OpenWoWMobile_RefreshActions()
+    end
+end
 
 local joystick = CreateFrame("Frame", "OpenWoWMobileJoystick", root)
-joystick:SetFrameStrata("HIGH")
 joystick:Hide()
 local joystickBase = joystick:CreateTexture(nil, "BACKGROUND")
 joystickBase:SetAllPoints(joystick)
@@ -310,148 +342,127 @@ local function UpdateActionVisual(button, actionIndex)
 end
 
 function OpenWoWMobile_RefreshActions()
-    local visibleCount = state.wide and 12 or 6
-    for index = 1, 12 do
-        local button = state.actionButtons[index]
-        if index <= visibleCount then
-            button:Show()
-            local actionIndex = state.wide and index or
-                ((state.layer - 1) * 6 + index)
-            UpdateActionVisual(button, actionIndex)
-        else
-            button:Hide()
+    for index, button in ipairs(state.actionButtons) do
+        UpdateActionVisual(button, (state.layer - 1) * 6 + index)
+    end
+    layerButton.label:SetText(state.layer == 1 and "1–6" or "7–12")
+end
+
+local function SizeButton(button, size, unitsPerPoint)
+    button:SetSize(size * unitsPerPoint, size * unitsPerPoint)
+    for _, field in ipairs({"label", "slotLabel", "count"}) do
+        local text = button[field]
+        if text then
+            local font, _, flags = text:GetFont()
+            text:SetFont(font, (field == "count" and 12 or 11) * unitsPerPoint,
+                         flags)
         end
     end
-
-    if state.wide then
-        layerButton:Hide()
-        for index = 1, 6 do
-            state.hiddenButtons[index]:Hide()
-        end
-    else
-        layerButton:Show()
-        layerButton.label:SetText(state.layer .. " / 2")
-        local hiddenLayer = state.layer == 1 and 2 or 1
-        for index = 1, 6 do
-            local button = state.hiddenButtons[index]
-            button:Show()
-            UpdateActionVisual(button, (hiddenLayer - 1) * 6 + index)
-        end
-    end
-
-    local target = UnitName("target")
-    if target then
-        targetName:SetText(target)
-    else
-        targetName:SetText("")
+    if button.label then
+        button.label:ClearAllPoints()
+        button.label:SetPoint("BOTTOM", button, "BOTTOM", 0, 6 * unitsPerPoint)
+        button.label:SetWidth((size - 8) * unitsPerPoint)
     end
 end
 
-local function LayoutButtonGrid(buttons, count, columns, buttonSize, gap,
-                                parent)
-    for index = 1, count do
-        local button = buttons[index]
-        local column = math.mod(index - 1, columns)
-        local row = math.floor((index - 1) / columns)
-        button:ClearAllPoints()
-        button:SetSize(buttonSize, buttonSize)
-        button:SetPoint("TOPLEFT", parent, "TOPLEFT",
-                        column * (buttonSize + gap),
-                        -row * (buttonSize + gap))
+local function PlaceToggle()
+    local u = state.unitsPerPoint
+    local bounds = state.safeBounds
+    local size = 48 * u
+    local right = bounds.right
+    local top = bounds.top
+    if Minimap:IsVisible() then
+        local scale = Minimap:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        right = Minimap:GetLeft() * scale - 8 * u
+        top = (Minimap:GetTop() + Minimap:GetBottom()) * 0.5 * scale + size * 0.5
     end
+    -- Stay inside the device safe area even if the map is moved or rescaled.
+    right = math.max(bounds.left + size, math.min(bounds.right, right))
+    top = math.max(bounds.bottom + size, math.min(bounds.top, top))
+    toggleButton:ClearAllPoints()
+    toggleButton:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", right, top)
 end
+
+-- Centers in physical points from the lower-right safe-area margin. The
+-- primary slot sits at the thumb's rest position; the other five follow its
+-- sweep. Both layers and both device classes keep the same muscle memory.
+local actionLayout = {
+    {88, 72, 68},
+    {160, 52, 56},
+    {226, 82, 56},
+    {224, 148, 56},
+    {158, 192, 56},
+    {92, 208, 56},
+}
 
 function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
                                     logicalWidth, logicalHeight,
                                     safeLeft, safeTop, safeRight, safeBottom)
-    if not logicalWidth or not logicalHeight or logicalHeight <= 0 then
-        return
+    if not logicalWidth or not logicalHeight or logicalWidth <= 0 or
+            logicalHeight <= 0 or drawableWidth <= 0 or drawableHeight <= 0 then
+        error("OpenWoWMobile_ApplyMetrics: invalid drawable or logical viewport")
     end
     state.drawableWidth = drawableWidth
     state.drawableHeight = drawableHeight
     state.logicalWidth = logicalWidth
     state.logicalHeight = logicalHeight
-    state.wide = logicalWidth >= 900 and logicalHeight >= 600
 
-    local unitsPerPoint = UIParent:GetHeight() / logicalHeight
-    local actionSize = 58 * unitsPerPoint
-    local actionGap = 5 * unitsPerPoint
-    local utilitySize = 48 * unitsPerPoint
-    local utilityGap = 5 * unitsPerPoint
-    local margin = 14 * unitsPerPoint
-    local safeRightUnits = safeRight * unitsPerPoint
-    local safeTopUnits = safeTop * unitsPerPoint
-    local safeBottomUnits = safeBottom * unitsPerPoint
-
-    local columns = state.wide and 4 or 3
-    local rows = state.wide and 3 or 2
-    actionCluster:ClearAllPoints()
-    actionCluster:SetSize(columns * actionSize + (columns - 1) * actionGap,
-                          rows * actionSize + (rows - 1) * actionGap)
-    actionCluster:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT",
-                           -(safeRightUnits + margin),
-                           safeBottomUnits + margin)
-    LayoutButtonGrid(state.actionButtons, state.wide and 12 or 6,
-                     columns, actionSize, actionGap, actionCluster)
-
-    utilityRow:ClearAllPoints()
-    utilityRow:SetSize(5 * utilitySize + 4 * utilityGap, utilitySize)
-    utilityRow:SetPoint("BOTTOMRIGHT", actionCluster, "TOPRIGHT", 0,
-                        (state.wide and 10 or 66) * unitsPerPoint)
-    local rowButtons = {
-        targetButton, friendlyButton, interactButton, jumpButton, drawerButton
+    local u = UIParent:GetHeight() / logicalHeight
+    state.unitsPerPoint = u
+    state.safeBounds = {
+        left = (safeLeft + 14) * u,
+        right = UIParent:GetWidth() - (safeRight + 14) * u,
+        bottom = (safeBottom + 14) * u,
+        top = UIParent:GetHeight() - (safeTop + 14) * u,
     }
-    LayoutButtonGrid(rowButtons, 5, 5, utilitySize, utilityGap, utilityRow)
 
-    targetName:ClearAllPoints()
-    targetName:SetPoint("BOTTOMRIGHT", utilityRow, "TOPRIGHT", 0,
-                        7 * unitsPerPoint)
+    actionCluster:ClearAllPoints()
+    actionCluster:SetSize(316 * u, 236 * u)
+    actionCluster:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT",
+                           -(safeRight + 14) * u, (safeBottom + 14) * u)
 
+    local function PlaceControl(button, x, y, size)
+        SizeButton(button, size, u)
+        button:ClearAllPoints()
+        button:SetPoint("CENTER", actionCluster, "BOTTOMRIGHT", -x * u, y * u)
+    end
+    for index, position in ipairs(actionLayout) do
+        PlaceControl(state.actionButtons[index], unpack(position))
+    end
+    PlaceControl(jumpButton, 28, 142, 56)
+    PlaceControl(interactButton, 28, 210, 52)
+    PlaceControl(targetButton, 290, 142, 52)
+    PlaceControl(friendlyButton, 290, 208, 52)
+    PlaceControl(layerButton, 158, 128, 48)
+    PlaceControl(drawerButton, 290, 72, 52)
+
+    -- The drawer replaces the combat fan instead of adding another overlay.
+    local utilitySize = 64 * u
+    local utilityGap = 8 * u
     utilityPanel:ClearAllPoints()
     utilityPanel:SetSize(3 * utilitySize + 4 * utilityGap,
                          3 * utilitySize + 4 * utilityGap)
-    utilityPanel:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT",
-                          -(safeRightUnits + margin),
-                          -(safeTopUnits + margin))
+    utilityPanel:SetPoint("BOTTOMRIGHT", actionCluster, "BOTTOMRIGHT", 0, 0)
     for index, button in ipairs(utilityButtons) do
         local column = math.mod(index - 1, 3)
         local row = math.floor((index - 1) / 3)
+        SizeButton(button, 64, u)
         button:ClearAllPoints()
-        button:SetSize(utilitySize, utilitySize)
         button:SetPoint("TOPLEFT", utilityPanel, "TOPLEFT",
                         utilityGap + column * (utilitySize + utilityGap),
                         -(utilityGap + row * (utilitySize + utilityGap)))
     end
 
-    local hiddenSize = 26 * unitsPerPoint
-    local hiddenGap = 4 * unitsPerPoint
-    layerButton:ClearAllPoints()
-    layerButton:SetSize(utilitySize, utilitySize)
-    layerButton:SetPoint("BOTTOMRIGHT", actionCluster, "TOPRIGHT",
-                         -6 * (hiddenSize + hiddenGap),
-                         8 * unitsPerPoint)
-    for index, button in ipairs(state.hiddenButtons) do
-        button:ClearAllPoints()
-        button:SetSize(hiddenSize, hiddenSize)
-        button:SetPoint("BOTTOMRIGHT", actionCluster, "TOPRIGHT",
-                        -(index - 1) * (hiddenSize + hiddenGap),
-                        8 * unitsPerPoint)
-    end
-
-    local joystickSize = 118 * unitsPerPoint
-    local knobSize = 54 * unitsPerPoint
-    joystick:SetSize(joystickSize, joystickSize)
-    joystickKnob:SetSize(knobSize, knobSize)
-
+    SizeButton(toggleButton, 48, u)
+    PlaceToggle()
+    joystick:SetSize(118 * u, 118 * u)
+    joystickKnob:SetSize(54 * u, 54 * u)
     OpenWoWMobile_RefreshActions()
 end
 
 function OpenWoWMobile_SetJoystick(originX, originY, knobX, knobY, active)
     if not active then
         joystick:Hide()
-        return
-    end
-    if state.drawableWidth <= 0 or state.drawableHeight <= 0 then
         return
     end
     local horizontalScale = UIParent:GetWidth() / state.drawableWidth
@@ -468,7 +479,6 @@ function OpenWoWMobile_SetJoystick(originX, originY, knobX, knobY, active)
 end
 
 root:RegisterEvent("PLAYER_ENTERING_WORLD")
-root:RegisterEvent("PLAYER_TARGET_CHANGED")
 root:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 root:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 root:RegisterEvent("ACTIONBAR_UPDATE_STATE")
@@ -476,9 +486,10 @@ root:RegisterEvent("ACTIONBAR_UPDATE_USABLE")
 root:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
 root:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 root:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_TARGET_CHANGED" then
-        local target = UnitName("target")
-        targetName:SetText(target or "")
+    if event == "PLAYER_ENTERING_WORLD" then
+        -- Account saved variables are restored after this internal TOC loads.
+        OpenWoWMobile_ApplyVisibility()
+        PlaceToggle()
     else
         OpenWoWMobile_RefreshActions()
     end
@@ -486,3 +497,7 @@ end)
 
 OpenWoWMobile_ApplyMetrics(UIParent:GetWidth(), UIParent:GetHeight(),
                            844, 390, 0, 0, 0, 0)
+
+Minimap:HookScript("OnShow", PlaceToggle)
+Minimap:HookScript("OnHide", PlaceToggle)
+Minimap:HookScript("OnSizeChanged", PlaceToggle)
