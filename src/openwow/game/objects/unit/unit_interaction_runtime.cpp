@@ -521,7 +521,17 @@ void UnitInteractionRuntime::RightClickInteract(
     return;
   }
 
-  if (owner_.State().IsLootableCorpseNow()) {
+  const bool lootable_now = owner_.State().IsLootableCorpseNow();
+  if (owner_.State().IsDead()) {
+    diagnostics::Log(diagnostics::LogLevel::kInfo,
+        "unit_interaction: source=right_click corpse=" +
+            std::to_string(owner_.GetGuid().GetRawValue()) +
+            " entry=" + std::to_string(owner_.GetEntry()) +
+            " dynamic_flags=" + std::to_string(owner_.State().GetDynamicFlags()) +
+            " lootable_now=" + std::to_string(lootable_now) +
+            " distance=" + std::to_string(player_obj->GetDistance(owner_)));
+  }
+  if (lootable_now) {
 
     const double loot_range_squared =
         ui::game::detail::GetUnitInteractionRangeSquared(*player_obj, owner_);

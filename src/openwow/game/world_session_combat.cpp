@@ -965,13 +965,12 @@ void WorldSession::HandleCastFailed(const net::wotlk::WorldPacket& pkt) {
                result == SpellCastResult::kInterruptedCombat) {
       event_id = kUnitSpellcastInterruptedEvent;
     }
-    FireUnitSpellcastPacketEvent(
-        *this, player_guid, event_id, failure->spell_id, failure->cast_count);
-
     if (event_id != kUnitSpellcastFailedQuietEvent) {
       SpellAction_DisplaySpellFailure(*this, failure->spell_id, player_guid,
-                                      failure->result);
+                                      failure->result, {}, "SMSG_CAST_FAILED");
     }
+    FireUnitSpellcastPacketEvent(
+        *this, player_guid, event_id, failure->spell_id, failure->cast_count);
 
     spell_cast_runtime_.OnSpellFailed(
         failure->spell_id, failure->cast_count);
