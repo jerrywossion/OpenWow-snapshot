@@ -1646,8 +1646,11 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
 
         text_key.abgr = 0xffffffffu;
         text_key.wrap_px = wrap_px;
+        // Intrinsic height is a measurement result, not a text clipping limit.
         text_key.max_height_px =
-            wrap_px > 0 ? std::max(0, static_cast<int>(render_rect.height)) : 0;
+            openwow::ui::FontStringHeightComesFromLayout(frame)
+                ? std::max(0, static_cast<int>(render_rect.height))
+                : 0;
         text_key.line_spacing_px = static_cast<int>(
             std::lround(line_spacing_px * text_render_scale));
         text_key.line_height_override_px = static_cast<int>(

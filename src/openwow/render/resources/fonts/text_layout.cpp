@@ -173,7 +173,8 @@ std::uint32_t AllowedLines(const TextLayoutRequest& request,
     const float height = std::max(default_line_height, 1.0f);
     count = std::min(
         count, std::max(1u, static_cast<std::uint32_t>(
-                               std::floor(request.maximum_height / height))));
+                               std::floor((request.maximum_height +
+                                           request.line_spacing) / height))));
   }
   return count;
 }
@@ -235,22 +236,25 @@ TextLayout LayoutText(const FontFace& face, const std::string_view source,
 
   auto finish_line = [&](const std::size_t begin, const std::size_t end,
                          const float width, const float content_height) {
-    const float height =
-        std::max(normal_line_height, content_height + request.line_spacing);
+    const float height = std::max(base_line_height, content_height);
+    const float gap = result.lines.empty() ? 0.0f : request.line_spacing;
     if (!result.lines.empty() && request.maximum_height > 0.0f &&
-        result.height + height > request.maximum_height) {
+        result.height + gap + height > request.maximum_height) {
       return false;
     }
     const float indent =
         request.indent_continuation_lines && !result.lines.empty()
             ? request.continuation_indent
             : 0.0f;
+    if (!result.lines.empty()) {
+      result.lines.back().height += gap;
+    }
     result.lines.push_back({.begin = begin,
                             .end = end,
                             .width = width + indent,
                             .height = height});
     result.width = std::max(result.width, width + indent);
-    result.height += height;
+    result.height += gap + height;
     return true;
   };
 
