@@ -951,6 +951,43 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
   return 0.0f;
 }
 
+[[nodiscard]] std::optional<C3Vector> LowerHullContactNormal(
+    const MovementCollisionContact& contact) {
+  const auto count = contact.generated_normal_count;
+  if (count == 0u || count > 4u) {
+    return std::nullopt;
+  }
+  for (std::size_t index = 0; index < count; ++index) {
+    if (std::fabs(contact.generated_normals[index].z +
+                  Constants::kLowerPlaneVertical) >= Constants::kTraceEpsilon) {
+      return std::nullopt;
+    }
+  }
+  if (count == 1u) {
+    return contact.generated_normals[0];
+  }
+  if (count == 2u) {
+    return Scale(Add(contact.generated_normals[0],
+                     contact.generated_normals[1]), 0.638556f);
+  }
+  if (count == 4u) {
+    return C3Vector{};
+  }
+  std::size_t x_faces = 0u;
+  C3Vector x_face{};
+  C3Vector y_face{};
+  for (std::size_t index = 0; index < count; ++index) {
+    const auto& normal = contact.generated_normals[index];
+    if (std::fabs(normal.y) < Constants::kTraceEpsilon) {
+      ++x_faces;
+      x_face = normal;
+    } else {
+      y_face = normal;
+    }
+  }
+  return x_faces == 1u ? x_face : y_face;
+}
+
 [[nodiscard]] C3Vector GroundWalkableResponse(
     MovementCollisionBody& body,
     const C3Vector& displacement,
@@ -958,18 +995,22 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
   C3Vector normal =
       NormalizeOr(contact.surface_normal, contact.normal);
 
-  if (body.stepping && normal.z <= Constants::kWalkableNormalZ &&
-      !std::isnan(normal.z) &&
-      LengthSquared(normal) >= Constants::kTiny) {
-    normal = Scale(normal, -1.0f);
+  if (normal.z <= Constants::kWalkableNormalZ) {
+    if (const auto lower_normal = LowerHullContactNormal(contact);
+        lower_normal.has_value() &&
+        LengthSquared(*lower_normal) >= Constants::kTiny) {
+      normal = Scale(*lower_normal, -1.0f);
+    }
   }
   const float distance = Length(displacement);
-  if (distance < Constants::kTiny ||
-      std::fabs(normal.z) < Constants::kTiny) {
+  if (distance < Constants::kTiny) {
     return displacement;
   }
   C3Vector direction = Scale(displacement, 1.0f / distance);
-  float lift = -Dot(normal, direction) * distance / normal.z;
+  const float numerator = -Dot(normal, direction) * distance;
+  float lift = std::fabs(normal.z) < Constants::kTiny
+                   ? std::copysign(std::numeric_limits<float>::max(), numerator)
+                   : numerator / normal.z;
 
   if (!body.stepping || lift >= 0.0f || std::isnan(lift)) {
     const float upward_allowance = StepAllowance(body);
@@ -1917,33 +1958,7 @@ MovementCollisionResult MovementCollisionSolver::SolveGround(
       }
       if (body.stepping) {
 
-        const float allowance = StepAllowance(body);
-        C3Vector response_surface = surface;
-
-        if (response_surface.z <= Constants::kWalkableNormalZ &&
-            !std::isnan(response_surface.z) &&
-            LengthSquared(response_surface) >= Constants::kTiny) {
-          response_surface = Scale(response_surface, -1.0f);
-        }
-        C3Vector forward = remaining;
-        float lift;
-        if (std::fabs(response_surface.z) < Constants::kTiny) {
-          forward = {};
-          lift = allowance;
-        } else {
-          lift = -(response_surface.x * remaining.x +
-                   response_surface.y * remaining.y +
-                   response_surface.z * remaining.z) /
-                 response_surface.z;
-          if (lift < 0.0f) {
-            forward = {};
-            lift = allowance;
-          } else if (lift > allowance) {
-            forward = Scale(forward, allowance / lift);
-            lift = allowance;
-          }
-        }
-        remaining = Add(forward, {0.0f, 0.0f, lift});
+        remaining = GroundWalkableResponse(body, remaining, front);
       } else {
         remaining = HorizontalWallDeflect(remaining, trace.contacts);
       }
