@@ -10,6 +10,7 @@
 #include <vector>
 namespace openwow::game {
 class CGGameObject_C;
+class ObjectGuid;
 class EquipmentSets;
 class ItemDefinitions;
 class ObjectManager;
@@ -154,6 +155,7 @@ class TooltipSystem {
   void SetSecondarySpellId(std::uint32_t spellId);
 
   bool SetUnit(const std::string& unitToken, bool hideStatus = false);
+  void SetWorldObject(openwow::game::ObjectGuid guid);
   void SetWorldGameObject(const openwow::game::CGGameObject_C& game_object);
   void HandlePendingWorldGameObjectRefresh(std::uint32_t generation,
                                            bool success);
@@ -212,7 +214,7 @@ class TooltipSystem {
 
   [[nodiscard]] int GetPendingSpellAsyncCount() const;
   void SetPendingSpellAsyncCount(int count);
-  [[nodiscard]] std::optional<std::uint64_t> GetWorldGameObjectGuid() const;
+  [[nodiscard]] std::optional<std::uint64_t> GetWorldObjectGuid() const;
   [[nodiscard]] bool HasStatusBar() const;
   [[nodiscard]] float GetStatusBarMin() const;
   [[nodiscard]] float GetStatusBarMax() const;
@@ -289,7 +291,7 @@ class TooltipSystem {
   std::uint8_t achievement_completed_ = 0;
   std::array<std::uint32_t, 8> achievement_criteria_data_{};
   std::array<std::uint32_t, 4> achievement_criteria_bitmask_{};
-  std::optional<std::uint64_t> world_game_object_guid_;
+  std::optional<std::uint64_t> world_object_guid_;
   bool world_game_object_rebuild_requested_ = false;
   bool has_status_bar_ = false;
   float status_bar_min_ = 0.0f;

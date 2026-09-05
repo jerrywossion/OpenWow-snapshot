@@ -149,6 +149,7 @@
 #include "openwow/ui/game/script_event_dispatch.h"
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/game/tooltip_system.h"
+#include "openwow/ui/game/tooltip_object_bridge.h"
 #include "openwow/ui/game/ui_load_status_log.h"
 #include "openwow/ui/lua_call_helpers.h"
 #include "openwow/ui/runtime/security/protected_action_gate.h"
@@ -4410,19 +4411,10 @@ void GameLoop::TickInWorld(float dt) {
         !game_ui_.is_initialized() ||
         game_ui_.input_router().mouseover_frame_name().empty() ||
         game_ui_.input_router().mouseover_is_world_frame();
-    if (cursor_over_world_frame) {
-      auto &tooltip = openwow::ui::game::TooltipSystem::Get();
-      if (const auto *game_object = world_session()->objects().GetGameObject(mouseover_guid);
-          game_object != nullptr) {
-        tooltip.SetWorldGameObject(*game_object);
-      } else if (tooltip.GetWorldGameObjectGuid().has_value()) {
-        tooltip.Hide();
-      }
-    } else {
-      auto &tooltip = openwow::ui::game::TooltipSystem::Get();
-      if (tooltip.GetWorldGameObjectGuid().has_value()) {
-        tooltip.Hide();
-      }
+    if (game_ui_.is_initialized()) {
+      openwow::ui::game::frame_api::UpdateWorldMouseoverTooltip(
+          game_ui_.lua_state(),
+          cursor_over_world_frame ? mouseover_guid : openwow::game::ObjectGuid{});
     }
 
     if (new_mouseover != prev_mouseover_guid_) {

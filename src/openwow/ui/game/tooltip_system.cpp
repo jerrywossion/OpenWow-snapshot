@@ -411,22 +411,7 @@ void SyncLiveWorldGameObjectStatusBar(const TooltipStatusBarSnapshot &status_bar
   (void)CallLuaFrameMethod(lua, "GameTooltipStatusBar", "Hide", nullptr);
 }
 
-void HideLiveWorldGameObjectTooltipFrame() {
-  auto *const manager = openwow::ui::game::runtime::WorldUiRuntimeContext::FromActiveLua();
-  if (manager == nullptr || !manager->is_initialized()) {
-    return;
-  }
-
-  lua_State *const lua = manager->lua_state();
-  if (lua == nullptr) {
-    return;
-  }
-
-  (void)CallLuaFrameMethod(lua, "GameTooltipStatusBar", "Hide", nullptr);
-  (void)CallLuaFrameMethod(lua, "GameTooltip", "Hide", nullptr);
-}
-
-bool PrepareLiveWorldGameObjectTooltipFrame(const bool floating) {
+bool PrepareLiveWorldTooltipFrame(const bool floating) {
   auto *const manager = openwow::ui::game::runtime::WorldUiRuntimeContext::FromActiveLua();
   if (manager == nullptr || !manager->is_initialized()) {
     return true;
@@ -1422,7 +1407,7 @@ void TooltipSystem::ClearLines() {
   achievement_completed_ = 0;
   achievement_criteria_data_.fill(0);
   achievement_criteria_bitmask_.fill(0);
-  world_game_object_guid_.reset();
+  world_object_guid_.reset();
   world_game_object_rebuild_requested_ = false;
   has_status_bar_ = false;
   status_bar_min_ = 0.0f;
@@ -1576,14 +1561,6 @@ void TooltipSystem::ClearFadeState() {
 }
 
 void TooltipSystem::Hide() {
-  const bool had_world_game_object_tooltip =
-      world_game_object_guid_.has_value();
-  // Retire the world subject before native OnHide can reenter this state.
-  world_game_object_guid_.reset();
-  if (had_world_game_object_tooltip) {
-    HideLiveWorldGameObjectTooltipFrame();
-  }
-
   ClearFadeState();
   shown_ = false;
   owner_.clear();
@@ -1614,7 +1591,7 @@ void TooltipSystem::Reset() {
   achievement_completed_ = 0;
   achievement_criteria_data_.fill(0);
   achievement_criteria_bitmask_.fill(0);
-  world_game_object_guid_.reset();
+  world_object_guid_.reset();
   world_game_object_rebuild_requested_ = false;
   has_status_bar_ = false;
   status_bar_min_ = 0.0f;
@@ -1700,7 +1677,7 @@ void TooltipSystem::HandlePendingWorldGameObjectRefresh(
 
   const auto guid =
       openwow::game::ObjectGuid(pending_world_game_object_refresh_->guid);
-  if (world_game_object_guid_ != guid.GetRawValue()) {
+  if (world_object_guid_ != guid.GetRawValue()) {
     return;
   }
 
@@ -2049,8 +2026,46 @@ bool TooltipSystem::SetUnit(const std::string &unitToken, bool hideStatus) {
   return BuildUnitTooltipForUnit(*this, *unit, objects, dbc, hideStatus);
 }
 
+void TooltipSystem::SetWorldObject(const openwow::game::ObjectGuid guid) {
+  ScopedActivation activation(*this);
+  auto* const objects = GetObjectManager();
+  if (objects == nullptr) {
+    LogTooltipLuaBridgeFailureOnce("world-population", "GameTooltip", "object-manager-is-unavailable");
+    return;
+  }
+  if (const auto* game_object = objects->GetGameObject(guid)) {
+    SetWorldGameObject(*game_object);
+    return;
+  }
+  const auto* unit = objects->GetUnit(guid);
+  const auto* corpse = objects->GetCorpse(guid);
+  if (unit == nullptr && corpse == nullptr) {
+    if (world_object_guid_.has_value()) {
+      Hide();
+      NotifyContentChanged();
+    }
+    return;
+  }
+  if (world_object_guid_ == guid.GetRawValue() && shown_) {
+    return;
+  }
+  Hide();
+  if (!PrepareLiveWorldTooltipFrame(false)) {
+    NotifyContentChanged();
+    return;
+  }
+  if (unit != nullptr) {
+    BuildUnitTooltipForUnit(*this, *unit, objects, dbc_, false);
+  } else {
+    BuildCorpseTooltip(*this, guid.GetRawValue());
+  }
+  world_object_guid_ = guid.GetRawValue();
+  PublishToLiveGameTooltipFrame();
+}
+
 void TooltipSystem::SetWorldGameObject(const openwow::game::CGGameObject_C &game_object) {
-  if (world_game_object_guid_ == game_object.GetGuid().GetRawValue() &&
+  ScopedActivation activation(*this);
+  if (world_object_guid_ == game_object.GetGuid().GetRawValue() &&
       !world_game_object_rebuild_requested_ && shown_) {
     if (game_object.GetGoType() == static_cast<openwow::game::GameObjectType>(
                                         kTooltipStatusBarGoType)) {
@@ -2071,12 +2086,12 @@ void TooltipSystem::SetWorldGameObject(const openwow::game::CGGameObject_C &game
     return;
   }
 
-  if (world_game_object_guid_ != game_object.GetGuid().GetRawValue() ||
+  if (world_object_guid_ != game_object.GetGuid().GetRawValue() ||
       world_game_object_rebuild_requested_) {
     Hide();
     owner_ = "WorldFrame";
     anchor_ = game_object.HasFloatingTooltip() ? "ANCHOR_CURSOR" : "ANCHOR_NONE";
-    if (!PrepareLiveWorldGameObjectTooltipFrame(game_object.HasFloatingTooltip())) {
+    if (!PrepareLiveWorldTooltipFrame(game_object.HasFloatingTooltip())) {
       return;
     }
   }
@@ -2088,7 +2103,7 @@ void TooltipSystem::SetWorldGameObject(const openwow::game::CGGameObject_C &game
 
   ClearLines();
   shown_ = false;
-  world_game_object_guid_ = game_object.GetGuid().GetRawValue();
+  world_object_guid_ = game_object.GetGuid().GetRawValue();
   world_game_object_rebuild_requested_ = false;
   has_status_bar_ =
       game_object.GetGoType() ==
@@ -2152,29 +2167,12 @@ void TooltipSystem::SetWorldGameObject(const openwow::game::CGGameObject_C &game
 }
 
 void TooltipSystem::PublishToLiveGameTooltipFrame() {
-  if (world_game_object_guid_.has_value()) {
-    auto *const manager = runtime::WorldUiRuntimeContext::FromActiveLua();
-    if (manager == nullptr || !manager->is_initialized()) {
-      return;
-    }
-    lua_State *const lua = manager->lua_state();
-    if (lua == nullptr) {
-      LogTooltipLuaBridgeFailureOnce("world-publication", "GameTooltip", "lua-is-unavailable");
-      return;
-    }
-    const int base = lua_gettop(lua);
-    lua_getglobal(lua, "GameTooltip");
-    if (lua_istable(lua, -1) != 0) {
-      ScopedActivation activation(*this);
-      frame_api::SyncTooltipRegisteredLinesFromSystem(lua, -1);
-      SyncLiveWorldGameObjectStatusBar(TooltipStatusBarSnapshot{
-          .shown = has_status_bar_, .min = status_bar_min_,
-          .max = status_bar_max_, .value = status_bar_value_,
-      });
-    } else {
-      LogTooltipLuaBridgeFailureOnce("world-publication", "GameTooltip", "global-is-not-a-frame-table");
-    }
-    lua_settop(lua, base);
+  if (world_object_guid_.has_value()) {
+    NotifyContentChanged();
+    SyncLiveWorldGameObjectStatusBar(TooltipStatusBarSnapshot{
+        .shown = has_status_bar_, .min = status_bar_min_,
+        .max = status_bar_max_, .value = status_bar_value_,
+    });
     return;
   }
   SyncLiveWorldGameObjectTooltipFrame(
@@ -2423,8 +2421,8 @@ void TooltipSystem::SetAchievementCriteriaBitmask(const std::array<std::uint32_t
   achievement_criteria_bitmask_ = mask;
 }
 
-std::optional<std::uint64_t> TooltipSystem::GetWorldGameObjectGuid() const {
-  return world_game_object_guid_;
+std::optional<std::uint64_t> TooltipSystem::GetWorldObjectGuid() const {
+  return world_object_guid_;
 }
 
 bool TooltipSystem::HasStatusBar() const {
