@@ -913,9 +913,7 @@ bool QuestManager::HandleQuestGiverRequestItems(const std::uint8_t *data, std::s
   d.quest_flags = static_cast<QuestFlags>(flags_raw);
   d.close_on_decline = progress_state != 0;
 
-  if (emote_delay != 0 || emote_id != 0) {
-    d.emotes.push_back({.delay = emote_delay, .emote_id = emote_id});
-  }
+  d.emotes.push_back({.delay = emote_delay, .emote_id = emote_id});
 
   std::uint32_t required_count = 0;
   if (!r.ReadU32(required_count))

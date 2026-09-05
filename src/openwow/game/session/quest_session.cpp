@@ -530,12 +530,10 @@ bool WorldSession::HandleQuestGiverRequestItems(const net::wotlk::WorldPacket &p
 
   if (quests_.has_active_request()) {
     const auto &request = quests_.active_request();
-    if (!request.emotes.empty()) {
-      if (auto *unit = map_runtime_.objects().GetMutableUnit(request.npc_guid)) {
-        unit->Animation().EmoteQueueHandler(
-            reinterpret_cast<const std::uint32_t *>(request.emotes.data()),
-            static_cast<std::int32_t>(request.emotes.size()));
-      }
+    if (auto *unit = map_runtime_.objects().GetMutableUnit(request.npc_guid)) {
+      unit->Animation().EmoteQueueHandler(
+          reinterpret_cast<const std::uint32_t *>(request.emotes.data()),
+          static_cast<std::int32_t>(request.emotes.size()));
     }
   }
 
