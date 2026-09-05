@@ -221,6 +221,11 @@ void WorldSession::HandleShowTaxiNodes(const net::wotlk::WorldPacket &pkt) {
 void WorldSession::HandleActivateTaxiReply(const net::wotlk::WorldPacket &pkt) {
 
   if (objects().GetLocalPlayerTyped() == nullptr) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "taxi activation reply ignored opcode=SMSG_ACTIVATETAXIREPLY "
+        "stage=taxi-reply reason=missing-player bytes=" +
+            std::to_string(pkt.payload.size()));
     return;
   }
 
@@ -233,6 +238,14 @@ void WorldSession::HandleActivateTaxiReply(const net::wotlk::WorldPacket &pkt) {
   }
 
   const auto reply = static_cast<std::uint32_t>(taxi_.last_reply());
+  openwow::diagnostics::Log(
+      reply < kTaxiReplySystemMessagesCount
+          ? openwow::diagnostics::LogLevel::kInfo
+          : openwow::diagnostics::LogLevel::kWarn,
+      "taxi activation reply opcode=SMSG_ACTIVATETAXIREPLY stage=taxi-reply guid=" +
+          std::to_string(taxi_.GetFlightMasterGuid()) +
+          " code=" + std::to_string(reply) +
+          " result=" + TaxiHandler::TaxiReplyToString(taxi_.last_reply()));
 
   if (reply >= kTaxiReplySystemMessagesCount)
     return;
