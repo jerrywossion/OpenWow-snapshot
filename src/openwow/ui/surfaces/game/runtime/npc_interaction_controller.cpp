@@ -13,14 +13,17 @@
 #include "openwow/game/objects/cgplayer.h"
 #include "openwow/game/objects/cgunit.h"
 #include "openwow/game/query_cache.h"
+#include "openwow/game/quest_dialog_close.h"
 #include "openwow/game/world_session.h"
 #include "openwow/ui/game/game_events.h"
 #include "openwow/ui/game/game_ui_core.h"
 #include "openwow/ui/game/game_ui_manager.h"
 #include "openwow/ui/game/script_event_dispatch.h"
+#include "openwow/foundation/diagnostics/logging.h"
 
 #include <algorithm>
 #include <cstddef>
+#include <cmath>
 #include <vector>
 
 namespace openwow::ui::game {
@@ -142,7 +145,10 @@ std::vector<game::ObjectGuid> CollectActiveNpcInteractionGuids(
   std::vector<game::ObjectGuid> guids;
   const auto& gossip = session.gossip();
 
-  AppendInteractionGuid(guids, gossip.interaction_guid());
+  AppendInteractionGuid(guids, session.objects().GetNpcGuid());
+  AppendInteractionGuid(guids, gossip.gossip_guid());
+  AppendInteractionGuid(
+      guids, session.quests().quest_frame_interaction_state().interaction_guid);
   if (gossip.merchant().active()) {
     AppendInteractionGuid(guids, gossip.merchant().snapshot().vendor_guid);
   }
@@ -202,6 +208,21 @@ game::WorldSession* GetUiWorldSession() {
   return manager != nullptr ? manager->world_session() : nullptr;
 }
 
+void ReleaseNpcInteractionTarget(
+    game::WorldSession& session, const game::ObjectGuid unit,
+    const NpcInteractionClosureCause cause,
+    const NpcInteractionFeedback feedback) {
+  if (session.objects().GetNpcGuid() != unit || unit.IsEmpty()) {
+    return;
+  }
+  if (feedback == NpcInteractionFeedback::Apply) {
+    ApplyNpcInteractionCloseFeedback(session, unit, cause);
+  }
+  session.objects().SetNpcGuid({});
+  session.objects().SetNpcInteractionRangeSquared(0.0);
+  UnitTokenRegistry::Get().SetNpc(0);
+}
+
 void CloseNpcInteractionTarget(game::WorldSession& session,
                                const game::ObjectGuid unit,
                                const NpcInteractionClosureCause cause,
@@ -215,12 +236,7 @@ void CloseNpcInteractionTarget(game::WorldSession& session,
   }
   const auto unit_guid = unit.GetRawValue();
 
-  if (feedback == NpcInteractionFeedback::Apply) {
-    ApplyNpcInteractionCloseFeedback(session, unit, cause);
-  }
-
-  session.objects().SetNpcGuid({});
-  UnitTokenRegistry::Get().SetNpc(0);
+  ReleaseNpcInteractionTarget(session, unit, cause, feedback);
 
   auto& gossip = session.gossip();
   auto& guild = game::GuildSystem::Get();
@@ -243,15 +259,16 @@ void CloseNpcInteractionTarget(game::WorldSession& session,
     if (trade_result.send_cancel_packet) {
       session.interaction().SendCancelTrade();
     }
-  } else if (gossip.interaction_guid().GetRawValue() == unit_guid) {
+  } else if (gossip.gossip_guid().GetRawValue() == unit_guid) {
 
-    gossip.DismissAll();
-    ScriptEventDispatch::Get().FireGossipClosed();
+    CloseGossipInteraction(session);
   } else if (session.quests()
                  .quest_frame_interaction_state()
                  .interaction_guid.GetRawValue() == unit_guid) {
 
-    session.quests().CloseQuestFrameInteraction();
+    game::CloseQuestDialogLikeIda58CA70(
+        session, game::GetActiveQuestDialogCloseState(session.quests()),
+        false, true);
   } else if (gossip.merchant().active() &&
              gossip.merchant().snapshot().vendor_guid.GetRawValue() ==
                  unit_guid) {
@@ -459,9 +476,9 @@ void CloseMerchantInteraction(
   }
 
   if (feedback == NpcInteractionFeedback::Apply) {
-    ApplyNpcInteractionCloseFeedback(session, unit, cause);
+    ReleaseNpcInteractionTarget(session, unit, cause, feedback);
   }
-  gossip.DismissAll();
+  gossip.merchant().Close();
   ScriptEventDispatch::Get().FireMerchantClosed();
   ResetMerchantCursorState(session);
 }
@@ -478,9 +495,9 @@ void CloseTrainerInteraction(
 
   ScriptEventDispatch::Get().FireTrainerClosed();
   if (feedback == NpcInteractionFeedback::Apply) {
-    ApplyNpcInteractionCloseFeedback(session, unit, cause);
+    ReleaseNpcInteractionTarget(session, unit, cause, feedback);
   }
-  gossip.DismissAll();
+  gossip.DismissTrainer();
 }
 
 void HandleNpcInteractionLoss(
@@ -519,24 +536,30 @@ void CloseNpcInteractionTarget(game::WorldSession& session,
 void CloseGossipInteraction(game::WorldSession& session) {
 
   auto& gossip = session.gossip();
-  const auto gossip_guid = gossip.interaction_guid();
+  const auto gossip_guid = gossip.gossip_guid();
   if (gossip_guid.IsEmpty()) {
     return;
   }
 
-  if (session.quests()
-          .quest_frame_interaction_state()
-          .interaction_guid.IsEmpty()) {
-    CloseNpcInteractionTarget(session, gossip_guid,
-                              NpcInteractionClosureCause::UnitUnavailable,
-                              NpcInteractionFeedback::Apply);
+  gossip.DismissGossip();
+  if (session.quests().quest_frame_interaction_state().interaction_guid.IsEmpty() &&
+      !gossip.merchant().active() && !gossip.has_trainer()) {
+    HandleNpcInteractionLoss(session, gossip_guid,
+                             NpcInteractionClosureCause::UnitUnavailable);
   }
-  gossip.DismissAll();
   ScriptEventDispatch::Get().FireGossipClosed();
 }
 
 void CaptureNpcInteractionRange(game::WorldSession& session,
                                 const game::ObjectGuid new_target) {
+  session.objects().SetNpcInteractionRangeSquared(0.0);
+  if (new_target.IsEmpty()) {
+    return;
+  }
+  if (const auto* target = session.objects().GetObjectByGUID(new_target);
+      target != nullptr && target->IsItem()) {
+    return;
+  }
   const auto* const active_player = session.objects().GetLocalPlayerTyped();
   if (const auto* game_object = session.objects().GetGameObject(new_target);
       game_object != nullptr) {
@@ -549,6 +572,11 @@ void CaptureNpcInteractionRange(game::WorldSession& session,
 
   const auto* unit = session.objects().GetUnit(new_target);
   if (unit == nullptr || active_player == nullptr) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "NPC interaction stage=capture-range source=service-open guid=" +
+            std::to_string(new_target.GetRawValue()) +
+            " reason=" + (unit == nullptr ? "unit-unavailable" : "player-unavailable"));
     return;
   }
 
@@ -602,9 +630,11 @@ void RequestTrainerInteraction(game::WorldSession& session,
     return;
   }
 
-  StoreNpcInteractionTarget(session, trainer);
-
-  session.gossip().BeginTrainerRequest(trainer);
+  if (session.gossip().has_trainer()) {
+    CloseTrainerInteraction(
+        session, session.gossip().trainer().trainer_guid,
+        NpcInteractionClosureCause::UnitUnavailable);
+  }
   session.interaction().SendTrainerList(trainer.GetRawValue());
 }
 
@@ -715,18 +745,28 @@ void ValidateNpcInteractionTargets(game::WorldSession& session) {
     return;
   }
 
-  const double range_sq = session.objects().GetNpcInteractionRangeSquared();
-  if (range_sq <= 0.0) {
-    return;
-  }
-
   auto* const unit = session.objects().GetMutableUnit(guid);
   const auto* const game_object =
       unit == nullptr ? session.objects().GetGameObject(guid) : nullptr;
-  const game::CGObject_C* const target =
-      unit != nullptr ? static_cast<const game::CGObject_C*>(unit)
-                       : static_cast<const game::CGObject_C*>(game_object);
+  const auto* const target = session.objects().GetObjectByGUID(guid);
   if (target == nullptr || target->IsPendingRemoval()) {
+    HandleNpcInteractionLoss(session, guid,
+                             NpcInteractionClosureCause::UnitUnavailable);
+    return;
+  }
+  if (target->IsItem()) {
+    return;
+  }
+
+  const double range_sq = session.objects().GetNpcInteractionRangeSquared();
+  if (!std::isfinite(range_sq) || range_sq <= 0.0 ||
+      (unit == nullptr && game_object == nullptr)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "NPC interaction stage=validate source=world-update guid=" +
+            std::to_string(guid.GetRawValue()) +
+            " reason=invalid-interaction-range range_squared=" +
+            std::to_string(range_sq));
     HandleNpcInteractionLoss(session, guid,
                              NpcInteractionClosureCause::UnitUnavailable);
     return;
@@ -764,6 +804,13 @@ void ValidateNpcInteractionTargets(game::WorldSession& session) {
   const double distance_sq =
       active_player->GetSquaredDistanceToPosition(unit->GetPosition());
   if (!should_keep || distance_sq > range_sq) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kInfo,
+        "NPC interaction stage=close source=world-update guid=" +
+            std::to_string(guid.GetRawValue()) +
+            " reason=" + (should_keep ? "out-of-range" : "unit-unavailable") +
+            " distance_squared=" + std::to_string(distance_sq) +
+            " range_squared=" + std::to_string(range_sq));
     HandleNpcInteractionLoss(session, guid,
                              NpcInteractionClosureCause::UnitUnavailable);
   }

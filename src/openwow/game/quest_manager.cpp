@@ -456,8 +456,9 @@ std::string QuestManager::ExpandDialogText(
              : ExpandQuestDialogText(text, empty_as_space);
 }
 
-void QuestManager::ShowQuestGreeting(const std::string &greeting) {
+void QuestManager::ShowQuestGreeting(const ObjectGuid &giver, const std::string &greeting) {
   ResetDialogState();
+  SetQuestFrameInteractionState(giver, {}, 0);
   dialog_text_.greeting_text = ExpandDialogText(greeting, true);
   dialog_text_.has_greeting_text = true;
 }

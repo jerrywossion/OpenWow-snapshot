@@ -198,6 +198,7 @@ void HandleTrainerListPacket(
   if (update_greeting) {
     update_greeting();
   }
+  ui::game::SetNpcInteractionTarget(gossip.trainer().trainer_guid);
   ui::game::ScriptEventDispatch::Get().FireTrainerShow();
 }
 

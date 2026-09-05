@@ -1619,7 +1619,7 @@ void GlueClient::HandleKeyDown(const SDL_Event &event) {
     ShowCharacterCreate();
   } else if (mode_ == UiMode::kCharacterSelect && scancode == SDL_SCANCODE_RETURN) {
     EnterSelectedCharacter();
-  } else if (scancode == SDL_SCANCODE_ESCAPE) {
+  } else if (scancode == SDL_SCANCODE_ESCAPE && mode_ != UiMode::kInWorld) {
     if (mode_ == UiMode::kCharacterCreate) {
       (void)glue_runtime_.DispatchFirstAvailableWithArgs({"SetGlueScreen"}, "GlueParent",
                                                          {"charselect"}, false);
@@ -1637,25 +1637,17 @@ void GlueClient::HandleKeyDown(const SDL_Event &event) {
       realm_runtime_.session.Disconnect();
       game_state_.connected = false;
       SetMode(UiMode::kLogin);
-    } else if (mode_ == UiMode::kInWorld) {
-
+    } else {
+      running_ = false;
+    }
+  } else if (mode_ == UiMode::kInWorld) {
+    if (scancode == SDL_SCANCODE_ESCAPE) {
       if (auto* const session = character_world_runtime_.session();
           session != nullptr && game_loop_.cinematic_player().IsPlaying()) {
         game_loop_.cinematic_player().Skip(*session);
         return;
       }
-
-      if (game_loop_.targeting().HasTarget()) {
-        game_loop_.targeting().ClearTarget();
-      } else {
-        if (lua_State *L = game_loop_.game_ui().lua_state()) {
-          (void)openwow::ui::CallLuaGlobalIfFunction(L, "ToggleGameMenu");
-        }
-      }
-    } else {
-      running_ = false;
     }
-  } else if (mode_ == UiMode::kInWorld) {
 
     const std::string key_name =
         openwow::game::actions::bindings::adapters::platform::SdlKeyDownToBindingChord(

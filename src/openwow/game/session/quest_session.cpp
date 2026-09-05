@@ -213,14 +213,13 @@ void CloseQuestDialogLikeIda58CA70(WorldSession &session, const QuestDialogClose
     return;
   }
 
-  if (!session.gossip().has_gossip() && dialog.interaction_guid.GetRawValue() != 0) {
-    ui::game::ApplyNpcInteractionCloseFeedback(
+  session.quests().CloseQuestFrameInteraction();
+  SyncQuestNpcUnitToken(session);
+  if (session.gossip().gossip_guid().IsEmpty()) {
+    ui::game::HandleNpcInteractionLoss(
         session, dialog.interaction_guid,
         ui::game::NpcInteractionClosureCause::UnitUnavailable);
   }
-
-  session.quests().CloseQuestFrameInteraction();
-  SyncQuestNpcUnitToken(session);
 
   LogQuestDialogTransition("quest dialog close", dialog.quest_id,
                            dialog.interaction_guid.GetRawValue());
@@ -488,6 +487,8 @@ bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &p
           ? quests_.active_details().npc_guid.GetRawValue()
           : 0ull);
 
+  ui::game::StoreNpcInteractionTarget(
+      *this, quests_.quest_frame_interaction_state().interaction_guid);
   SyncQuestNpcUnitToken(*this);
   ui::game::ScriptEventDispatch::Get().FireQuestDetail();
   return true;
@@ -516,6 +517,8 @@ bool WorldSession::HandleQuestGiverOfferReward(const net::wotlk::WorldPacket &pk
           ? quests_.active_reward().npc_guid.GetRawValue()
           : 0ull);
 
+  ui::game::StoreNpcInteractionTarget(
+      *this, quests_.quest_frame_interaction_state().interaction_guid);
   SyncQuestNpcUnitToken(*this);
   ui::game::ScriptEventDispatch::Get().FireQuestComplete();
   return true;
@@ -544,6 +547,8 @@ bool WorldSession::HandleQuestGiverRequestItems(const net::wotlk::WorldPacket &p
           ? quests_.active_request().npc_guid.GetRawValue()
           : 0ull);
 
+  ui::game::StoreNpcInteractionTarget(
+      *this, quests_.quest_frame_interaction_state().interaction_guid);
   SyncQuestNpcUnitToken(*this);
   ui::game::ScriptEventDispatch::Get().FireQuestProgress();
   return true;
@@ -693,7 +698,10 @@ bool WorldSession::HandleQuestGiverQuestList(const net::wotlk::WorldPacket &pkt)
       }
       if (parsed && reader.Remaining() == 0) {
         last_quest_list_ = std::move(quest_list);
-        quests_.ShowQuestGreeting(last_quest_list_.greeting);
+        const ObjectGuid giver(last_quest_list_.npc_guid);
+        quests_.ShowQuestGreeting(giver, last_quest_list_.greeting);
+        ui::game::StoreNpcInteractionTarget(*this, giver);
+        SyncQuestNpcUnitToken(*this);
         LogQuestDialogTransition(
             "quest dialog greeting entries=" +
                 std::to_string(last_quest_list_.quests.size()),

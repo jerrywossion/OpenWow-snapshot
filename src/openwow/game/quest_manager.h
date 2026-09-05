@@ -413,7 +413,7 @@ public:
   }
   void RecordPendingRewardSelection(std::uint32_t quest_id, std::uint32_t reward_index);
   [[nodiscard]] std::uint32_t TakePendingRewardSelectionItem(std::uint32_t quest_id);
-  void ShowQuestGreeting(const std::string &greeting);
+  void ShowQuestGreeting(const ObjectGuid &giver, const std::string &greeting);
   void BuildQuestLogRewardFactionPreview(std::uint32_t quest_id);
 
   void CloseQuestFrameInteraction() {

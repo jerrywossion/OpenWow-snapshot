@@ -37,7 +37,6 @@
 #include "openwow/game/spellbook_system.h"
 #include "openwow/game/targeting.h"
 #include "openwow/game/taxi_map_frame.h"
-#include "openwow/game/trainer_system.h"
 #include "openwow/game/world_session.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/runtime/time/game_clock.h"
@@ -1079,7 +1078,7 @@ void UnitInteractionRuntime::OnNPCInteractionFlagsChanged(
 
   if ((changed & 0x1) != 0 && (new_flags & 0x1) == 0) {
 
-    if (session.gossip().interaction_guid().GetRawValue() == my_guid) {
+    if (session.gossip().gossip_guid().GetRawValue() == my_guid) {
       ui::game::CloseGossipInteraction(session);
     }
   }
@@ -1108,9 +1107,9 @@ void UnitInteractionRuntime::OnNPCInteractionFlagsChanged(
   }
 
   if ((changed & 0x10) != 0 && (new_flags & 0x10) == 0) {
-    if (TrainerSystem::Get().GetTrainerGuid() == my_guid) {
-      TrainerSystem::Get().CloseTrainer();
-    }
+    ui::game::CloseTrainerInteraction(
+        session, owner_.GetGuid(),
+        ui::game::NpcInteractionClosureCause::UnitUnavailable);
   }
 
   if ((changed & 0x20000) != 0 && (new_flags & 0x20000) == 0) {

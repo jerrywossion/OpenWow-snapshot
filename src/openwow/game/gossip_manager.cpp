@@ -82,7 +82,7 @@ bool GossipManager::HandleGossipMessage(const std::uint8_t* data,
   }
 
   gossip_ = std::move(d);
-  interaction_guid_ = gossip_->npc_guid;
+  gossip_guid_ = gossip_->npc_guid;
   display_text_.clear();
   return true;
 }
@@ -121,7 +121,6 @@ bool GossipManager::HandleTrainerList(const std::uint8_t* data,
   if (!r.ReadCString(t.greeting)) return false;
 
   trainer_ = std::move(t);
-  interaction_guid_ = trainer_->trainer_guid;
   trainer_type_ = trainer_->trainer_type;
   return true;
 }
