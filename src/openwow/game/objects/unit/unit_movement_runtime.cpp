@@ -1868,19 +1868,81 @@ void UnitMovementRuntime::AdvanceMovementStep(
   const MovementCollisionResult collision =
       solver->Solve(body, collision_step);
 
-  collision_stepping_ = body.stepping;
-  data_.SetCumulativeCollisionZ(body.step_reference_z);
+  const bool collision_failed =
+      collision.status == MovementCollisionStatus::kQueryFailed ||
+      collision.status == MovementCollisionStatus::kCancelled ||
+      collision.status == MovementCollisionStatus::kInvalidInput;
+  const bool blocked = collision.status == MovementCollisionStatus::kBlocked;
+  if (owner_.IsActiveMover() && (blocked || collision_failed)) {
+    const auto now_ms = session.CurrentClientTimeMs();
+    if (!last_collision_block_log_ms_.has_value() ||
+        last_collision_log_status_ != static_cast<std::uint8_t>(collision.status) ||
+        now_ms - *last_collision_block_log_ms_ >= 1000u) {
+      last_collision_block_log_ms_ = now_ms;
+      last_collision_log_status_ = static_cast<std::uint8_t>(collision.status);
+      const auto vector_text = [](const C3Vector& value) {
+        return "(" + std::to_string(value.x) + "," +
+               std::to_string(value.y) + "," + std::to_string(value.z) + ")";
+      };
+      const char* const status =
+          collision.status == MovementCollisionStatus::kQueryFailed ? "query_failed" :
+          collision.status == MovementCollisionStatus::kCancelled ? "cancelled" :
+          collision.status == MovementCollisionStatus::kInvalidInput ? "invalid_input" :
+          "blocked";
+      std::string context =
+          std::string("movement_collision: stage=solve status=") + status +
+          " map=" + std::to_string(session.objects().GetMapId()) +
+          " mover=" + std::to_string(owner_.GetGuid().GetRawValue()) +
+          " parent=" + std::to_string(data_.GetTransportGuid()) +
+          " mode=" + std::to_string(static_cast<unsigned>(mode)) +
+          " start=" + vector_text({start[0], start[1], start[2]}) +
+          " requested=" + vector_text(displacement) +
+          " solved=" + vector_text(body.position) +
+          " duration_ms=" + std::to_string(step_ms) +
+          " radius=" + std::to_string(radius) +
+          " height=" + std::to_string(height) +
+          " step_height=" + std::to_string(body.step_height) +
+          " step_reference_z=" + std::to_string(body.step_reference_z) +
+          " stepping_before=" + std::to_string(collision_stepping_) +
+          " stepping_after=" + std::to_string(body.stepping) +
+          " contact=" + std::to_string(collision.last_contact.has_value());
+      if (collision.last_contact.has_value()) {
+        const auto& contact = *collision.last_contact;
+        context += " owner=" + std::to_string(contact.owner_id) +
+                   " owner_guid=" + std::to_string(contact.owner_guid) +
+                   " facet=" + std::to_string(contact.facet_id) +
+                   " secondary=" + std::to_string(contact.secondary) +
+                   " surface=" + vector_text(contact.surface_normal) +
+                   " separating=" + vector_text(contact.normal) +
+                   " a=" + vector_text(contact.vertices[0]) +
+                   " b=" + vector_text(contact.vertices[1]) +
+                   " c=" + vector_text(contact.vertices[2]);
+      }
+      diagnostics::Log(collision_failed ? diagnostics::LogLevel::kWarn
+                                       : diagnostics::LogLevel::kInfo,
+                       context);
+    }
+  }
+  if (!collision_failed) {
+    collision_stepping_ = body.stepping;
+    data_.SetCumulativeCollisionZ(body.step_reference_z);
+  }
 
   C3Vector solved_transform{integrated_transform[0], integrated_transform[1],
                             integrated_transform[2]};
-  if (collision.status == MovementCollisionStatus::kCancelled ||
-      collision.status == MovementCollisionStatus::kInvalidInput) {
+  if (collision_failed) {
     solved_transform = {start[0], start[1], start[2]};
-  } else if (collision.status != MovementCollisionStatus::kQueryFailed) {
+  } else {
     solved_transform = body.position;
   }
   PublishSolvedTransformPosition(session.objects(), solved_transform,
                                  parent_transform.has_value(), integrated);
+
+  if (collision_failed) {
+    data_.SyncPresentedMovementInfo(integrated);
+    commit_if_requested();
+    return;
+  }
 
   if (collision.last_contact.has_value()) {
     data_.SetGroundSlopeZ(collision.last_contact->surface_normal.z);

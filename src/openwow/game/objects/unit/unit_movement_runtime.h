@@ -359,6 +359,8 @@ public:
   std::shared_ptr<MovementCollisionSolver> collision_solver_{};
 
   bool collision_stepping_{false};
+  std::optional<std::uint32_t> last_collision_block_log_ms_;
+  std::uint8_t last_collision_log_status_{255};
   bool spline_movement_pose_owned_{false};
   bool spline_locomotion_active_{false};
   bool spline_locomotion_backward_{false};

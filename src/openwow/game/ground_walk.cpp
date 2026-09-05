@@ -1496,7 +1496,7 @@ MovementCollisionTrace MovementCollisionSolver::QueryStaticOverlap(
   return result;
 }
 
-bool MovementCollisionSolver::TryTerrainStep(
+std::optional<bool> MovementCollisionSolver::TryTerrainStep(
     MovementCollisionBody& body, const C3Vector& displacement,
     const MovementCollisionContact& trigger,
     const MovementCollisionStep& step) {
@@ -1531,13 +1531,13 @@ bool MovementCollisionSolver::TryTerrainStep(
       const MovementCollisionTrace pre =
           SweepHull(trial, Scale(push, probe_length), &query_ok);
       if (!query_ok) {
-        return false;
+        return std::nullopt;
       }
       if (pre.hit && !pre.contacts.empty()) {
         const C3Vector& normal = pre.contacts.front().surface_normal;
 
-        if (normal.x == trigger_normal.x && normal.y == trigger_normal.y &&
-            normal.z == trigger_normal.z) {
+        if (normal.x != trigger_normal.x || normal.y != trigger_normal.y ||
+            normal.z != trigger_normal.z) {
           probe_direction = push;
         }
       }
@@ -1547,9 +1547,9 @@ bool MovementCollisionSolver::TryTerrainStep(
   const C3Vector up{0.0f, 0.0f, allowance};
   const MovementCollisionTrace up_trace = SweepHull(trial, up, &query_ok);
   if (!query_ok) {
-    return false;
+    return std::nullopt;
   }
-  const float rise =
+  float rise =
       up_trace.hit ? std::max(0.0f, up_trace.distance) : allowance;
 
   const float banked_rise =
@@ -1565,7 +1565,7 @@ bool MovementCollisionSolver::TryTerrainStep(
   const C3Vector lateral = Scale(probe_direction, probe_length);
   const MovementCollisionTrace side = SweepHull(trial, lateral, &query_ok);
   if (!query_ok) {
-    return false;
+    return std::nullopt;
   }
   if (side.hit) {
     advance = std::max(0.0f, side.distance);
@@ -1603,7 +1603,7 @@ bool MovementCollisionSolver::TryTerrainStep(
           const MovementCollisionTrace retry =
               SweepHull(trial, slide, &query_ok);
           if (!query_ok) {
-            return false;
+            return std::nullopt;
           }
           const float fraction =
               retry.hit ? std::clamp(retry.distance / slide_length, 0.0f, 1.0f)
@@ -1611,6 +1611,7 @@ bool MovementCollisionSolver::TryTerrainStep(
           lateral_clear = !retry.hit;
           const C3Vector moved = Scale(slide, fraction);
           trial.position = Add(trial.position, moved);
+          rise += moved.z;
           advance += std::sqrt(moved.x * moved.x + moved.y * moved.y);
         }
       }
@@ -1621,7 +1622,7 @@ bool MovementCollisionSolver::TryTerrainStep(
     trial.position = Add(trial.position, lateral);
   }
 
-  if (!lateral_clear && advance < body.radius) {
+  if (!lateral_clear && advance <= body.radius) {
     body.stepping = false;
     return false;
   }
@@ -1629,7 +1630,7 @@ bool MovementCollisionSolver::TryTerrainStep(
   const C3Vector down{0.0f, 0.0f, -rise};
   const MovementCollisionTrace down_trace = SweepHull(trial, down, &query_ok);
   if (!query_ok) {
-    return false;
+    return std::nullopt;
   }
   const float drop = down_trace.hit ? down_trace.distance : rise;
   trial.position.z -= drop;
@@ -1638,9 +1639,13 @@ bool MovementCollisionSolver::TryTerrainStep(
   if (down_trace.hit && !down_trace.contacts.empty() &&
       !Walkable(body, down_trace.contacts.front().surface_normal)) {
 
-    accepted = StepFallCarriesForward(
-        body, trial.position, direction, std::max(0.0f, rise - drop),
+    const auto fall_acceptance = StepFallCarriesForward(
+        body, trial.position, probe_direction, std::max(0.0f, rise - drop),
         step.movement_speed, step.safe_fall);
+    if (!fall_acceptance.has_value()) {
+      return std::nullopt;
+    }
+    accepted = *fall_acceptance;
   }
   if (!accepted) {
     body.stepping = false;
@@ -1653,7 +1658,7 @@ bool MovementCollisionSolver::TryTerrainStep(
   return true;
 }
 
-bool MovementCollisionSolver::StepFallCarriesForward(
+std::optional<bool> MovementCollisionSolver::StepFallCarriesForward(
     const MovementCollisionBody& body, const C3Vector& trial_position,
     const C3Vector& direction, const float free_height,
     const float movement_speed, const bool safe_fall) {
@@ -1688,7 +1693,7 @@ bool MovementCollisionSolver::StepFallCarriesForward(
   const MovementCollisionResult sim = SolveAirborne(simulated, fall_step);
   if (sim.status == MovementCollisionStatus::kQueryFailed ||
       sim.status == MovementCollisionStatus::kCancelled) {
-    return false;
+    return std::nullopt;
   }
   const float offset_x = simulated.position.x - body.position.x;
   const float offset_y = simulated.position.y - body.position.y;
@@ -1903,7 +1908,12 @@ MovementCollisionResult MovementCollisionSolver::SolveGround(
     } else {
 
       if (!body.stepping) {
-        (void)TryTerrainStep(body, remaining, front, step);
+        if (!TryTerrainStep(body, remaining, front, step).has_value()) {
+          result.status = callbacks_.cancelled && callbacks_.cancelled()
+                              ? MovementCollisionStatus::kCancelled
+                              : MovementCollisionStatus::kQueryFailed;
+          return result;
+        }
       }
       if (body.stepping) {
 
@@ -1918,6 +1928,7 @@ MovementCollisionResult MovementCollisionSolver::SolveGround(
         C3Vector forward = remaining;
         float lift;
         if (std::fabs(response_surface.z) < Constants::kTiny) {
+          forward = {};
           lift = allowance;
         } else {
           lift = -(response_surface.x * remaining.x +
