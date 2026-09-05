@@ -188,7 +188,7 @@ public:
   void SynchronizeUnitTransportPassengerMembership(
       const CGUnit_C &unit, const MovementInfo &previous_movement);
 
-  void AdvanceSplineMovement(world::MovementSplineManager &spline_manager);
+  void AdvanceSplineMovement(WorldSession &session, std::uint32_t current_tick_ms);
   void AdvanceMovementEvents(WorldSession &session,
                              std::uint32_t current_tick_ms);
   void AdvanceVisualState(std::uint32_t current_tick_ms, float elapsed_seconds);

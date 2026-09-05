@@ -488,8 +488,10 @@ void ObjectManager::SynchronizeUnitTransportPassengerMembership(
 }
 
 void ObjectManager::AdvanceSplineMovement(
-    world::MovementSplineManager &spline_manager) {
-  ForEachUnit([&spline_manager, this](const ObjectGuid &guid, CGUnit_C &unit) {
+    WorldSession &session, const std::uint32_t current_tick_ms) {
+  auto &spline_manager = session.movement_spline_mgr();
+  ForEachUnit([&spline_manager, &session, current_tick_ms, this](
+                  const ObjectGuid &guid, CGUnit_C &unit) {
     auto *const spline = spline_manager.GetSpline(guid.GetRawValue());
     if (spline == nullptr) {
       if (unit.Movement().HasSplineMovementPoseOwnership()) {
@@ -525,6 +527,11 @@ void ObjectManager::AdvanceSplineMovement(
         spline->IsActive(), spline->GetSplineId());
     if (spline->HasTriggeredAnimationTier()) {
       unit.Animation().ApplySplineAnimationTier(spline->GetAnimationId());
+    }
+    if (spline->IsFinished() && unit.IsActiveMover()) {
+      (void)unit.Movement().CompleteSplineMovement(
+          session, current_tick_ms, spline->GetSplineId(),
+          spline->GetSplineFlags());
     }
   });
 }

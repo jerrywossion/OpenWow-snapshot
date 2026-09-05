@@ -79,6 +79,8 @@ public:
                                std::uint32_t spline_id = 0u);
   void ClearSplineMovementPoseOwnership();
   [[nodiscard]] bool TrySettleSplineMovementPoseOwnership();
+  bool CompleteSplineMovement(WorldSession &session, std::uint32_t timestamp,
+                               std::uint32_t spline_id, std::uint32_t spline_flags);
   void StopLocomotionForDeath(WorldSession &session);
   [[nodiscard]] bool HasSplineMovementPoseOwnership() const noexcept {
     return spline_movement_pose_owned_;

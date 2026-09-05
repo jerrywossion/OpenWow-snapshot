@@ -2,15 +2,18 @@
 
 #include "openwow/data/formats/dbc/dbc_loader.h"
 #include "openwow/core/storm_intrusive_list.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/missile_node.h"
 #include "openwow/game/spell_visual_system.h"
 #include "openwow/game/object_effect_system.h"
 #include "openwow/game/objects/unit/unit_spell_visual_runtime.h"
+#include "openwow/render/m2/m2_public_types.h"
 #include "openwow/ui/game/script_event_dispatch.h"
 
 #include <cstddef>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 namespace openwow::game {
 
@@ -120,18 +123,49 @@ void UnitMountComponent::HandleDismountPacket(CGUnit_C &owner) {
 }
 
 void UnitMountComponent::Dismount(CGUnit_C &owner,
-                                  const bool update_spell_visuals) {
+                                  const bool restore_collision_bounds) {
   if (CachedDisplayForSpell() == 0u) {
     return;
   }
   SetModelDefaultAnimationId(std::nullopt);
   SetDisplayScale(1.0f);
   SetOverlayM2InstanceId(0u);
+  const auto animation_result = owner.Animation().SetAnimationRecursive(
+      owner.GetPrimaryM2InstanceId(), -1, 0u, -1, 0, 1.0f, 0, 1, false);
+  if (animation_result.status != render::m2::M2ResultStatus::kReady &&
+      animation_result.status != render::m2::M2ResultStatus::kNotReady) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "mount release failed stage=rider-animation guid=" +
+            std::to_string(owner.GetGuid().GetRawValue()) +
+            " status=" + std::to_string(static_cast<unsigned>(animation_result.status)));
+  }
   owner.Animation().InvalidateDeferredStandSelection();
   owner.State().ClearSpellStateFlags(0x00882004u);
   owner.Presentation().RefreshActiveDisplayRuntimeState();
-  static_cast<void>(update_spell_visuals);
+  if (restore_collision_bounds &&
+      !owner.Presentation().InitDisplayCollisionBounds(true, false)) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "mount release failed stage=collision-bounds guid=" +
+            std::to_string(owner.GetGuid().GetRawValue()) +
+            " display=" + std::to_string(owner.Presentation().DisplayId()) +
+            " retainedMountDisplay=" + std::to_string(CachedDisplayForSpell()));
+  }
   owner.State().ClearSpellStateFlags(CGUnit_C::kSpellStateSuppressMountFootprint);
+  if (owner.IsActivePlayer()) {
+    const auto position = owner.GetPosition();
+    diagnostics::Log(
+        diagnostics::LogLevel::kInfo,
+        "mount release guid=" + std::to_string(owner.GetGuid().GetRawValue()) +
+            " retainedMountDisplay=" + std::to_string(CachedDisplayForSpell()) +
+            " restoreCollision=" + std::to_string(restore_collision_bounds) +
+            " collisionHeight=" +
+            std::to_string(owner.Movement().Data().GetCollisionHeightProduct()) +
+            " movementFlags=" + std::to_string(owner.GetMovementInfo().flags) +
+            " position=(" + std::to_string(position.x) + "," +
+            std::to_string(position.y) + "," + std::to_string(position.z) + ")");
+  }
 }
 
 void UnitMountComponent::ApplyDisplayChange(

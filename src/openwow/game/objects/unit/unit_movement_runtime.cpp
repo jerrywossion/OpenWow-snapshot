@@ -2360,6 +2360,57 @@ bool UnitMovementRuntime::TrySettleSplineMovementPoseOwnership() {
   return true;
 }
 
+bool UnitMovementRuntime::CompleteSplineMovement(
+    WorldSession &session, const std::uint32_t timestamp,
+    const std::uint32_t spline_id, const std::uint32_t spline_flags) {
+  if (spline_pose_waiting_for_parent_ && !TryComposeSplineParentPose()) {
+    diagnostics::Log(
+        diagnostics::LogLevel::kWarn,
+        "spline completion failed stage=final-pose reason=unresolved-parent guid=" +
+            std::to_string(owner_.GetGuid().GetRawValue()) +
+            " splineId=" + std::to_string(spline_id) +
+            " parent=" + std::to_string(spline_coordinate_parent_.GetRawValue()));
+    return false;
+  }
+
+  session.movement_spline_mgr().CancelSpline(owner_.GetGuid().GetRawValue());
+  ClearSplineMovementPoseOwnership();
+  if ((spline_flags & (SplineFlag::kFalling | SplineFlag::kParabolic)) != 0u) {
+    data_.StopFalling();
+  }
+  owner_.position_.spline.active = false;
+  data_.SetRuntimeFlags(data_.GetRuntimeFlags() & ~kMoveFlagSplineEnabled);
+
+  const bool active_mover = owner_.IsActiveMover();
+  const bool resumed_falling = active_mover && data_.TryInitRemoteMovement();
+  CommitMovementRuntimeState(session, timestamp);
+  owner_.Animation().RefreshSelectedStandAnimation(session, 0u, ~0u);
+  if (!active_mover) {
+    return true;
+  }
+
+  const auto movement_info = MovementInfoFromRuntimeData(
+      data_, owner_.GetMovementInfo(), session.objects(), timestamp, true);
+  const bool sent = session.Send(net::wotlk::PacketSender::BuildMoveSplineDone(
+      owner_.GetGuid(), movement_info, spline_id));
+  if (sent) {
+    UpdateWireAnnouncedFallingLatch(owner_, data_.GetRuntimeFlags());
+    NoteSuccessfulMovementPacket(timestamp);
+  }
+  diagnostics::Log(
+      sent ? diagnostics::LogLevel::kInfo : diagnostics::LogLevel::kWarn,
+      "spline completion opcode=CMSG_MOVE_SPLINE_DONE guid=" +
+          std::to_string(owner_.GetGuid().GetRawValue()) +
+          " splineId=" + std::to_string(spline_id) +
+          " splineFlags=" + std::to_string(spline_flags) +
+          " resumedFalling=" + std::to_string(resumed_falling) +
+          " movementFlags=" + std::to_string(movement_info.flags) +
+          " position=(" + std::to_string(movement_info.x) + "," +
+          std::to_string(movement_info.y) + "," + std::to_string(movement_info.z) +
+          ") sent=" + std::to_string(sent));
+  return true;
+}
+
 void UnitMovementRuntime::StopLocomotionForDeath(WorldSession &session) {
   auto &spline_manager = session.movement_spline_mgr();
   if (const auto *const spline =

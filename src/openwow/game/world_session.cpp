@@ -3288,7 +3288,7 @@ void WorldSession::Update(float dt_seconds, std::uint32_t client_time_ms) {
   map_runtime_.objects().AdvanceEmoteQueues();
   movement_spline_mgr_.Update(client_time_ms);
 
-  map_runtime_.objects().AdvanceSplineMovement(movement_spline_mgr_);
+  map_runtime_.objects().AdvanceSplineMovement(*this, client_time_ms);
 
   ChatBubbleSystem::Get().Update(dt_seconds, map_runtime_.objects());
   chat_sender_.Update(client_time_ms);
