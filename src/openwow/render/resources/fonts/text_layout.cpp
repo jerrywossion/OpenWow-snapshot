@@ -171,10 +171,11 @@ std::uint32_t AllowedLines(const TextLayoutRequest& request,
                             : request.maximum_lines;
   if (request.maximum_height > 0.0f) {
     const float height = std::max(default_line_height, 1.0f);
-    count = std::min(
-        count, std::max(1u, static_cast<std::uint32_t>(
-                               std::floor((request.maximum_height +
-                                           request.line_spacing) / height))));
+    const double count_for_height = std::floor(
+        (static_cast<double>(request.maximum_height) + request.line_spacing) /
+        height);
+    count = static_cast<std::uint32_t>(
+        std::min(static_cast<double>(count), std::max(1.0, count_for_height)));
   }
   return count;
 }
@@ -237,7 +238,10 @@ TextLayout LayoutText(const FontFace& face, const std::string_view source,
   auto finish_line = [&](const std::size_t begin, const std::size_t end,
                          const float width, const float content_height) {
     const float height = std::max(base_line_height, content_height);
-    const float gap = result.lines.empty() ? 0.0f : request.line_spacing;
+    const float gap = result.lines.empty()
+                          ? 0.0f
+                          : std::max(1.0f - result.lines.back().height,
+                                     request.line_spacing);
     if (!result.lines.empty() && request.maximum_height > 0.0f &&
         result.height + gap + height > request.maximum_height) {
       return false;
