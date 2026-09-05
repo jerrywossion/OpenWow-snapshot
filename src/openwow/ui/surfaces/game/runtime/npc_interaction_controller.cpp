@@ -145,7 +145,6 @@ std::vector<game::ObjectGuid> CollectActiveNpcInteractionGuids(
   std::vector<game::ObjectGuid> guids;
   const auto& gossip = session.gossip();
 
-  AppendInteractionGuid(guids, session.objects().GetNpcGuid());
   AppendInteractionGuid(guids, gossip.gossip_guid());
   AppendInteractionGuid(
       guids, session.quests().quest_frame_interaction_state().interaction_guid);
@@ -542,8 +541,10 @@ void CloseGossipInteraction(game::WorldSession& session) {
   }
 
   gossip.DismissGossip();
-  if (session.quests().quest_frame_interaction_state().interaction_guid.IsEmpty() &&
-      !gossip.merchant().active() && !gossip.has_trainer()) {
+  // A service response can publish its state before FrameXML hides gossip.
+  const auto remaining_interactions = CollectActiveNpcInteractionGuids(session);
+  if (std::find(remaining_interactions.begin(), remaining_interactions.end(),
+                gossip_guid) == remaining_interactions.end()) {
     HandleNpcInteractionLoss(session, gossip_guid,
                              NpcInteractionClosureCause::UnitUnavailable);
   }
@@ -594,14 +595,11 @@ void CaptureNpcInteractionRange(game::WorldSession& session,
 
 void StoreNpcInteractionTarget(game::WorldSession& session,
                                const game::ObjectGuid new_target) {
-  const auto interaction_guids = CollectActiveNpcInteractionGuids(session);
-  for (const auto guid : interaction_guids) {
-    if (guid != new_target) {
-      CloseNpcInteractionTarget(session, guid);
-    }
+  const auto previous_target = session.objects().GetNpcGuid();
+  if (previous_target != new_target) {
+    CloseNpcInteractionTarget(session, previous_target);
   }
 
-  const auto previous_target = session.objects().GetNpcGuid();
   if (new_target != previous_target) {
     if (auto* unit = session.objects().GetMutableUnit(new_target);
         unit != nullptr && !unit->IsPlayer()) {
