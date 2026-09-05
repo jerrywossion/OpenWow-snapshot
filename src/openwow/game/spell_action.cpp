@@ -7,6 +7,7 @@
 #include "openwow/game/combat_log.h"
 #include "openwow/game/localization.h"
 #include "openwow/game/object_manager.h"
+#include "openwow/game/pet_manager.h"
 #include "openwow/game/objects/cgcorpse.h"
 #include "openwow/game/spell_cast_execution.h"
 #include "openwow/game/spell_cast_runtime.h"
@@ -444,22 +445,27 @@ void SpellAction_DisplaySpellFailure(const WorldSession& session,
   if (error_code == static_cast<std::uint32_t>(SpellCastResult::kDontReport)) {
     return;
   }
-  auto& runtime = SpellCastDiagnostics::Get();
-  const auto now = core::GameClock::GetTickCount32();
-  const bool repeated = spell_id != 0 && spell_id == runtime.last_feedback_spell_id &&
-                        error_code == runtime.last_feedback_failure_reason;
-  const auto elapsed = now - runtime.previous_feedback_time;
-  runtime.last_feedback_failure_reason = error_code;
-  runtime.last_feedback_spell_id = spell_id;
-  runtime.previous_feedback_time = now;
-  if (repeated && elapsed < 3000u) {
-    return;
+  const bool player_failure = caster_guid == session.objects().GetLocalPlayerGuid();
+  if (player_failure) {
+    auto& runtime = SpellCastDiagnostics::Get();
+    const auto now = core::GameClock::GetTickCount32();
+    const bool repeated = spell_id != 0 && spell_id == runtime.last_feedback_spell_id &&
+                          error_code == runtime.last_feedback_failure_reason;
+    const auto elapsed = now - runtime.previous_feedback_time;
+    runtime.last_feedback_failure_reason = error_code;
+    runtime.last_feedback_spell_id = spell_id;
+    runtime.previous_feedback_time = now;
+    if (repeated && elapsed < 3000u) {
+      return;
+    }
   }
 
   const auto* const dbc = session.GetDbcLoader();
   const auto* const spell_entry =
       dbc != nullptr ? dbc->spell().LookupEntry(spell_id) : nullptr;
-  const auto cooldown = ResolveSpellbookCooldown(session.spell_book(), spell_id);
+  const auto cooldown = player_failure
+      ? ResolveSpellbookCooldown(session.spell_book(), spell_id)
+      : ResolvePetBarSpellCooldown(session.pet().pet_bar(), spell_id, dbc);
   const auto target_guid = session.objects().GetTargetGuid();
   const auto* const target = session.objects().GetUnit(target_guid);
   diagnostics::Log(
@@ -530,15 +536,20 @@ void SpellAction_DisplaySpellFailure(const WorldSession& session,
 
   // Power failures already contain the final game-error text. Other failures
   // keep the inner reason for CombatLog and select their own UI descriptor.
-  const auto message_id = result == SpellCastResult::kAlreadyAtFullPower ||
-                                  result == SpellCastResult::kNoPower
-                              ? 48u
-                              : GetCastFailureMessageId(error_code, spell_entry, 0);
+  auto message_id = result == SpellCastResult::kAlreadyAtFullPower ||
+                           result == SpellCastResult::kNoPower || !player_failure
+                       ? 48u
+                       : GetCastFailureMessageId(error_code, spell_entry, 0);
+  if (!player_failure && result == SpellCastResult::kNotReady && spell_entry != nullptr) {
+    message_id = (spell_entry->attributes & 0x10u) != 0u ? 53u : 52u;
+  }
   ui::game::DisplaySystemMessage(static_cast<int>(message_id), message.c_str());
 
-  auto& combat_log = const_cast<CombatLog&>(session.combat_log());
-  (void)combat_log.HandleSpellCastFailed(caster_guid.GetRawValue(), spell_id,
-                                         message);
+  if (player_failure) {
+    auto& combat_log = const_cast<CombatLog&>(session.combat_log());
+    (void)combat_log.HandleSpellCastFailed(caster_guid.GetRawValue(), spell_id,
+                                           message);
+  }
 }
 
 bool ConfirmSpellGroundTarget(const WorldSession& session,
