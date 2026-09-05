@@ -239,6 +239,11 @@ void ChatBubblePresenter::Render(
     return;
   }
 
+  const float diagonal = std::sqrt(screen_w * screen_w + screen_h * screen_h);
+  const float diag_scale = diagonal / kUiCoordinateDiagonalReference;
+  // A failed resize is diagnosed and retains the previous usable atlas.
+  static_cast<void>(text_renderer_.PrepareGlyphRasterScale(diag_scale));
+
   bgfx::setViewMode(view_id, bgfx::ViewMode::Sequential);
   text_renderer_.BeginFrame(view_id, screen_w, screen_h);
   bgfx::setViewClear(view_id, BGFX_CLEAR_NONE);
@@ -252,8 +257,6 @@ void ChatBubblePresenter::Render(
   const float tail_overlap = kTailOverlap * ui_scale;
   const float minimum_text_width = kMinimumTextWidth * ui_scale;
 
-  const float diagonal = std::sqrt(screen_w * screen_w + screen_h * screen_h);
-  const float diag_scale = diagonal / kUiCoordinateDiagonalReference;
   const float text_padding = kTextPadding * diag_scale;
 
   const float maximum_text_width = std::max(

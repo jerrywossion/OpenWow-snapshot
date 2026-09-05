@@ -372,6 +372,8 @@ void GameLoadingScreen::Render(
         presentation.shadow_offset_x, presentation.shadow_offset_y);
     const float scale = detail::ResolveLoadingScreenTextScale(
         gpu_->text_renderer, screen_h, presentation.font_height);
+    // A failed resize is diagnosed and retains the previous usable atlas.
+    static_cast<void>(gpu_->text_renderer.PrepareGlyphRasterScale(scale));
     if (gpu_->prepared_text_generation != presentation.source_generation ||
         gpu_->prepared_text_width_px != layout.box_width_px ||
         gpu_->prepared_text_scale != scale) {
@@ -390,12 +392,12 @@ void GameLoadingScreen::Render(
 
     gpu_->text_renderer.BeginFrame(view_id, screen_w, screen_h);
 
-    const bool shadow_submitted = gpu_->text_renderer.DrawRichText(
+    const bool shadow_submitted = gpu_->text_renderer.DrawRichTextCentered(
         view_id, layout.box_left_px + layout.shadow_offset_x_px,
-        text_top + layout.shadow_offset_y_px, gpu_->visible_text,
+        layout.box_width_px, text_top + layout.shadow_offset_y_px, gpu_->visible_text,
         presentation.shadow_color_argb, scale);
-    const bool body_submitted = gpu_->text_renderer.DrawRichText(
-        view_id, layout.box_left_px, text_top, gpu_->wrapped_text,
+    const bool body_submitted = gpu_->text_renderer.DrawRichTextCentered(
+        view_id, layout.box_left_px, layout.box_width_px, text_top, gpu_->wrapped_text,
         presentation.text_color_argb, scale);
     state.PublishTextRenderReceipt(shadow_submitted && body_submitted);
   }
