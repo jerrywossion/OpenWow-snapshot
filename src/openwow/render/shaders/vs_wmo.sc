@@ -13,7 +13,7 @@ void main()
     vec3 worldNormal = normalize(mul(wmoWorldNormalMtx(), a_normal));
     vec3 viewNormal = normalize(mul(u_modelView, vec4(a_normal, 0.0)).xyz);
 
-    gl_Position = mul(u_modelViewProj, localPosition);
+    gl_Position = mul(u_proj, viewPosition);
     v_texcoord0 = a_texcoord0;
     v_texcoord1 = a_texcoord1;
     v_color1 = a_color1;
