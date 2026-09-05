@@ -4145,11 +4145,11 @@ std::uint32_t UnitAnimationRuntime::ResolveAnimationDurationMs(
 }
 
 void UnitAnimationRuntime::EmoteQueueHandler(const std::uint32_t *emote_pairs, std::int32_t count) {
+  emote_slots_[EmoteQueueEmoteWord(0)] = kEmoteQueueIdleSentinel;
   if (emote_pairs == nullptr || count <= 0) {
     return;
   }
 
-  emote_slots_[EmoteQueueEmoteWord(0)] = kEmoteQueueIdleSentinel;
   std::size_t stored = 0;
 
   const auto pair_count =

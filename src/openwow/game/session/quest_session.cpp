@@ -462,14 +462,11 @@ bool WorldSession::HandleQuestGiverQuestDetails(const net::wotlk::WorldPacket &p
 
   if (quests_.has_active_details()) {
     const auto &details = quests_.active_details();
-    if (!details.emotes.empty()) {
-      if (auto *unit = map_runtime_.objects().GetMutableUnit(details.npc_guid)) {
-        constexpr std::uint32_t kNpcFlagTrainer = 0x00000010u;
-        if ((unit->State().GetNpcFlags() & kNpcFlagTrainer) == 0) {
-          unit->Animation().EmoteQueueHandler(
-              reinterpret_cast<const std::uint32_t *>(details.emotes.data()),
-              static_cast<std::int32_t>(details.emotes.size()));
-        }
+    if (auto *unit = map_runtime_.objects().GetMutableUnit(details.npc_guid)) {
+      if (!unit->IsPlayer()) {
+        unit->Animation().EmoteQueueHandler(
+            reinterpret_cast<const std::uint32_t *>(details.emotes.data()),
+            static_cast<std::int32_t>(details.emotes.size()));
       }
     }
   }
@@ -505,12 +502,10 @@ bool WorldSession::HandleQuestGiverOfferReward(const net::wotlk::WorldPacket &pk
 
   if (quests_.has_active_reward()) {
     const auto &reward = quests_.active_reward();
-    if (!reward.emotes.empty()) {
-      if (auto *unit = map_runtime_.objects().GetMutableUnit(reward.npc_guid)) {
-        unit->Animation().EmoteQueueHandler(
-            reinterpret_cast<const std::uint32_t *>(reward.emotes.data()),
-            static_cast<std::int32_t>(reward.emotes.size()));
-      }
+    if (auto *unit = map_runtime_.objects().GetMutableUnit(reward.npc_guid)) {
+      unit->Animation().EmoteQueueHandler(
+          reinterpret_cast<const std::uint32_t *>(reward.emotes.data()),
+          static_cast<std::int32_t>(reward.emotes.size()));
     }
   }
 
