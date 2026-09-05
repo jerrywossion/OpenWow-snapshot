@@ -1917,6 +1917,11 @@ void UnitMovementRuntime::AdvanceMovementStep(
                    " a=" + vector_text(contact.vertices[0]) +
                    " b=" + vector_text(contact.vertices[1]) +
                    " c=" + vector_text(contact.vertices[2]);
+        context += " hull_planes=" + std::to_string(contact.generated_normal_count);
+        for (std::size_t index = 0; index < contact.generated_normal_count; ++index) {
+          context += " hull_normal_" + std::to_string(index) + "=" +
+                     vector_text(contact.generated_normals[index]);
+        }
       }
       diagnostics::Log(collision_failed ? diagnostics::LogLevel::kWarn
                                        : diagnostics::LogLevel::kInfo,

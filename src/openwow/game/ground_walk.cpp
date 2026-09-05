@@ -708,7 +708,8 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
 }
 
 [[nodiscard]] C3Vector AirborneEdgeResponseNormal(
-    const MovementCollisionContact& contact, const C3Vector& direction) {
+    const MovementCollisionContact& contact, const C3Vector& direction,
+    const C3Vector& contact_position) {
   const C3Vector surface =
       NormalizeOr(contact.surface_normal, contact.normal);
   const std::array<C3Vector, 3> edges{{
@@ -719,16 +720,21 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
   C3Vector selected{};
   float selected_metric = std::numeric_limits<float>::max();
   bool have_selected = false;
-  for (const C3Vector& edge : edges) {
+  for (std::size_t index = 0; index < edges.size(); ++index) {
+    const C3Vector& edge = edges[index];
     const float length_squared = LengthSquared(edge);
     if (length_squared < Constants::kTiny) {
       continue;
     }
     const C3Vector normalized = Scale(edge, 1.0f / std::sqrt(length_squared));
 
-    if (!have_selected || normalized.y < selected_metric) {
+    const C3Vector from_start = Subtract(contact_position, contact.vertices[index]);
+    const C3Vector perpendicular = Subtract(
+        from_start, Scale(normalized, Dot(from_start, normalized)));
+    const float distance_squared = LengthSquared(perpendicular);
+    if (!have_selected || distance_squared < selected_metric) {
       selected = normalized;
-      selected_metric = normalized.y;
+      selected_metric = distance_squared;
       have_selected = true;
     }
   }
@@ -814,7 +820,8 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
 [[nodiscard]] C3Vector Deflect(
     const MovementCollisionBody& body, const C3Vector& direction,
     const float contact_distance,
-    const float total_distance, const MovementCollisionContact& contact) {
+    const float total_distance, const C3Vector& contact_position,
+    const MovementCollisionContact& contact) {
   const C3Vector surface =
       NormalizeOr(contact.surface_normal, contact.normal);
   const bool edge_response =
@@ -822,7 +829,7 @@ constexpr std::size_t kMaximumClippedPolygonVertices = 15u;
       (surface.z < 0.0f && -surface.z > Constants::kWalkableNormalZ);
   const C3Vector response =
       edge_response
-          ? AirborneEdgeResponseNormal(contact, direction)
+          ? AirborneEdgeResponseNormal(contact, direction, contact_position)
           : AirborneGeneratedResponseNormal(body, contact);
   const float horizontal_length =
       std::sqrt(response.x * response.x + response.y * response.y);
@@ -2140,6 +2147,9 @@ MovementCollisionResult MovementCollisionSolver::SolveAirborne(
             contact_distance, contact_time_seconds,
             trace.contacts.front());
 
+    const C3Vector deflection =
+        Deflect(body, incoming_direction, trace.distance, remaining_distance,
+                pre_response_contact, trace.contacts.front());
     const float response_duration_seconds = AdjustAirborneContactTime(
         step, pre_contact_position, contact_time_seconds,
         remaining_duration_seconds, initial_horizontal,
@@ -2208,9 +2218,6 @@ MovementCollisionResult MovementCollisionSolver::SolveAirborne(
       break;
     }
 
-    const C3Vector deflection =
-        Deflect(body, incoming_direction, trace.distance, remaining_distance,
-                trace.contacts.front());
     C3Vector deflected = Add(remaining, deflection);
     if (deflection_iterations != 0u) {
       const float endpoint_x =
