@@ -1372,7 +1372,7 @@ void WorldSession::RegisterActivePlayerDailyQuestRefresh(const ObjectGuid &guid)
             return;
           }
 
-          RequestVisibleQuestgiverStatusRefresh();
+          RequestQuestgiverStatusRefresh("daily-quest-update");
 
           const int filled = static_cast<int>(player->GetDailyQuestCount());
 
@@ -2004,6 +2004,24 @@ void WorldSession::HandleCapturePointObjectDestroyed(const ObjectGuid &guid) {
                                              guid.GetRawValue(), &world_states_);
 }
 
+void WorldSession::RequestQuestgiverStatusRefresh(const char *source) {
+  const auto *active_player = objects().GetActivePlayer();
+  if (active_player == nullptr) {
+    return;
+  }
+  const bool sent = Send(net::wotlk::PacketSender::BuildQuestgiverStatusMultipleQuery());
+  const auto level = sent ? openwow::diagnostics::LogLevel::kDebug
+                          : openwow::diagnostics::LogLevel::kWarn;
+  if (openwow::diagnostics::IsLogEnabled(level)) {
+    openwow::diagnostics::Log(
+        level,
+        "NPC interaction status stage=query source=" + std::string(source) +
+            " player=" + active_player->GetGuid().ToString() +
+            " opcode=CMSG_QUESTGIVER_STATUS_MULTIPLE_QUERY" +
+            (sent ? " result=sent" : " reason=send-failed"));
+  }
+}
+
 void WorldSession::RequestVisibleQuestgiverStatusRefresh() {
   const auto *active_player = objects().GetActivePlayer();
   if (active_player == nullptr) {
@@ -2042,13 +2060,7 @@ void WorldSession::RequestVisibleQuestgiverStatusRefresh() {
     }
   });
 
-  if (!Send(net::wotlk::PacketSender::BuildQuestgiverStatusMultipleQuery())) {
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kWarn,
-        "NPC interaction status stage=query source=visible-set-refresh player=" +
-            active_player->GetGuid().ToString() +
-            " opcode=CMSG_QUESTGIVER_STATUS_MULTIPLE_QUERY reason=send-failed");
-  }
+  RequestQuestgiverStatusRefresh("visible-set-refresh");
 }
 
 void WorldSession::RefreshCreatedGameObjectQuestgiverStatus(const WorldObject &obj) {
@@ -2146,12 +2158,11 @@ void WorldSession::ObserveQuestAcceptedTransitions(
     const auto old_state =
         state_change != nullptr ? state_change->old_value : current.state;
     const bool quest_identity_changed = old_quest_id != current.quest_id;
-    const bool accepted_state_bit_gained =
-        (old_state & kQuestLogStateBitComplete) == 0u &&
-        (current.state & kQuestLogStateBitComplete) != 0u;
+    const bool failure_cleared =
+        (old_state & 0x02u) != 0u && (current.state & 0x02u) == 0u;
 
     if (current.quest_id != 0u &&
-        (quest_identity_changed || accepted_state_bit_gained)) {
+        (quest_identity_changed || failure_cleared)) {
       pending_quest_accepted_slots_[slot] = current.quest_id;
     } else if (pending_quest_accepted_slots_[slot] != current.quest_id) {
       pending_quest_accepted_slots_[slot] = 0u;
@@ -2165,7 +2176,7 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
     return;
   }
 
-  quests_.SyncQuestLogFromPlayer(objects(), *player);
+  quests_.SyncQuestLogFromPlayer(*this, *player);
 
   for (std::uint8_t slot = 0; slot < kMaxQuestLogEntries; ++slot) {
     const auto quest_id = pending_quest_accepted_slots_[slot];
@@ -2586,6 +2597,7 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
       } else if (std::strcmp(evt.event_name, "PLAYER_MONEY") == 0) {
         if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
           dispatch.FirePlayerMoney();
+          RequestQuestgiverStatusRefresh("money-update");
         }
       } else if (std::strcmp(evt.event_name, "UPDATE_EXHAUSTION") == 0) {
         if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
@@ -2598,9 +2610,9 @@ void WorldSession::OnFieldsChanged(const WorldObject &obj, const FieldUpdateBatc
 
       } else if (std::strcmp(evt.event_name, "UNIT_QUEST_LOG_CHANGED") == 0) {
 
-        RequestVisibleQuestgiverStatusRefresh();
+        RequestQuestgiverStatusRefresh("quest-log-update");
         RefreshQuestRuntimeFromPlayer(false);
-        dispatch.FireQuestLogUpdate();
+        dispatch.QueueGlobalEvent("QUEST_LOG_UPDATE");
       } else if (std::strcmp(evt.event_name, "SKILL_LINES_CHANGED") == 0) {
         if (evt.guid_raw == objects().GetLocalPlayerGuid().GetRawValue()) {
           dispatch.FireEvent(ui::game::events::SKILL_LINES_CHANGED);

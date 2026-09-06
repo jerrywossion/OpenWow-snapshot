@@ -28,6 +28,7 @@ namespace openwow::game {
 
 class CGPlayer_C;
 class ObjectManager;
+class WorldSession;
 
 struct QuestRewardItem {
   std::uint32_t item_id = 0;
@@ -328,7 +329,7 @@ public:
 
   void AddQuestToLog(std::uint32_t quest_id);
   void RemoveQuestFromLog(std::uint32_t quest_id);
-  void SyncQuestLogFromPlayer(const ObjectManager& objects, const CGPlayer_C &player);
+  void SyncQuestLogFromPlayer(const WorldSession& session, const CGPlayer_C &player);
   [[nodiscard]] bool IsQuestInLog(std::uint32_t quest_id) const;
   [[nodiscard]] std::size_t quest_log_count() const {
     return quest_log_.size();

@@ -1162,6 +1162,7 @@ public:
   bool TrySendPendingWorldportAck();
 
   void FlushDeferredWorldTransfer();
+  void RequestQuestgiverStatusRefresh(const char *source);
   void RequestVisibleQuestgiverStatusRefresh();
   void HandleActivePlayerDeadTransition(bool force_event_dispatch = false);
 

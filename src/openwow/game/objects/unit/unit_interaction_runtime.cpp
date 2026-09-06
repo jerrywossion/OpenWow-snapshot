@@ -1015,11 +1015,10 @@ void UnitInteractionRuntime::RefreshNpcInteractionStatus(
   const bool flightmaster = (npc_flags & UNIT_NPC_FLAG_FLIGHTMASTER) != 0u;
   if (!flightmaster && owner_.GetOverlayModelIndexOverride() != 0u) {
     owner_.SetOverlayModelIndexOverride(0u);
-    (void)owner_.UpdateOverlayModel();
   }
   if (!questgiver) {
     session.quests().EraseQuestGiverStatus(guid);
-    owner_.SetQuestGiverIconStatus(OverlayDisplayType::kNone);
+    owner_.SetOverlayDisplayType(OverlayDisplayType::kNone);
   }
   if (!questgiver && !flightmaster) {
     owner_.ClearOverlayModelImmediate();

@@ -569,6 +569,20 @@ constexpr std::uint32_t kNpcFlagQuestGiver = 0x00000002u;
   return false;
 }
 
+void ApplyQuestgiverServerStatus(WorldObject &obj, const OverlayDisplayType status,
+                                 const char *source) {
+  if (obj.GetOverlayDisplayType() != status &&
+      openwow::diagnostics::IsLogEnabled(openwow::diagnostics::LogLevel::kDebug)) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kDebug,
+        "NPC interaction status stage=server-state source=" + std::string(source) +
+            " guid=" + obj.GetGuid().ToString() +
+            " old=" + std::to_string(static_cast<std::uint32_t>(obj.GetOverlayDisplayType())) +
+            " new=" + std::to_string(static_cast<std::uint32_t>(status)));
+  }
+  obj.SetQuestGiverIconStatus(status);
+}
+
 }
 
 bool WorldSession::HandleQuestGiverStatus(const net::wotlk::WorldPacket &pkt) {
@@ -586,8 +600,8 @@ bool WorldSession::HandleQuestGiverStatus(const net::wotlk::WorldPacket &pkt) {
       if (auto *obj = map_runtime_.objects().GetMutable(guid)) {
 
         if (IsQuestGiverStatusEligible(*obj)) {
-          obj->SetQuestGiverIconStatus(static_cast<OverlayDisplayType>(
-              static_cast<std::uint8_t>(*status)));
+          ApplyQuestgiverServerStatus(*obj, static_cast<OverlayDisplayType>(
+              static_cast<std::uint8_t>(*status)), "SMSG_QUESTGIVER_STATUS");
         }
       }
     }
@@ -607,11 +621,11 @@ bool WorldSession::HandleQuestGiverStatusMultiple(const net::wotlk::WorldPacket 
     }
 
     const auto status = quests_.FindQuestGiverStatus(obj.GetGuid());
-    obj.SetQuestGiverIconStatus(
+    ApplyQuestgiverServerStatus(obj,
         status.has_value()
             ? static_cast<OverlayDisplayType>(
                   static_cast<std::uint8_t>(*status))
-            : OverlayDisplayType::kNone);
+            : OverlayDisplayType::kNone, "SMSG_QUESTGIVER_STATUS_MULTIPLE");
   });
   return true;
 }

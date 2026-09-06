@@ -11,6 +11,8 @@
 #include "openwow/game/packet_reader.h"
 #include "openwow/game/quest_dialog_text.h"
 #include "openwow/game/quest_log.h"
+#include "openwow/game/quest_turnin_state.h"
+#include "openwow/game/world_session.h"
 #include "openwow/game/reputation_info.h"
 #include "openwow/network/protocol/wotlk/opcodes.h"
 #include "openwow/foundation/diagnostics/logging.h"
@@ -1139,12 +1141,8 @@ bool QuestManager::HandleQuestUpdateComplete(const std::uint8_t *data, std::size
   pending_quest_watch_update_.reset();
   if (auto *entry = FindQuestLogEntry(quest_id)) {
     if (entry->status != QuestStatus::kFailed) {
-      if (const auto *tmpl = GetTemplate(quest_id);
-          tmpl != nullptr && !tmpl->completed_text.empty()) {
-        pending_quest_watch_update_ = quest_id;
-      }
+      pending_quest_watch_update_ = quest_id;
     }
-    entry->status = QuestStatus::kComplete;
   }
   return true;
 }
@@ -1407,7 +1405,7 @@ void QuestManager::RemoveQuestFromLog(std::uint32_t quest_id) {
       quest_log_.end());
 }
 
-void QuestManager::SyncQuestLogFromPlayer(const ObjectManager& objects,
+void QuestManager::SyncQuestLogFromPlayer(const WorldSession& session,
                                           const CGPlayer_C &player) {
   std::unordered_map<std::uint32_t, QuestLogEntry> previous_entries;
   previous_entries.reserve(quest_log_.size());
@@ -1437,11 +1435,11 @@ void QuestManager::SyncQuestLogFromPlayer(const ObjectManager& objects,
               std::begin(entry.kill_counts));
 
     if (const auto it = previous_entries.find(entry.quest_id); it != previous_entries.end()) {
-      entry.status = it->second.status;
-      entry.timer_expiration_reported = it->second.timer_expiration_reported;
+      entry.timer_expiration_reported = it->second.timer_expiration_reported &&
+                                        it->second.timer_ms == player_entry.timer;
     }
-    if ((player_entry.state & 0x10000u) != 0) {
-      entry.status = QuestStatus::kComplete;
+    if ((player_entry.state & 0x02u) != 0 || entry.timer_expiration_reported) {
+      entry.status = QuestStatus::kFailed;
     }
 
     quest_log_.push_back(entry);
@@ -1449,7 +1447,10 @@ void QuestManager::SyncQuestLogFromPlayer(const ObjectManager& objects,
     QuestLogSlot runtime_entry;
     runtime_entry.quest_id = entry.quest_id;
     runtime_entry.has_cached_template = false;
-    runtime_entry.is_complete = entry.status == QuestStatus::kComplete;
+    runtime_entry.is_complete = IsQuestTurnInReady(session, entry.quest_id, true);
+    if (runtime_entry.is_complete) {
+      quest_log_.back().status = QuestStatus::kComplete;
+    }
     runtime_entry.is_failed = entry.status == QuestStatus::kFailed;
     runtime_entry.is_tracked = runtime_log.IsTracked(entry.quest_id);
     runtime_entry.timer = player_entry.timer;
@@ -1475,7 +1476,7 @@ void QuestManager::SyncQuestLogFromPlayer(const ObjectManager& objects,
   }
 
   runtime_log.SetQuestLog(runtime_entries);
-  runtime_log.LoadTrackedQuestsFromCVarIfNeeded(objects);
+  runtime_log.LoadTrackedQuestsFromCVarIfNeeded(session.objects());
 }
 
 bool QuestManager::IsQuestInLog(std::uint32_t quest_id) const {

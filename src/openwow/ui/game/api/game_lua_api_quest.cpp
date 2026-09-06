@@ -1088,66 +1088,6 @@ struct QuestWorldMapAreaSelection {
   std::uint32_t floor_id = 0;
 };
 
-static bool IsQuestReadyForTurnInOnWorldMap(const ::openwow::game::WorldSession &session,
-                                            const ::openwow::game::QuestTemplate &quest_template,
-                                            const CGPlayer_C::QuestLogEntry &player_slot) {
-  if ((player_slot.state & 0x02u) != 0) {
-    return false;
-  }
-
-  if ((player_slot.state & 0x10000u) != 0) {
-    return true;
-  }
-
-  if ((HasFlag(quest_template.flags, ::openwow::game::QuestFlags::kPartyAccept) ||
-       HasFlag(quest_template.flags, ::openwow::game::QuestFlags::kExploration)) &&
-      (player_slot.state & 0x01u) == 0) {
-    return false;
-  }
-
-  const auto *player = session.objects().GetLocalPlayerTyped();
-  if (player == nullptr) {
-    return false;
-  }
-
-  const auto &reputation = ::openwow::game::ReputationInfo::Get();
-  if (quest_template.required_reputation_faction != 0 &&
-      reputation.GetCurrentStanding(static_cast<std::int32_t>(
-          quest_template.required_reputation_faction)) < quest_template.required_reputation_value) {
-    return false;
-  }
-
-  if (quest_template.required_reputation_faction_max != 0 &&
-      reputation.GetCurrentStanding(
-          static_cast<std::int32_t>(quest_template.required_reputation_faction_max)) >
-          quest_template.required_reputation_value_max) {
-    return false;
-  }
-
-  const auto required_money = DecodeQuestMoneyRequirement(quest_template.reward_money);
-  if (required_money > 0 && player->GetMoney() < static_cast<std::uint32_t>(required_money)) {
-    return false;
-  }
-
-  for (int objective_index = 0; objective_index < ::openwow::game::kQuestObjectivesCount;
-       ++objective_index) {
-    const auto &objective = quest_template.npc_or_go_objectives[objective_index];
-    if (objective.creature_or_go != 0 &&
-        player_slot.counts[objective_index] < objective.required_count) {
-      return false;
-    }
-  }
-
-  for (const auto &item_objective : quest_template.item_objectives) {
-    if (item_objective.item_id != 0 &&
-        session.inventory_replica().GetItemCount(item_objective.item_id) <
-            item_objective.required_count) {
-      return false;
-    }
-  }
-
-  return player_slot.counts[0] >= quest_template.required_player_kills;
-}
 static std::vector<std::uint32_t> BuildVisibleWorldMapQuestIds(
     ::openwow::game::WorldSession &session,
     const ::openwow::ui::WorldMapSystem &world_map,
@@ -1157,6 +1097,7 @@ static std::vector<std::uint32_t> BuildVisibleWorldMapQuestIds(
   std::vector<std::uint32_t> visible_query_slot_quests;
   visible_query_slot_quests.reserve(::openwow::game::QuestPOIData::kMaxQuerySlots);
   std::unordered_set<std::uint32_t> visible_set;
+  std::unordered_map<std::uint32_t, std::int32_t> objective_masks;
 
   for (std::size_t slot = 1; slot <= ::openwow::game::QuestPOIData::kMaxQuerySlots; ++slot) {
     const auto quest_id = poi_data.GetQuestIdByQuerySlot(slot);
@@ -1165,6 +1106,7 @@ static std::vector<std::uint32_t> BuildVisibleWorldMapQuestIds(
     }
 
     const auto objective_mask = BuildQuestPoiIncompleteObjectiveMask(session, quest_id);
+    objective_masks.emplace(quest_id, objective_mask);
     for (const auto &poi : poi_data.GetPOIsForQuest(quest_id)) {
       if (!QuestPoiPassesObjectiveMask(poi, objective_mask)) {
         continue;
@@ -1206,6 +1148,7 @@ static std::vector<std::uint32_t> BuildVisibleWorldMapQuestIds(
     }
   }
 
+  poi_data.SetWorldMapObjectiveMasks(std::move(objective_masks));
   return ordered_visible_quests;
 }
 
@@ -1778,8 +1721,7 @@ int LuaGetQuestLogTitle(lua_State *L) {
 
   if (entry.status == ::openwow::game::QuestStatus::kFailed) {
     lua_pushnumber(L, -1.0);
-  } else if (entry.status == ::openwow::game::QuestStatus::kComplete ||
-             entry.status == ::openwow::game::QuestStatus::kRewarded) {
+  } else if (IsQuestTurnInReady(*session, entry.quest_id, true)) {
     lua_pushnumber(L, 1.0);
   } else {
     lua_pushnil(L);
@@ -2975,7 +2917,7 @@ int LuaGetQuestWorldMapAreaID(lua_State *L) {
       if (const auto *quest_template = GetOrRequestQuestTemplate(*session, quest_id);
           quest_template != nullptr) {
         const auto turn_in_ready =
-            IsQuestReadyForTurnInOnWorldMap(*session, *quest_template, *player_slot);
+            IsQuestTurnInReady(*session, quest_id);
         const auto objective_mask =
             turn_in_ready
                 ? 0u
@@ -3623,35 +3565,7 @@ int LuaQuestPOIGetIconInfo(lua_State *L) {
     return 0;
   }
 
-  auto layout = poi_data.GetWorldMapIconLayout(quest_id);
-  if (!layout.has_value()) {
-    auto *session = GetWorldSession(L);
-    if (session == nullptr) {
-      return 0;
-    }
-
-    const bool turn_in_ready = IsQuestTurnInReady(*session, quest_id);
-    const auto objective_mask = BuildQuestPoiIncompleteObjectiveMask(*session, quest_id);
-    for (const auto &poi : poi_data.GetPOIsForQuest(quest_id)) {
-      if ((turn_in_ready && poi.objectiveIndex != -1) ||
-          (!turn_in_ready && !QuestPoiPassesObjectiveMask(poi, objective_mask)) ||
-          poi.points.empty()) {
-        continue;
-      }
-
-      const auto center = ::openwow::game::QuestPOIData::GetCentroid(poi);
-      layout = ::openwow::game::QuestPOIWorldMapIconLayout{
-          .turnInReady = turn_in_ready,
-          .objectiveIndex = poi.objectiveIndex,
-          .mapId = poi.mapId,
-          .worldX = static_cast<std::int32_t>(std::nearbyint(center.x)),
-          .worldY = static_cast<std::int32_t>(std::nearbyint(center.y)),
-      };
-      poi_data.SetWorldMapIconLayout(quest_id, *layout);
-      break;
-    }
-  }
-
+  const auto layout = poi_data.GetWorldMapIconLayout(quest_id);
   if (!layout.has_value()) {
     return 0;
   }
@@ -3667,7 +3581,7 @@ int LuaQuestPOIGetIconInfo(lua_State *L) {
     return 0;
   }
 
-  lua_pushwowbool(L, layout->turnInReady);
+  lua_pushwowbool(L, poi_data.GetWorldMapObjectiveMask(quest_id) == -1);
   lua_pushnumber(L, static_cast<lua_Number>(map_coord.x));
   lua_pushnumber(L, static_cast<lua_Number>(map_coord.y));
   lua_pushnumber(L, static_cast<lua_Number>(layout->objectiveIndex));

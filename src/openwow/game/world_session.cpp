@@ -554,6 +554,34 @@ void WorldSession::FlushInventoryReplicaTransaction() {
     SpellBookFrame::HandleTrackedMultiCastTotemItemEntry(*this, entry);
   }
 
+  bool quest_items_changed = false;
+  for (const auto entry : inventory_bridge_.ConsumeCountChangedEntries()) {
+    for (const auto &quest : quests_.quest_log()) {
+      const auto *quest_template = quests_.GetTemplate(quest.quest_id);
+      if (quest_template == nullptr) {
+        // The pending quest-template query publishes QUEST_LOG_UPDATE on arrival.
+        continue;
+      }
+      for (const auto &objective : quest_template->item_objectives) {
+        if (objective.item_id == entry) {
+          quest_items_changed = true;
+          break;
+        }
+      }
+      if (quest_items_changed) {
+        break;
+      }
+    }
+  }
+
+  if (quest_items_changed) {
+    if (const auto *player = objects().GetLocalPlayerTyped(); player != nullptr) {
+      quests_.SyncQuestLogFromPlayer(*this, *player);
+    }
+    ui::game::ScriptEventDispatch::Get().QueueGlobalEvent("QUEST_LOG_UPDATE");
+    RequestQuestgiverStatusRefresh("quest-item-update");
+  }
+
   for (const auto container : inventory_bridge_.ConsumeChangedContainers()) {
     const auto deferred = std::find(deferred_inventory_template_containers_.begin(),
                                     deferred_inventory_template_containers_.end(),
@@ -852,6 +880,7 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
     }
     (void)inventory_bridge_.ConsumeChangedContainers();
     (void)inventory_bridge_.ConsumeChangedEntries();
+    (void)inventory_bridge_.ConsumeCountChangedEntries();
     (void)inventory_bridge_.ConsumeItemTemplateRefreshes();
   };
   cbs.send_sheathed = [this](const std::uint32_t state) {
