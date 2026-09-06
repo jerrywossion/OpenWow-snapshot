@@ -194,12 +194,13 @@ int CGUnit_C::OnShapeshiftFormChanged(const std::uint64_t guid) {
 }
 
 int OnNpcFlagsChanged(ObjectManager &objects, WorldSession &session,
-                      const std::uint64_t guid, int, int,
+                      const std::uint64_t guid, int, int old_value,
                       const std::uint32_t *new_value) {
   if (new_value != nullptr) {
     if (auto *const unit = objects.GetMutableUnit(ObjectGuid(guid));
         unit != nullptr) {
-      unit->Interaction().OnNPCInteractionFlagsChanged(session, *new_value);
+      unit->Interaction().OnNPCInteractionFlagsChanged(
+          session, static_cast<std::uint32_t>(old_value), *new_value);
     }
   }
   return 1;

@@ -39,6 +39,7 @@
 #include "openwow/game/taxi_map_frame.h"
 #include "openwow/game/world_session.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/net/wotlk/protocol/packet_sender.h"
 #include "openwow/runtime/time/game_clock.h"
 #include "openwow/foundation/math/row_major_mat4x4.h"
 #include "openwow/ui/game/cvar_system.h"
@@ -106,6 +107,16 @@ bool DispatchFriendlyUnitInteraction(WorldSession &session, const CGUnit_C &unit
   if ((npc_flags & UNIT_NPC_FLAG_GOSSIP) != 0) {
     session.interaction().SendGossipHello(guid);
     return true;
+  }
+
+  if ((npc_flags & UNIT_NPC_FLAG_QUESTGIVER) != 0 &&
+      !session.quests().FindQuestGiverStatus(unit.GetGuid()).has_value()) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "NPC interaction stage=dispatch source=friendly-unit guid=" +
+            std::to_string(guid) + " entry=" + std::to_string(unit.GetEntry()) +
+            " flags=" + std::to_string(npc_flags) +
+            " reason=questgiver-status-unavailable");
   }
 
   const auto quest_overlay_status = unit.GetOverlayDisplayType();
@@ -981,6 +992,61 @@ void UnitInteractionRuntime::RefreshFactionDependentState(
   if (refresh_linked_visible_units) {
     RefreshVisibleFactionLinkedToUnit(owner_);
   }
+  RefreshNpcInteractionStatus(session, "faction-update");
+}
+
+void UnitInteractionRuntime::RefreshNpcInteractionStatus(
+    WorldSession &session, const char *source) const {
+  const auto *const active_player = session.objects().GetActivePlayer();
+  if (active_player == nullptr) {
+    // Active-player establishment performs the initial visible-set refresh.
+    return;
+  }
+
+  const auto guid = owner_.GetGuid();
+  if (GetReaction(*active_player) < ReactionType::kNeutral) {
+    session.quests().EraseQuestGiverStatus(guid);
+    owner_.ClearOverlayModelImmediate();
+    return;
+  }
+
+  const auto npc_flags = owner_.State().GetNpcFlags();
+  const bool questgiver = (npc_flags & UNIT_NPC_FLAG_QUESTGIVER) != 0u;
+  const bool flightmaster = (npc_flags & UNIT_NPC_FLAG_FLIGHTMASTER) != 0u;
+  if (!flightmaster && owner_.GetOverlayModelIndexOverride() != 0u) {
+    owner_.SetOverlayModelIndexOverride(0u);
+    (void)owner_.UpdateOverlayModel();
+  }
+  if (!questgiver) {
+    session.quests().EraseQuestGiverStatus(guid);
+    owner_.SetQuestGiverIconStatus(OverlayDisplayType::kNone);
+  }
+  if (!questgiver && !flightmaster) {
+    owner_.ClearOverlayModelImmediate();
+    return;
+  }
+
+  const auto log_status_query = [&](const bool sent, const char *opcode) {
+    const auto level = sent ? openwow::diagnostics::LogLevel::kDebug
+                            : openwow::diagnostics::LogLevel::kWarn;
+    if (openwow::diagnostics::IsLogEnabled(level)) {
+      openwow::diagnostics::Log(
+          level, "NPC interaction status stage=query source=" + std::string(source) +
+                     " guid=" + guid.ToString() +
+                     " entry=" + std::to_string(owner_.GetEntry()) +
+                     " flags=" + std::to_string(npc_flags) + " opcode=" + opcode +
+                     (sent ? " result=sent" : " reason=send-failed"));
+    }
+  };
+  if (questgiver) {
+    log_status_query(
+        session.Send(net::wotlk::PacketSender::BuildQuestgiverStatusQuery(guid.GetRawValue())),
+        "CMSG_QUESTGIVER_STATUS_QUERY");
+  }
+  if (flightmaster) {
+    log_status_query(session.interaction().SendTaxiNodeStatusQuery(guid.GetRawValue()),
+                     "CMSG_TAXINODE_STATUS_QUERY");
+  }
 }
 
 void UnitInteractionRuntime::RefreshLinkedVisibleUnitFactionState() const {
@@ -1065,10 +1131,8 @@ void UnitInteractionRuntime::ApplyActivePlayerDeathSideEffects(
 }
 
 void UnitInteractionRuntime::OnNPCInteractionFlagsChanged(
-    WorldSession &session, const std::uint32_t new_flags) {
-  const std::uint32_t old_flags = cached_npc_interaction_flags_;
+    WorldSession &session, const std::uint32_t old_flags, const std::uint32_t new_flags) {
   const std::uint32_t changed   = old_flags ^ new_flags;
-  cached_npc_interaction_flags_  = new_flags;
 
   if (changed == 0) {
     return;
@@ -1084,6 +1148,7 @@ void UnitInteractionRuntime::OnNPCInteractionFlagsChanged(
   }
 
   if ((changed & 0x2) != 0) {
+    RefreshNpcInteractionStatus(session, "questgiver-flags-update");
     if ((new_flags & 0x2) == 0) {
       {
         const auto &qf_state = session.quests().quest_frame_interaction_state();
@@ -1099,6 +1164,7 @@ void UnitInteractionRuntime::OnNPCInteractionFlagsChanged(
   }
 
   if ((changed & 0x2000) != 0) {
+    RefreshNpcInteractionStatus(session, "flightmaster-flags-update");
     if ((new_flags & 0x2000) == 0) {
       if (GetTaxiMapFrameNpcGuid(session.taxi()) == my_guid) {
         TaxiMapFrame_Close(session);

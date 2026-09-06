@@ -860,6 +860,7 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
   cbs.on_object_created = [this](WorldObject &obj) {
     if (obj.IsUnit()) {
       auto& unit = static_cast<CGUnit_C&>(obj);
+      unit.Interaction().RefreshNpcInteractionStatus(*this, "object-create");
 
       unit.Mount().ApplyDisplayChange(
           unit, *this, unit.Mount().DisplayId(unit));
@@ -987,6 +988,12 @@ WorldSession::WorldSession(openwow::data::DBCacheRuntime& db_cache_runtime,
         *this, static_cast<const CGItem_C&>(obj));
   };
   cbs.on_object_packet_promoted = [this](WorldObject& obj) {
+    if (obj.IsUnit()) {
+      static_cast<CGUnit_C&>(obj).Interaction().RefreshNpcInteractionStatus(
+          *this, "object-promotion");
+    }
+    RefreshCreatedGameObjectQuestgiverStatus(obj);
+
     if (obj.IsPlayer() && obj.IsActivePlayer()) {
 
       RebindActivePlayerDescriptorCallbacks(obj.GetGuid());

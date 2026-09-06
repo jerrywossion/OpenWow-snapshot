@@ -1813,11 +1813,11 @@ void InteractionSender::SendClearActionButton(std::uint8_t slot) {
   }
 }
 
-void InteractionSender::SendTaxiNodeStatusQuery(std::uint64_t guid) {
+bool InteractionSender::SendTaxiNodeStatusQuery(std::uint64_t guid) {
 
   WorldPacket pkt(Opcode::CMSG_TAXINODE_STATUS_QUERY);
   pkt.AppendU64(guid);
-  Send(pkt);
+  return Send(pkt);
 }
 
 void InteractionSender::SendTaxiQueryAvailableNodes(std::uint64_t guid) {

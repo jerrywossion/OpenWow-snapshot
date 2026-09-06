@@ -2024,10 +2024,13 @@ void WorldSession::RequestVisibleQuestgiverStatusRefresh() {
 
         unit.ClearOverlayModelImmediate();
       } else if ((unit.State().GetNpcFlags() & kNpcFlagFlightmaster) != 0) {
-        Send(net::wotlk::PacketSender::BuildQuestgiverStatusQuery(
-            unit.GetGuid().GetRawValue()));
-
-        interaction().SendTaxiNodeStatusQuery(unit.GetGuid().GetRawValue());
+        if (!interaction().SendTaxiNodeStatusQuery(unit.GetGuid().GetRawValue())) {
+          openwow::diagnostics::Log(
+              openwow::diagnostics::LogLevel::kWarn,
+              "NPC interaction status stage=query source=visible-set-refresh guid=" +
+                  unit.GetGuid().ToString() +
+                  " opcode=CMSG_TAXINODE_STATUS_QUERY reason=send-failed");
+        }
       }
     } else if (obj.IsGameObject()) {
       auto &go = static_cast<CGGameObject_C &>(obj);
@@ -2039,7 +2042,13 @@ void WorldSession::RequestVisibleQuestgiverStatusRefresh() {
     }
   });
 
-  Send(net::wotlk::PacketSender::BuildQuestgiverStatusMultipleQuery());
+  if (!Send(net::wotlk::PacketSender::BuildQuestgiverStatusMultipleQuery())) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "NPC interaction status stage=query source=visible-set-refresh player=" +
+            active_player->GetGuid().ToString() +
+            " opcode=CMSG_QUESTGIVER_STATUS_MULTIPLE_QUERY reason=send-failed");
+  }
 }
 
 void WorldSession::RefreshCreatedGameObjectQuestgiverStatus(const WorldObject &obj) {
@@ -2054,7 +2063,14 @@ void WorldSession::RefreshCreatedGameObjectQuestgiverStatus(const WorldObject &o
     return;
   }
 
-  Send(net::wotlk::PacketSender::BuildQuestgiverStatusQuery(game_object.GetGuid().GetRawValue()));
+  if (!Send(net::wotlk::PacketSender::BuildQuestgiverStatusQuery(
+          game_object.GetGuid().GetRawValue()))) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "NPC interaction status stage=query source=gameobject-availability guid=" +
+            game_object.GetGuid().ToString() +
+            " opcode=CMSG_QUESTGIVER_STATUS_QUERY reason=send-failed");
+  }
 }
 
 void WorldSession::ClearDestroyedQuestgiverStatus(const ObjectGuid &guid) {
