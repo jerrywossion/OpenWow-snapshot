@@ -297,8 +297,10 @@ void GameUIManager::ResetPerformanceCounters() noexcept {
   frame_traversal_index_.ResetMetrics();
 }
 
-void GameUIManager::SetViewportSize(const float width, const float height) {
-  if (retained_layout_.SetViewport(width, height) &&
+void GameUIManager::SetViewportSize(
+    const float width, const float height,
+    const std::optional<openwow::ui::framexml::ViewportInsets> insets) {
+  if (retained_layout_.SetViewport(width, height, insets) &&
       frame_xml_loader_->post_bootstrap_complete()) {
     SyncGameUiScaleFromCVars(*this, true);
   }

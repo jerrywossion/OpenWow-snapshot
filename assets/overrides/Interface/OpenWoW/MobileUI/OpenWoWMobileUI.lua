@@ -373,8 +373,9 @@ local function PlaceToggle()
     local top = bounds.top
     if Minimap:IsVisible() then
         local scale = Minimap:GetEffectiveScale() / UIParent:GetEffectiveScale()
-        right = Minimap:GetLeft() * scale - 8 * u
-        top = (Minimap:GetTop() + Minimap:GetBottom()) * 0.5 * scale + size * 0.5
+        right = Minimap:GetLeft() * scale - UIParent:GetLeft() - 8 * u
+        top = (Minimap:GetTop() + Minimap:GetBottom()) * 0.5 * scale -
+              UIParent:GetBottom() + size * 0.5
     end
     -- Stay inside the device safe area even if the map is moved or rescaled.
     right = math.max(bounds.left + size, math.min(bounds.right, right))
@@ -396,8 +397,7 @@ local actionLayout = {
 }
 
 function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
-                                    logicalWidth, logicalHeight,
-                                    safeLeft, safeTop, safeRight, safeBottom)
+                                    logicalWidth, logicalHeight)
     if not logicalWidth or not logicalHeight or logicalWidth <= 0 or
             logicalHeight <= 0 or drawableWidth <= 0 or drawableHeight <= 0 then
         error("OpenWoWMobile_ApplyMetrics: invalid drawable or logical viewport")
@@ -407,19 +407,21 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     state.logicalWidth = logicalWidth
     state.logicalHeight = logicalHeight
 
-    local u = UIParent:GetHeight() / logicalHeight
+    -- UIParent is already inset by the native layout viewport. Size controls
+    -- in device points using the full screen, then anchor inside that root.
+    local u = GetScreenHeight() / logicalHeight
     state.unitsPerPoint = u
     state.safeBounds = {
-        left = (safeLeft + 14) * u,
-        right = UIParent:GetWidth() - (safeRight + 14) * u,
-        bottom = (safeBottom + 14) * u,
-        top = UIParent:GetHeight() - (safeTop + 14) * u,
+        left = 14 * u,
+        right = UIParent:GetWidth() - 14 * u,
+        bottom = 14 * u,
+        top = UIParent:GetHeight() - 14 * u,
     }
 
     actionCluster:ClearAllPoints()
     actionCluster:SetSize(316 * u, 236 * u)
     actionCluster:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT",
-                           -(safeRight + 14) * u, (safeBottom + 14) * u)
+                           -14 * u, 14 * u)
 
     local function PlaceControl(button, x, y, size)
         SizeButton(button, size, u)
@@ -465,12 +467,13 @@ function OpenWoWMobile_SetJoystick(originX, originY, knobX, knobY, active)
         joystick:Hide()
         return
     end
-    local horizontalScale = UIParent:GetWidth() / state.drawableWidth
-    local verticalScale = UIParent:GetHeight() / state.drawableHeight
-    local originUiX = originX * horizontalScale
-    local originUiY = (state.drawableHeight - originY) * verticalScale
-    local knobUiX = knobX * horizontalScale
-    local knobUiY = (state.drawableHeight - knobY) * verticalScale
+    local unitsPerPixel = GetScreenHeight() / state.drawableHeight
+    local left = UIParent:GetLeft()
+    local bottom = UIParent:GetBottom()
+    local originUiX = originX * unitsPerPixel - left
+    local originUiY = (state.drawableHeight - originY) * unitsPerPixel - bottom
+    local knobUiX = knobX * unitsPerPixel - left
+    local knobUiY = (state.drawableHeight - knobY) * unitsPerPixel - bottom
     joystick:ClearAllPoints()
     joystick:SetPoint("CENTER", UIParent, "BOTTOMLEFT", originUiX, originUiY)
     joystickKnob:ClearAllPoints()
@@ -496,7 +499,7 @@ root:SetScript("OnEvent", function(self, event)
 end)
 
 OpenWoWMobile_ApplyMetrics(UIParent:GetWidth(), UIParent:GetHeight(),
-                           844, 390, 0, 0, 0, 0)
+                           844, 390)
 
 Minimap:HookScript("OnShow", PlaceToggle)
 Minimap:HookScript("OnHide", PlaceToggle)

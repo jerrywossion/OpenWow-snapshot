@@ -305,6 +305,20 @@ void RegisterMobileHudPreview(openwow::ui::game::CVarSystem &cvars) {
   cvars.RegisterCVar("mobileHudPreview", "0",
                      openwow::ui::game::CVarFlags::Archive,
                      "Preview the iOS HUD on macOS (requires UI reload)");
+  cvars.RegisterNativeCVar("mobileHudPreviewSafeInset", "0",
+      openwow::ui::game::CVarFlags::Archive,
+      "Uniform safe-area inset in points for macOS mobile HUD preview (0-100)",
+      [](const std::string&, const std::string&, const std::string& text) {
+        char* end = nullptr;
+        const float value = std::strtof(text.c_str(), &end);
+        if (end != text.c_str() && *end == '\0' && value >= 0.0F && value <= 100.0F) {
+          return true;
+        }
+        openwow::core::ida::ConsoleAddLine(
+            "mobileHudPreviewSafeInset must be between 0 and 100 points.",
+            openwow::core::ida::COLOR_DEFAULT);
+        return false;
+      }, 0.0F, 100.0F);
 #else
   (void)cvars;
 #endif
@@ -953,14 +967,13 @@ void GlueClient::SyncGlueViewportFromWindow() {
 void GlueClient::RefreshLayout() {
 #if defined(OPENWOW_PLATFORM_IOS)
   RefreshMobileInputViewport();
+#elif defined(__APPLE__)
+  RefreshMobileHudPreviewViewport();
 #endif
   int width = 0;
   int height = 0;
   GetDrawableSize(window_, &width, &height);
   if (width == layout_width_ && height == layout_height_) {
-#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
-    RefreshMobileHudPreviewViewport();
-#endif
     return;
   }
   layout_width_ = width;
@@ -978,9 +991,6 @@ void GlueClient::RefreshLayout() {
   game_loop_.SetScreenSize(drawable_w, drawable_h);
 
   FireGlueEvent("DISPLAY_SIZE_CHANGED", {});
-#if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
-  RefreshMobileHudPreviewViewport();
-#endif
 }
 
 void GlueClient::DispatchPendingScrollRangeChangedEvents() {

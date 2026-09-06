@@ -211,7 +211,9 @@ ComputeNearestMatchingFramePointPlacement(
 std::string SerializeLayoutCache(
     const std::vector<openwow::ui::framexml::UiFrame>& frames,
     int viewport_width,
-    int viewport_height) {
+    int viewport_height,
+    const openwow::ui::framexml::ViewportInsets insets,
+    const float root_scale) {
   std::ostringstream out;
   out << "Version: 1\n";
 
@@ -219,9 +221,9 @@ std::string SerializeLayoutCache(
     return out.str();
   }
 
-  const float ui_scale = static_cast<float>(viewport_height) / 768.0f;
+  const float ui_scale = static_cast<float>(viewport_height) / 768.0f * root_scale;
   const auto layout = openwow::ui::framexml::ResolveLayout(
-      frames, viewport_width, viewport_height, ui_scale);
+      frames, viewport_width, viewport_height, ui_scale, insets);
 
   std::unordered_map<std::string, const UiFrame*> frames_by_name;
   frames_by_name.reserve(frames.size());

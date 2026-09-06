@@ -223,7 +223,9 @@ public:
     return retained_layout_.root_scale();
   }
 
-  void SetViewportSize(float width, float height);
+  void SetViewportSize(
+      float width, float height,
+      std::optional<openwow::ui::framexml::ViewportInsets> insets = std::nullopt);
 
   void SetRootScale(float scale, bool force = false);
   [[nodiscard]] lua_State *lua_state() const {

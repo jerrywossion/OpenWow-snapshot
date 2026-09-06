@@ -370,7 +370,7 @@ std::string RelativeName(const openwow::ui::framexml::UiFrame& frame,
 openwow::ui::framexml::FrameRect ReferenceRect(
     const openwow::ui::TransparentStringMap<openwow::ui::framexml::FrameRect>& rects,
     float width, float height, std::string_view name) {
-  if (!name.empty() && name != "UIParent") {
+  if (!name.empty()) {
     if (const auto it = rects.find(name); it != rects.end()) return it->second;
   }
   return {.x = 0, .y = 0, .width = static_cast<int>(std::lround(width)),
@@ -488,6 +488,7 @@ struct RetainedLayout::Impl {
   std::unordered_map<std::string, PendingNaturalSize> natural_size_pending;
   float width{1280.0F};
   float height{720.0F};
+  openwow::ui::framexml::ViewportInsets insets;
   float root_scale{1.0F};
   std::int32_t mode{0};
   bool dirty{true};
@@ -968,7 +969,7 @@ struct RetainedLayout::Impl {
     metrics.last_on_demand_frames = solve_frames.size();
     auto solved = openwow::ui::framexml::ResolveExpandedLayout(
         solve_frames, static_cast<int>(width), static_cast<int>(height),
-        height / kUiVirtualHeight * root_scale);
+        height / kUiVirtualHeight * root_scale, insets);
     std::vector<SizeCommit> size_commits;
     bool rects_changed = false;
     for (const auto* frame : solve_frames) {
@@ -1073,12 +1074,36 @@ std::uint64_t RetainedLayout::ScrollFrameRangesGeneration() const noexcept {
   return impl_->scroll_frame_ranges_generation;
 }
 
-bool RetainedLayout::SetViewport(float width, float height) {
+bool RetainedLayout::SetViewport(
+    float width, float height,
+    const std::optional<openwow::ui::framexml::ViewportInsets> insets) {
   width = std::max(1.0F, width); height = std::max(1.0F, height);
-  if (impl_->width == width && impl_->height == height) return false;
+  const auto next = insets.value_or(impl_->insets);
+  if (next.left < 0 || next.top < 0 || next.right < 0 || next.bottom < 0 ||
+      static_cast<double>(next.left) + next.right >= width ||
+      static_cast<double>(next.top) + next.bottom >= height) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+        "HUD viewport rejected invalid safe insets: drawable=" +
+        std::to_string(width) + "x" + std::to_string(height) +
+        " left/top/right/bottom=" + std::to_string(next.left) + "/" +
+        std::to_string(next.top) + "/" + std::to_string(next.right) + "/" +
+        std::to_string(next.bottom));
+    return false;
+  }
+  if (impl_->width == width && impl_->height == height && impl_->insets == next)
+    return false;
+  if (impl_->insets != next || next != openwow::ui::framexml::ViewportInsets{}) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+        "HUD viewport safe insets: drawable=" + std::to_string(width) + "x" +
+        std::to_string(height) + " left/top/right/bottom=" +
+        std::to_string(next.left) + "/" + std::to_string(next.top) + "/" +
+        std::to_string(next.right) + "/" + std::to_string(next.bottom));
+  }
   impl_->width = width; impl_->height = height;
+  impl_->insets = next;
   impl_->dirty = true;
   impl_->full_solve_required = true;
+  if (impl_->ports.hit_test_invalidated) impl_->ports.hit_test_invalidated();
   return true;
 }
 void RetainedLayout::SetRootScale(float scale, bool force, bool defer_solve) {
@@ -1179,7 +1204,7 @@ void RetainedLayout::SolveIfDirty() {
     x.solved_scratch.clear();
     openwow::ui::framexml::ResolveExpandedLayoutInto(
         solve_frames, static_cast<int>(x.width), static_cast<int>(x.height),
-        scale, &x.solved_scratch);
+        scale, &x.solved_scratch, x.insets);
 
     std::vector<Impl::SizeCommit> size_commits;
     bool rects_changed = false;
@@ -1217,7 +1242,7 @@ void RetainedLayout::SolveIfDirty() {
     const auto frames = x.frames.CollectFramePointersInRegistrationOrder();
 
     auto resolved = openwow::ui::framexml::ResolveExpandedLayout(
-        frames, static_cast<int>(x.width), static_cast<int>(x.height), scale);
+        frames, static_cast<int>(x.width), static_cast<int>(x.height), scale, x.insets);
     std::vector<Impl::SizeCommit> size_commits;
     size_commits.reserve(frames.size());
     for (const auto* frame : frames) {
@@ -1270,7 +1295,8 @@ RetainedLayout::ScrollFrameRanges RetainedLayout::ResolveScrollFrameRanges(
 std::string RetainedLayout::BuildLayoutCache() {
   RefreshTrackedLayout();
   return SerializeLayoutCache(impl_->frames.CollectFramesInRegistrationOrder(),
-                              static_cast<int>(impl_->width), static_cast<int>(impl_->height));
+                              static_cast<int>(impl_->width), static_cast<int>(impl_->height),
+                              impl_->insets, impl_->root_scale);
 }
 
 void RetainedLayout::ApplyLayoutCache(std::string_view text) {
@@ -1451,10 +1477,10 @@ bool RetainedLayout::UpdateMoveSizing(MoveSizingSession* session, float x, float
         .left = left, .top = top_edge, .right = right, .bottom = bottom};
     openwow::ui::ClampRectEdgesYDownPreservingSpan(
         &edges, openwow::ui::RectBoundsYDown{
-                    .min_left = -frame->clamp_rect_inset_left * scale,
-                    .min_top = frame->clamp_rect_inset_top * scale,
-                    .max_right = impl_->width - frame->clamp_rect_inset_right * scale,
-                    .max_bottom = impl_->height + frame->clamp_rect_inset_bottom * scale});
+                    .min_left = impl_->insets.left - frame->clamp_rect_inset_left * scale,
+                    .min_top = impl_->insets.top + frame->clamp_rect_inset_top * scale,
+                    .max_right = impl_->width - impl_->insets.right - frame->clamp_rect_inset_right * scale,
+                    .max_bottom = impl_->height - impl_->insets.bottom + frame->clamp_rect_inset_bottom * scale});
     left = edges.left; top_edge = edges.top; right = edges.right; bottom = edges.bottom;
   }
   const auto relative = ReferenceRect(impl_->rects, impl_->width, impl_->height, session->relative_name);
@@ -1570,7 +1596,9 @@ std::optional<openwow::ui::framexml::FrameRect> RetainedLayout::ResolveAnonymous
     region.layout_offset_y = static_cast<float>(value);
   openwow::ui::TransparentStringMap<RectDdc> rects;
   rects.reserve(impl_->rects.size() + 2U);
-  rects.emplace("UIParent", RectDdc{0.0F, 0.0F, impl_->width, impl_->height});
+  rects.emplace("UIParent", RectDdc{
+      static_cast<float>(impl_->insets.left), static_cast<float>(impl_->insets.bottom),
+      impl_->width - impl_->insets.right, impl_->height - impl_->insets.top});
   for (const auto& [name, rect] : impl_->rects) {
     const float max_y = impl_->height - rect.y;
     rects.insert_or_assign(name, RectDdc{static_cast<float>(rect.x),

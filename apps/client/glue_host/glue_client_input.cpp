@@ -740,25 +740,33 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
 
 #if defined(__APPLE__) && !defined(OPENWOW_PLATFORM_IOS)
 void GlueClient::RefreshMobileHudPreviewViewport() {
-  if (!game_loop_.game_ui().is_initialized() ||
-      !openwow::ui::game::CVarSystem::Instance().GetCVarBool("mobileHudPreview")) {
-    return;
-  }
+  const auto& cvars = openwow::ui::game::CVarSystem::Instance();
+  const bool preview = cvars.GetCVarBool("mobileHudPreview");
   int logical_width = 0;
   int logical_height = 0;
+  int drawable_width = 0;
+  int drawable_height = 0;
   SDL_GetWindowSize(window_, &logical_width, &logical_height);
+  GetDrawableSize(window_, &drawable_width, &drawable_height);
   if (logical_width <= 0 || logical_height <= 0 ||
-      layout_width_ <= 0 || layout_height_ <= 0) {
+      drawable_width <= 0 || drawable_height <= 0) {
     return;  // A minimized window has no preview surface.
   }
-  // Use the same point-to-framebuffer conversion as iOS. The desktop window
-  // supplies its own logical size and has no device safe-area insets.
+  const float inset = preview ? cvars.GetCVarFloat("mobileHudPreviewSafeInset") : 0.0F;
+  const int horizontal = static_cast<int>(std::ceil(inset * drawable_width / logical_width));
+  const int vertical = static_cast<int>(std::ceil(inset * drawable_height / logical_height));
+  auto& game_ui = game_loop_.game_ui();
+  game_ui.SetViewportSize(drawable_width, drawable_height,
+      openwow::ui::framexml::ViewportInsets{horizontal, vertical, horizontal, vertical});
+  if (!preview || !game_ui.is_initialized()) {
+    return;
+  }
   (void)openwow::ui::CallLuaGlobalIfFunction(
-      game_loop_.game_ui().lua_state(), "OpenWoWMobile_ApplyMetrics",
-      static_cast<double>(layout_width_),
-      static_cast<double>(layout_height_),
+      game_ui.lua_state(), "OpenWoWMobile_ApplyMetrics",
+      static_cast<double>(drawable_width),
+      static_cast<double>(drawable_height),
       static_cast<double>(logical_width),
-      static_cast<double>(logical_height), 0.0, 0.0, 0.0, 0.0);
+      static_cast<double>(logical_height));
 }
 #endif
 
@@ -766,20 +774,25 @@ void GlueClient::RefreshMobileHudPreviewViewport() {
 void GlueClient::RefreshMobileInputViewport() {
   mobile_input_.RefreshViewport(
       window_, openwow::platform::WindowManager::Get().GetNativeHandle());
-  if (!game_loop_.game_ui().is_initialized()) {
+  const auto& viewport = mobile_input_.viewport();
+  auto& game_ui = game_loop_.game_ui();
+  // Publish the drawable and safe area together, including before FrameXML
+  // startup. Reload retains these platform metrics in the layout owner.
+  game_ui.SetViewportSize(viewport.drawable_width, viewport.drawable_height,
+      openwow::ui::framexml::ViewportInsets{
+          static_cast<int>(std::ceil(viewport.safe_left_drawable)),
+          static_cast<int>(std::ceil(viewport.safe_top_drawable)),
+          static_cast<int>(std::ceil(viewport.safe_right_drawable)),
+          static_cast<int>(std::ceil(viewport.safe_bottom_drawable))});
+  if (!game_ui.is_initialized()) {
     return;
   }
-  const auto& viewport = mobile_input_.viewport();
   (void)openwow::ui::CallLuaGlobalIfFunction(
-      game_loop_.game_ui().lua_state(), "OpenWoWMobile_ApplyMetrics",
+      game_ui.lua_state(), "OpenWoWMobile_ApplyMetrics",
       static_cast<double>(viewport.drawable_width),
       static_cast<double>(viewport.drawable_height),
       static_cast<double>(viewport.logical_width),
-      static_cast<double>(viewport.logical_height),
-      static_cast<double>(viewport.safe_area_points.left),
-      static_cast<double>(viewport.safe_area_points.top),
-      static_cast<double>(viewport.safe_area_points.right),
-      static_cast<double>(viewport.safe_area_points.bottom));
+      static_cast<double>(viewport.logical_height));
 }
 
 void GlueClient::UpdateMobileMovement(

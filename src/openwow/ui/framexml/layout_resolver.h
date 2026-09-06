@@ -19,20 +19,32 @@ struct FrameRect {
   int height{0};
 };
 
+// Insets are framebuffer pixels; the world viewport and UI unit scale remain
+// based on the full drawable surface.
+struct ViewportInsets {
+  int left{0};
+  int top{0};
+  int right{0};
+  int bottom{0};
+  bool operator==(const ViewportInsets&) const = default;
+};
+
 openwow::ui::TransparentStringMap<FrameRect> ResolveLayout(const std::vector<UiFrame>& frames,
                                                          int viewport_width,
                                                          int viewport_height,
-                                                         float ui_scale = 1.0f);
+                                                         float ui_scale = 1.0f,
+                                                         ViewportInsets insets = {});
 
 openwow::ui::TransparentStringMap<FrameRect>
 ResolveExpandedLayout(std::span<const UiFrame *const> frames,
                       int viewport_width, int viewport_height,
-                      float ui_scale = 1.0f);
+                      float ui_scale = 1.0f, ViewportInsets insets = {});
 
 void ResolveExpandedLayoutInto(std::span<const UiFrame *const> frames,
                                int viewport_width, int viewport_height,
                                float ui_scale,
-                               std::vector<std::optional<FrameRect>> *out_rects);
+                               std::vector<std::optional<FrameRect>> *out_rects,
+                               ViewportInsets insets = {});
 
 std::vector<UiFrame> SortByRenderOrder(const std::vector<UiFrame>& frames);
 

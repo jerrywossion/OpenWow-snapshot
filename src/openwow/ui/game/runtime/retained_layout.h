@@ -94,7 +94,9 @@ class RetainedLayout final {
   [[nodiscard]] const openwow::ui::TransparentStringMap<openwow::ui::framexml::FrameRect>&
   rects() const noexcept;
 
-  [[nodiscard]] bool SetViewport(float width, float height);
+  [[nodiscard]] bool SetViewport(
+      float width, float height,
+      std::optional<openwow::ui::framexml::ViewportInsets> insets = std::nullopt);
   void SetRootScale(float scale, bool force, bool defer_solve);
   void SetMode(std::int32_t mode) noexcept;
   void SetBootstrapActive(bool active) noexcept;

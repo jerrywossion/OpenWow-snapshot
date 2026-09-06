@@ -65,6 +65,20 @@ not load it.
   used for `zhCN`; other locales receive English labels.
 
 The original FrameXML remains loaded and unchanged underneath the mobile HUD.
+On iOS, the platform publishes the drawable size and UIKit safe-area insets
+together to the world UI layout. `UIParent` occupies that safe rectangle, so
+the original player/target frames, chat, action bars, minimap and add-ons
+anchored to it all avoid the notch and home indicator. Screen-clamped frames
+and saved/dragged positions use the same bounds. The world viewport and
+world-input frame still cover the full drawable; UI scale is based on that
+full drawable too, so adding insets does not shrink fonts or buttons. Insets
+survive UI reload and update with orientation/window changes even when the
+mobile HUD is hidden. Frames deliberately positioned outside `UIParent` or
+anchored to the world viewport need their own presentation policy.
+
+The mobile HUD adds its existing 14-point spacing inside this shared root;
+it does not apply the UIKit insets a second time. Joystick visuals convert
+full-screen touch positions to root-relative coordinates.
 External keyboard, mouse/trackpad and controller routes stay active. Virtual
 movement uses independent source ownership, so releasing one input device does
 not cancel the same command still held by another.
@@ -108,7 +122,11 @@ Use a landscape window sized in macOS logical points, for example about
 844 by 390 for a phone layout or 1194 by 834 for a tablet layout. HUD sizes use
 those window points, while drawing and mouse hit testing use framebuffer
 pixels; Retina scaling is accounted for. Resizing and UI reload republish
-the viewport metrics. Desktop safe-area insets are zero. This previews the
+the viewport metrics. Desktop safe-area insets default to zero. With preview
+enabled, `/console mobileHudPreviewSafeInset 44` simulates a uniform 44-point
+inset on all four sides, including the original HUD. Changes apply without a
+reload; set it to `0` to restore the full window. This setting is macOS-only
+and does not replace the device's actual safe area. This previews the
 shared layout, labels, action layers, cooldowns and panel interactions;
 device safe areas, multi-touch ownership, haptics and thumb reach still need
 an iOS device. Desktop keyboard and mouse keep their usual behavior.
@@ -165,10 +183,21 @@ not establish device visual, interaction or comfort acceptance.
    the core checks with external keyboard/mouse/controller input.
 8. Background the application while moving or dragging the camera. Resume must
    not leave movement, freelook, pressed visuals or text input stuck.
+9. On a notched iPhone, check the original player/target frames, chat, action
+   bars, minimap and opened panels with both landscape orientations. The HUD
+   should move inside the current safe area while the world continues behind
+   it to the screen edges. Repeat with the touch HUD hidden and after `/reload`;
+   check that touch hit targets and joystick visuals stay aligned. Drag a
+   screen-clamped panel to each edge and reload to check its saved position.
+   Repeat the drag/reload check with a custom UI scale enabled.
+   On iPad, confirm that zero side insets do not create artificial side gaps.
 
 The log records `iOS internal mobile interaction layer loaded` after the
 internal TOC succeeds. A missing or invalid mobile layer is a world-UI startup
 error rather than a silent fallback.
+`HUD viewport safe insets` records changed drawable dimensions and the
+left/top/right/bottom insets in framebuffer pixels. Include those entries when
+reporting notch, rotation or hit-target alignment failures.
 
 For a failed device check, return `logs/openwow-client.log` from the resolved
 iOS user-data root, covering the latest `log-start`/`Client startup` through the
