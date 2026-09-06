@@ -948,7 +948,9 @@ struct RetainedLayout::Impl {
     std::size_t synchronized = 0;
     for (std::size_t cursor = 0; cursor < names.size(); ++cursor) {
       const auto& name = names[cursor];
-      if (pending_members.erase(name) != 0) {
+      // A query commits only this dependency closure. Keep the invalidation
+      // until the frame pass also updates dependents outside the closure.
+      if (pending_members.contains(name)) {
         Sync(std::span<const std::string>(&name, 1));
         ++synchronized;
       }
@@ -1277,9 +1279,8 @@ void RetainedLayout::RefreshTrackedLayout() {
 }
 
 const openwow::ui::framexml::FrameRect* RetainedLayout::FindRect(std::string_view name) {
-  if (impl_->dirty && (impl_->construction_depth != 0 || impl_->bootstrap_active))
+  if (impl_->dirty)
     impl_->SolveOnDemand(name);
-  else SolveIfDirty();
   const auto it = impl_->rects.find(name);
   return it == impl_->rects.end() ? nullptr : &it->second;
 }
