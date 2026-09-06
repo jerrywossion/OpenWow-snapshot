@@ -2159,6 +2159,8 @@ int LuaRegisterForSave(lua_State *L) {
 int LuaReloadUI(lua_State *L) {
 
   if (!GameUI_CanPerformHardwareEventAction()) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "WorldUI reload rejected: source=ReloadUI reason=protected-action-gate");
     return 0;
   }
   openwow::ui::game::RequestWorldUiReload(L);

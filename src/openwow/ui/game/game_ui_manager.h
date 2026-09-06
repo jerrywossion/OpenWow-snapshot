@@ -351,6 +351,7 @@ public:
   openwow::ui::display::ProductionDisplaySettingsRuntime*
       display_settings_runtime_{nullptr};
   WorldUiLifecycleCommandPort* lifecycle_commands_{nullptr};
+  std::uint64_t reload_console_registration_{0};
 
   std::unique_ptr<runtime::render::UiRenderResources> render_resources_;
   openwow::game::actions::held_cursor::HeldCursor* held_cursor_{nullptr};

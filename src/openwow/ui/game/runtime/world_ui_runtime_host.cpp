@@ -159,7 +159,7 @@ void WorldUiRuntimeHost::SaveSavedVariables() {
 
 void WorldUiRuntimeHost::Shutdown() {
   owner_.frame_input_router_.SetRunningMacroInputButtonProvider({});
-  owner_.lifecycle_commands_ = nullptr;
+  owner_.BindWorldUiLifecycleCommands(nullptr);
   if (!initialized()) {
     return;
   }

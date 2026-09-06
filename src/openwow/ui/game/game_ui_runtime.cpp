@@ -1,6 +1,7 @@
 #include "openwow/ui/game/game_ui_manager.h"
 #include "openwow/ui/game/runtime/render/ui_compositor.h"
 #include "openwow/ui/surfaces/game/runtime/world_ui_lifecycle_command.h"
+#include "openwow/debug/diagnostics/debug_console.h"
 #include "openwow/audio/playback/audio_engine.h"
 #include "openwow/game/c_input_control.h"
 #include "openwow/game/game_misc_utils.h"
@@ -9,6 +10,7 @@
 #include "openwow/render/resources/textures/texture_manager.h"
 #include "openwow/ui/display/settings/adapters/production_display_settings_runtime.h"
 #include "openwow/ui/game/game_ui_core.h"
+#include "openwow/ui/runtime/security/protected_action_gate.h"
 #include "openwow/ui/game/game_ui_scale.h"
 #include "openwow/ui/game/framescript/core/frame_script_invocation.h"
 #include "openwow/ui/game/framescript/core/frame_types_widgets.h"
@@ -319,12 +321,34 @@ bool GameUIManager::Initialize(const openwow::vfs::VirtualFileSystem *vfs,
 
 void GameUIManager::BindWorldUiLifecycleCommands(
     WorldUiLifecycleCommandPort* commands) {
+  auto& console = openwow::debug::DebugConsole::Get();
+  if (reload_console_registration_ != 0) {
+    (void)console.UnregisterCommandIfCurrent("reloadUI",
+                                            reload_console_registration_);
+    reload_console_registration_ = 0;
+  }
   lifecycle_commands_ = commands;
+  if (commands != nullptr) {
+    reload_console_registration_ = console.RegisterRawCommand(
+        "reloadUI", "Reload the game user interface",
+        [this](std::string_view) -> std::string {
+          if (GameUI_CanPerformHardwareEventAction()) {
+            RequestWorldUiReload();
+          } else {
+            openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+                "WorldUI reload rejected: source=console reason=protected-action-gate");
+          }
+          return {};
+        }, {}, 1);
+  }
 }
 
 void GameUIManager::RequestWorldUiReload() {
   if (lifecycle_commands_ != nullptr) {
     lifecycle_commands_->RequestWorldUiReload();
+  } else {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+        "WorldUI reload rejected: source=console reason=lifecycle-port-unbound");
   }
 }
 
