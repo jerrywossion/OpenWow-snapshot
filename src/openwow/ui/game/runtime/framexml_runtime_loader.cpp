@@ -19,6 +19,7 @@
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/game/ui_load_status_log.h"
 #include "openwow/ui/lua_c_api_convenience.h"
+#include "openwow/ui/lua_taint_api.h"
 #include "openwow/ui/ui_aspect_scales.h"
 #include "openwow/ui/widgets/script_object.h"
 #include "openwow/foundation/diagnostics/logging.h"
@@ -133,6 +134,9 @@ void AppendFrameXmlLoadResult(UiLoadStatusSink* sink,
 }
 
 int SnapshotLuaTable(lua_State* lua, const int table_index) {
+  // A load checkpoint copies retained values; it must neither acquire their
+  // execution origin nor stamp the loading add-on onto secure values.
+  const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(lua);
   const int source = lua_absindex(lua, table_index);
   lua_newtable(lua);
   const int snapshot = lua_absindex(lua, -1);
@@ -147,6 +151,7 @@ int SnapshotLuaTable(lua_State* lua, const int table_index) {
 }
 
 void RestoreLuaGlobalTable(lua_State* lua, const int snapshot_ref) {
+  const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(lua);
   lua_pushvalue(lua, LUA_GLOBALSINDEX);
   const int globals = lua_absindex(lua, -1);
   lua_newtable(lua);
@@ -177,6 +182,7 @@ void RestoreLuaGlobalTable(lua_State* lua, const int snapshot_ref) {
 }
 
 int SnapshotNamedFontRegistry(lua_State* lua) {
+  const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(lua);
   lua_getfield(lua, LUA_REGISTRYINDEX,
                frame_api::kNamedFontObjectRegistryKey);
   if (lua_istable(lua, -1) == 0) {
@@ -189,6 +195,7 @@ int SnapshotNamedFontRegistry(lua_State* lua) {
 }
 
 void RestoreNamedFontRegistry(lua_State* lua, const int snapshot_ref) {
+  const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(lua);
   if (snapshot_ref == LUA_NOREF) {
     lua_pushnil(lua);
   } else {
