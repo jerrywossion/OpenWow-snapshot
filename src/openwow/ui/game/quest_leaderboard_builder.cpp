@@ -157,7 +157,7 @@ openwow::game::AsyncQueryChannel::Callback
 BuildQuestRequirementQueryCallback(std::string failure_message) {
   return [failure_message = std::move(failure_message)](const bool success) {
     if (success) {
-      ScriptEventDispatch::Get().FireQuestQueryComplete();
+      ScriptEventDispatch::Get().QueueGlobalEvent("QUEST_LOG_UPDATE");
       return;
     }
 
