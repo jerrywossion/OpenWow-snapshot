@@ -3082,6 +3082,10 @@ int GlueClient::Run() {
     }
 
     openwow::core::FrameScheduler::Instance().RunFrame(elapsed_sec);
+    if (mode_ == UiMode::kInWorld) {
+      // Deferred touch clicks and script updates can change edit-box focus.
+      UpdateTextInputState();
+    }
 
     if (!TickScenario(ScenarioRunner::Stage::kPreRender, now_ms)) {
       running_ = false;

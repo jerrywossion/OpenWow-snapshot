@@ -38,21 +38,22 @@ public:
   bool HandleMouseButtonDownByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseButtonUpByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseMove(float x, float y);
-  bool HandleTouchDown(float x, float y, float pixels_per_point_x = 1.0F,
+  // Touch timestamps share SDL_GetTicks()'s clock, including queued events.
+  bool HandleTouchDown(float x, float y, std::uint32_t timestamp,
+                       float pixels_per_point_x = 1.0F,
                        float pixels_per_point_y = 1.0F);
-  bool HandleTouchMove(float x, float y);
-  bool HandleTouchUp(float x, float y);
-  bool BeginTouchSecondaryTap();
-  bool EndTouchSecondaryTap();
+  bool HandleTouchMove(float x, float y, std::uint32_t timestamp);
+  bool HandleTouchUp(float x, float y, std::uint32_t timestamp);
   [[nodiscard]] bool HitTestTouchTarget(float x, float y);
   void CancelTouch();
-  void UpdateTouchInspection();
-  void PreviewWorldTouch(float x, float y);
+  void UpdateTouchGestures(std::uint32_t timestamp);
+  enum class TouchTapMatch { kSingle, kDouble, kCancelled };
+  TouchTapMatch BeginWorldTouchTap(float x, float y, std::uint32_t timestamp);
   void DismissWorldTouch();
-  void ShowWorldTouchContext(float x, float y,
-                             std::function<void(std::uint32_t)> action);
-  bool HandleWorldTouchSecondaryTap(float x, float y,
-                                    std::function<void(std::uint32_t)> action);
+  void EndWorldTouchTap(float x, float y, std::uint32_t timestamp,
+                        std::uint32_t held_ms,
+                        float pixels_per_point_x, float pixels_per_point_y,
+                        std::function<void(std::uint32_t)> action);
   bool HandleMouseWheel(float x, float y, float delta);
   bool HandleKeyDown(std::uint32_t key, bool shift_down = false, bool ctrl_down = false);
   bool HandleKeyUp(std::uint32_t key);
@@ -138,7 +139,7 @@ private:
     std::string hyperlink_text;
   };
 
-  enum class TouchPhase { kPending, kSecondaryTap, kDirect, kInspect, kDrag, kScroll, kCancelled };
+  enum class TouchPhase { kPending, kDirect, kInspect, kDrag, kScroll, kCancelled };
   struct TouchGesture {
     TouchTarget target;
     TouchPhase phase{TouchPhase::kPending};
@@ -149,6 +150,8 @@ private:
     float current_y{};
     float scroll_y{};
     bool can_drag{false};
+    bool can_secondary{false};
+    bool double_tap{false};
     std::optional<TouchTarget> scroll_target;
   };
 
@@ -158,7 +161,23 @@ private:
     std::function<void(std::uint32_t)> world_action;
   };
 
+  struct PendingTouchTap {
+    TouchContext context;
+    std::uint32_t released_at_ms{};
+    float pixels_per_point_x{1.0F};
+    float pixels_per_point_y{1.0F};
+  };
+
+  struct WorldTouchTap {
+    TouchTarget target;
+    bool double_tap{false};
+  };
+
   [[nodiscard]] bool TouchTargetIsCurrent(const TouchTarget& target);
+  [[nodiscard]] bool TouchTargetAcceptsSecondary(const TouchTarget& target);
+  TouchTapMatch ResolvePendingTouchTap(const TouchTarget& next, bool can_double,
+                                       std::uint32_t timestamp);
+  void CommitPendingTouchTap(const char* source);
   void SetTouchCursorPosition(float x, float y);
   void PublishTouchHover(float x, float y);
   void ClearTouchHover();
@@ -227,6 +246,8 @@ private:
   bool touch_capture_active_{false};
   std::optional<TouchGesture> touch_gesture_;
   std::optional<TouchContext> touch_context_;
+  std::optional<PendingTouchTap> pending_touch_tap_;
+  std::optional<WorldTouchTap> world_touch_tap_;
   std::optional<std::uint32_t> pending_touch_context_action_;
   bool touch_pointer_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;

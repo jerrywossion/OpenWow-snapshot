@@ -147,9 +147,6 @@ constexpr float kMobileMovementDeadZone = 0.20F;
 constexpr float kMobileCameraDragThresholdPoints = 9.0F;
 constexpr float kMobileWorldTapTolerancePoints = 12.0F;
 constexpr std::uint32_t kMobileContextPressMilliseconds = 475u;
-constexpr std::uint32_t kMobileSecondaryJoinMilliseconds = 180u;
-constexpr std::uint32_t kMobileSecondaryTapMilliseconds = 300u;
-constexpr float kMobileSecondarySpanPoints = 96.0F;
 constexpr float kMobilePinchPointsPerWheelStep = 36.0F;
 
 float TouchDistance(const mobile::TouchPoint& first,
@@ -940,22 +937,6 @@ void GlueClient::EndMobileCamera() {
 void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   using mobile::TouchOwner;
 
-  const auto moved_beyond_tap = [](const mobile::TouchContact& contact) {
-    return TouchDistance(contact.start, contact.current) >=
-        kMobileCameraDragThresholdPoints;
-  };
-  const auto cancel_secondary_tap = [this] {
-    if (mobile_secondary_tap_ && mobile_secondary_tap_->targets_ui &&
-        game_loop_.game_ui().is_initialized()) {
-      game_loop_.game_ui().input_router().CancelTouch();
-    }
-    while (auto* contact = mobile_input_.FindContactByOwner(TouchOwner::kSecondaryTap)) {
-      contact->owner = TouchOwner::kIgnored;
-    }
-    mobile_secondary_tap_.reset();
-    mobile_pinch_distance_ = 0.0F;
-  };
-
   if (event.type == SDL_FINGERDOWN) {
     auto* const contact = mobile_input_.BeginContact(event);
     if (contact == nullptr) {
@@ -965,43 +946,10 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
       auto* const game_ui = game_loop_.game_ui().is_initialized()
                                 ? &game_loop_.game_ui()
                                 : nullptr;
-      if (mobile_secondary_tap_) {
-        // A third new contact cancels the chord instead of adding a click.
-        contact->owner = TouchOwner::kIgnored;
-        cancel_secondary_tap();
-        return;
-      }
-      auto* first = mobile_input_.FindContactByOwner(TouchOwner::kWorldUi);
-      const bool targets_ui = first != nullptr;
-      if (first == nullptr) first = mobile_input_.FindContactByOwner(TouchOwner::kWorldTap);
-      if (game_ui != nullptr && first != nullptr &&
-          !mobile_input_.HasOwner(TouchOwner::kPinch) &&
-          first->touch_id == contact->touch_id &&
-          event.timestamp - first->started_at_ms <= kMobileSecondaryJoinMilliseconds &&
-          !moved_beyond_tap(*first) &&
-          TouchDistance(first->start, contact->start) <= kMobileSecondarySpanPoints) {
-        const bool second_hits_ui = game_ui->input_router().HitTestTouchTarget(
-            contact->current.drawable_x, contact->current.drawable_y);
-        const bool starts_movement = !second_hits_ui &&
-            !mobile_input_.HasOwner(TouchOwner::kMovement) &&
-            IsMobileMovementRegion(contact->current, mobile_input_.viewport());
-        if (!starts_movement &&
-            (targets_ui ? game_ui->input_router().BeginTouchSecondaryTap()
-                        : !second_hits_ui)) {
-          mobile_secondary_tap_ = MobileSecondaryTap{
-              .target_x = first->start.drawable_x, .target_y = first->start.drawable_y,
-              .started_at_ms = first->started_at_ms, .targets_ui = targets_ui};
-          first->owner = TouchOwner::kSecondaryTap;
-          contact->owner = TouchOwner::kSecondaryTap;
-          mobile_pinch_distance_ = TouchDistance(first->start, contact->start);
-          if (!targets_ui) game_ui->input_router().DismissWorldTouch();
-          return;
-        }
-      }
       if (game_ui != nullptr &&
           !mobile_input_.HasOwner(TouchOwner::kWorldUi) &&
           game_ui->input_router().HandleTouchDown(
-              contact->current.drawable_x, contact->current.drawable_y,
+              contact->current.drawable_x, contact->current.drawable_y, event.timestamp,
               mobile_input_.viewport().drawable_scale_x,
               mobile_input_.viewport().drawable_scale_y)) {
         contact->owner = TouchOwner::kWorldUi;
@@ -1038,8 +986,12 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
             TouchDistance(other_world_contact->current, contact->current);
         if (game_ui != nullptr) game_ui->input_router().DismissWorldTouch();
       } else if (game_ui != nullptr) {
-        game_ui->input_router().PreviewWorldTouch(
-            contact->current.drawable_x, contact->current.drawable_y);
+        const auto match = game_ui->input_router().BeginWorldTouchTap(
+            contact->current.drawable_x, contact->current.drawable_y, event.timestamp);
+        using TapMatch = openwow::ui::game::runtime::FrameInputRouter::TouchTapMatch;
+        if (match == TapMatch::kCancelled) {
+          contact->owner = TouchOwner::kIgnored;
+        }
       }
       return;
     }
@@ -1075,29 +1027,10 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
     if (contact == nullptr) {
       return;
     }
-    if (contact->owner == TouchOwner::kSecondaryTap) {
-      auto* const other = mobile_input_.FindOtherContactByOwner(
-          TouchOwner::kSecondaryTap, contact->finger_id);
-      const bool moved = moved_beyond_tap(*contact) ||
-          (other != nullptr &&
-           std::fabs(TouchDistance(contact->current, other->current) -
-                     mobile_pinch_distance_) >= kMobileCameraDragThresholdPoints);
-      if (!moved) return;
-      if (mobile_secondary_tap_ && !mobile_secondary_tap_->targets_ui && other != nullptr) {
-        // Two world contacts that move become a pinch. Preserve the original
-        // separation so the first zoom sample includes the recognition slop.
-        contact->owner = TouchOwner::kPinch;
-        other->owner = TouchOwner::kPinch;
-        mobile_secondary_tap_.reset();
-      } else {
-        cancel_secondary_tap();
-        return;
-      }
-    }
     if (contact->owner == TouchOwner::kWorldUi) {
       if (game_loop_.game_ui().is_initialized()) {
         (void)game_loop_.game_ui().input_router().HandleTouchMove(
-            contact->current.drawable_x, contact->current.drawable_y);
+            contact->current.drawable_x, contact->current.drawable_y, event.timestamp);
       }
       return;
     }
@@ -1165,40 +1098,10 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   if (!ended.has_value()) {
     return;
   }
-  if (ended->owner == TouchOwner::kSecondaryTap) {
-    const auto* other = mobile_input_.FindContactByOwner(TouchOwner::kSecondaryTap);
-    if (!mobile_secondary_tap_ || moved_beyond_tap(*ended) ||
-        (other != nullptr &&
-         std::fabs(TouchDistance(ended->current, other->current) -
-                   mobile_pinch_distance_) >= kMobileCameraDragThresholdPoints) ||
-        event.timestamp - mobile_secondary_tap_->started_at_ms >
-            kMobileSecondaryTapMilliseconds) {
-      cancel_secondary_tap();
-      return;
-    }
-    if (other != nullptr) return;
-    const auto secondary = *mobile_secondary_tap_;
-    mobile_secondary_tap_.reset();
-    mobile_pinch_distance_ = 0.0F;
-    auto& game_ui = game_loop_.game_ui();
-    if (!game_ui.is_initialized()) return;
-    const bool handled = secondary.targets_ui
-        ? game_ui.input_router().EndTouchSecondaryTap()
-        : game_ui.input_router().HandleWorldTouchSecondaryTap(
-              secondary.target_x, secondary.target_y,
-              [this, x = secondary.target_x, y = secondary.target_y](const std::uint32_t button) {
-                RunMouseButtonDownPrelude(
-                    button, game_loop_, character_world_runtime_.session());
-                game_loop_.OnRightClickWorld(x, y);
-              });
-    UpdateTextInputState();
-    if (handled) mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
-    return;
-  }
   if (ended->owner == TouchOwner::kWorldUi) {
     if (game_loop_.game_ui().is_initialized()) {
       const bool handled = game_loop_.game_ui().input_router().HandleTouchUp(
-          ended->current.drawable_x, ended->current.drawable_y);
+          ended->current.drawable_x, ended->current.drawable_y, event.timestamp);
       UpdateTextInputState();
       if (handled) {
         mobile::PerformHapticFeedback(mobile::HapticFeedback::kSelection);
@@ -1235,35 +1138,27 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
     if (dx * dx + dy * dy <=
         kMobileWorldTapTolerancePoints *
             kMobileWorldTapTolerancePoints) {
-      openwow::input::InputManager::Get().SetMousePosition(
-          static_cast<int>(std::lround(ended->current.drawable_x)),
-          static_cast<int>(std::lround(ended->current.drawable_y)));
-      if (event.timestamp - ended->started_at_ms >=
-          kMobileContextPressMilliseconds) {
-        if (game_loop_.game_ui().is_initialized()) {
-          const float x = ended->current.drawable_x;
-          const float y = ended->current.drawable_y;
-          game_loop_.game_ui().input_router().ShowWorldTouchContext(x, y,
-              [this, x, y](const std::uint32_t button) {
-                if (button == 4u) {
-                  RunMouseButtonDownPrelude(
-                      button, game_loop_, character_world_runtime_.session());
-                  game_loop_.OnRightClickWorld(x, y);
-                } else {
-                  game_loop_.OnLeftClickWorld(x, y);
-                }
-              });
+      if (game_loop_.game_ui().is_initialized()) {
+        const float x = ended->current.drawable_x;
+        const float y = ended->current.drawable_y;
+        game_loop_.game_ui().input_router().EndWorldTouchTap(
+            x, y, event.timestamp, event.timestamp - ended->started_at_ms,
+            mobile_input_.viewport().drawable_scale_x,
+            mobile_input_.viewport().drawable_scale_y,
+            [this, x, y](const std::uint32_t button) {
+              if (button == 4u) {
+                RunMouseButtonDownPrelude(
+                    button, game_loop_, character_world_runtime_.session());
+                game_loop_.OnRightClickWorld(x, y);
+                mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
+              } else {
+                game_loop_.OnLeftClickWorld(x, y);
+                mobile::PerformHapticFeedback(mobile::HapticFeedback::kSelection);
+              }
+            });
+        if (event.timestamp - ended->started_at_ms >= kMobileContextPressMilliseconds) {
+          mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
         }
-        mobile::PerformHapticFeedback(
-            mobile::HapticFeedback::kLightImpact);
-      } else {
-        game_loop_.OnLeftClickWorld(ended->current.drawable_x,
-                                    ended->current.drawable_y);
-        if (game_loop_.game_ui().is_initialized()) {
-          game_loop_.game_ui().input_router().DismissWorldTouch();
-        }
-        mobile::PerformHapticFeedback(
-            mobile::HapticFeedback::kSelection);
       }
     }
     return;
@@ -1289,7 +1184,6 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
 
 void GlueClient::CancelMobileInput() {
   const auto contacts = mobile_input_.TakeAllContacts();
-  mobile_secondary_tap_.reset();
   const bool had_glue_contact = std::any_of(
       contacts.begin(), contacts.end(), [](const mobile::TouchContact& contact) {
         return contact.owner == mobile::TouchOwner::kGlueUi;

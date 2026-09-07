@@ -20,6 +20,7 @@
 #include "openwow/foundation/diagnostics/logging.h"
 
 #include <lua.hpp>
+#include <SDL2/SDL_timer.h>
 
 #include <memory>
 #include <string>
@@ -379,7 +380,7 @@ void GameUIManager::Update(float dt) {
 
   GameUI_PollScreenshotCompletions();
 
-  frame_input_router_.UpdateTouchInspection();
+  frame_input_router_.UpdateTouchGestures(SDL_GetTicks());
 
   frame_api::UpdateLuaTooltipObjects(lua_state(), dt);
   frame_api::RefreshCursorAnchoredTooltipFrames(lua_state());
