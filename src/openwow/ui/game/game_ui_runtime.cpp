@@ -68,6 +68,12 @@ GameUIManager::GameUIManager(
             AfterFrameIdentityRelease(name);
           },
           .hierarchy_invalidated = [this] { InvalidateFrameHierarchy(); },
+          .layout_key_invalidated = [this](const std::string_view key) {
+            // Texture ownership changes one dependency entry. Keep unrelated
+            // geometry committed when a template binds its button textures.
+            retained_layout_.QueueLuaMutation(key);
+            retained_layout_.ReindexDependencies(key);
+          },
           .layout_graph_invalidated = [this] {
             InvalidateFrameLayoutGraph();
           },
