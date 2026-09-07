@@ -325,6 +325,7 @@ void WorldPresentationPublisher::ProjectObject(const game::ObjectHandle handle,
     const auto &game_object = static_cast<const game::CGGameObject_C &>(object);
     SyncGameObjectAnimation(instance, game_object);
     SyncGameObjectArtKit(instance, game_object, cache);
+    SyncGameObjectLootArt(instance, game_object, cache);
 
     instance.game_object_collision_state = game_object.GetInteractionValue(0u);
     if (game_object.IsDestructibleBuilding()) {
@@ -438,6 +439,39 @@ void WorldPresentationPublisher::SyncTransform(
     instance.has_explicit_world_transform = true;
   }
 
+}
+
+void WorldPresentationPublisher::SyncGameObjectLootArt(
+    ObjectProjection &instance, const CGGameObject_C &object, CachedProjection &cache) {
+  const auto &request = object.GetLootArtVisualControlState();
+  if (!request.requested) return;
+  if (!cache.loot_art_valid || cache.loot_art_effect_id != request.effect_id) {
+    cache.loot_art_valid = true;
+    cache.loot_art_effect_id = request.effect_id;
+    cache.loot_art_visual.reset();
+    const auto *effect = dbc_ != nullptr && request.effect_id != 0u
+        ? dbc_->spell_visual_effect_name().LookupEntry(request.effect_id) : nullptr;
+    if (effect == nullptr || effect->file_path.empty()) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+          "GameObject LootArt: stage=prepare guid=" +
+          std::to_string(object.GetGuid().GetRawValue()) + " entry=" +
+          std::to_string(object.GetEntry()) + " source=SpellVisualEffectName record=" +
+          std::to_string(request.effect_id) + " reason=effect-record-or-path-missing");
+    } else {
+      auto visual = std::make_shared<render::WeaponAttachmentVisual>();
+      visual->attachment_id = 19u;
+      visual->model_path = data::m2::NormalizeModelPath(std::string(effect->file_path));
+      cache.loot_art_visual = std::move(visual);
+    }
+  }
+  if (cache.loot_art_visual) {
+    instance.model_attachments.push_back({
+        .role = render::ModelAttachmentRole::kGameObjectLootSparkle,
+        .visual = cache.loot_art_visual,
+        .scale = std::clamp(object.GetScale() * 1.15f, 1.0f, 5.0f),
+        .use_parent_origin_if_missing = true,
+    });
+  }
 }
 
 void WorldPresentationPublisher::SyncGameObjectAnimation(ObjectProjection &instance,

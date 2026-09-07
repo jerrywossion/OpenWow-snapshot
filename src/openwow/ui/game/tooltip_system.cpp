@@ -67,7 +67,6 @@ constexpr std::uint32_t kTooltipYellowArgb = 0xFFFFFF00u;
 constexpr std::uint32_t kTooltipOrangeArgb = 0xFFFF8040u;
 constexpr std::uint32_t kTooltipRedArgb = 0xFFFF2020u;
 constexpr std::uint32_t kTooltipStatusBarGoType = 33u;
-constexpr std::uint32_t kSpellEffectOpenLock = 33u;
 constexpr std::size_t kMaxTooltipTextures = 10u;
 
 struct TooltipStatusBarSnapshot {
@@ -456,207 +455,21 @@ void HideLiveGameTooltipFrameUnconditionally() {
   (void)CallLuaFrameMethod(lua, "GameTooltip", "Hide", nullptr);
 }
 
-bool IsLockActionApplicable(const openwow::game::CGGameObject_C &game_object,
-                            const std::uint32_t action) {
-  const auto state_byte = static_cast<std::uint8_t>(game_object.GetGoState());
-  const auto ready_state =
-      static_cast<std::uint8_t>(openwow::game::GOState::Ready);
-  const auto active_state =
-      static_cast<std::uint8_t>(openwow::game::GOState::Active);
-  const auto active_alternative_state =
-      static_cast<std::uint8_t>(openwow::game::GOState::ActiveAlternative);
-  const auto is_locked = (game_object.GetFlags() & openwow::game::GO_FLAG_LOCKED) != 0u;
-
-  if (action == 4u) {
-    return state_byte == active_alternative_state;
-  }
-
-  if (state_byte == active_alternative_state ||
-      (((action < 2u) || action == 3u) && state_byte != ready_state)) {
-    return false;
-  }
-
-  if (action == 0u) {
-    return !is_locked;
-  }
-
-  if (action == 1u) {
-    return is_locked;
-  }
-
-  if (action == 2u && state_byte != active_state) {
-    return false;
-  }
-
-  return true;
-}
-
-const openwow::data::dbc::SpellEntry *LookupSpellEntry(
-    const openwow::data::dbc::DbcLoader &dbc, const std::uint32_t spell_id) {
-  if (spell_id == 0u) {
-    return nullptr;
-  }
-
-  return dbc.spell().LookupEntry(spell_id);
-}
-
-std::uint32_t GetSpellEffectMagnitude(
-    const openwow::data::dbc::SpellEntry &spell, const std::size_t effect_index) {
-  if (effect_index >= spell.effect_base_points.size()) {
-    return 0u;
-  }
-
-  return static_cast<std::uint32_t>(
-      std::max(0, spell.effect_base_points[effect_index] + 1));
-}
-
-bool SpellSatisfiesOpenLockRequirement(
-    const openwow::data::dbc::SpellEntry &spell, const std::uint32_t lock_index,
-    const std::uint32_t required_value, std::uint32_t *const current_value_out) {
-  for (std::size_t effect_index = 0; effect_index < spell.effect.size(); ++effect_index) {
-    if (spell.effect[effect_index] != kSpellEffectOpenLock ||
-        static_cast<std::uint32_t>(spell.effect_misc_value[effect_index]) != lock_index) {
-      continue;
-    }
-
-    const auto current_value = GetSpellEffectMagnitude(spell, effect_index);
-    if (current_value_out != nullptr) {
-      *current_value_out = current_value;
-    }
-    if (current_value >= required_value) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool SpellHasAnyOpenLockEffect(const openwow::data::dbc::SpellEntry &spell) {
-  for (const auto effect : spell.effect) {
-    if (effect == kSpellEffectOpenLock) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool ResolveAvailableOpenLockSkill(const openwow::game::CGGameObject_C &game_object,
-                                   const openwow::data::dbc::DbcLoader &dbc,
-                                   const openwow::game::SpellCastRuntime &spells,
-                                   const std::uint32_t lock_index,
-                                   const std::uint32_t required_skill,
-                                   std::uint32_t *const current_value_out,
-                                   std::uint32_t *const required_value_out) {
-  const auto required_value =
-      required_skill != 0u ? required_skill : 5u * game_object.GetLevel();
-  if (required_value_out != nullptr) {
-    *required_value_out = required_value;
-  }
-
-  for (const auto &known_spell :
-       openwow::game::SpellbookSystem::Get().GetKnownSpellList()) {
-    const auto *const spell = LookupSpellEntry(dbc, known_spell.spell_id);
-    if (spell == nullptr) {
-      continue;
-    }
-
-    std::uint32_t current_value = 0u;
-    if (SpellSatisfiesOpenLockRequirement(*spell, lock_index, required_value,
-                                          &current_value)) {
-      if (current_value_out != nullptr) {
-        *current_value_out = current_value;
-      }
-      return true;
-    }
-  }
-
-  if (spells.GetTargeting().GetSpellId() == 0u) {
-    return false;
-  }
-
-  const auto *const current_spell =
-      LookupSpellEntry(dbc, spells.GetCurrentSpellId());
-  if (current_spell == nullptr) {
-    return false;
-  }
-
-  std::uint32_t current_value = 0u;
-  if (!SpellSatisfiesOpenLockRequirement(*current_spell, lock_index, required_value,
-                                         &current_value)) {
-    return false;
-  }
-
-  if (current_value_out != nullptr) {
-    *current_value_out = current_value;
-  }
-  return true;
-}
-
 WorldGameObjectTooltipRequirementState BuildWorldGameObjectTooltipRequirementState(
     const openwow::game::CGGameObject_C &game_object,
-    const openwow::game::PlayerInventoryReplica& inventory,
-    const openwow::data::dbc::DbcLoader &dbc,
     const openwow::game::SpellCastRuntime &spells) {
-  WorldGameObjectTooltipRequirementState state;
-  const auto *const lock_entry = game_object.GetLockEntry();
-  if (lock_entry == nullptr) {
-    return state;
-  }
-
-  for (std::size_t index = 0; index < lock_entry->type.size(); ++index) {
-    const auto type = lock_entry->type[index];
-    if (type == 0u) {
-      continue;
-    }
-
-    switch (type) {
-    case 1u:
-      state.has_known_requirement = true;
-      if (IsLockActionApplicable(game_object, lock_entry->action[index]) &&
-          inventory.FindItemByEntry(lock_entry->index[index]) >= 0) {
-        state.has_carried_key = true;
-        state.carried_key_item_entry = lock_entry->index[index];
-        return state;
-      }
-      break;
-
-    case 2u:
-      state.has_known_requirement = true;
-      if (IsLockActionApplicable(game_object, lock_entry->action[index])) {
-        std::uint32_t current_skill = 0u;
-        std::uint32_t required_skill = 0u;
-        if (ResolveAvailableOpenLockSkill(game_object, dbc, spells,
-                                          lock_entry->index[index], lock_entry->skill[index],
-                                          &current_skill, &required_skill)) {
-          state.has_open_lock_skill = true;
-          state.current_skill = current_skill;
-          state.required_skill = required_skill;
-          return state;
-        }
-      }
-      break;
-
-    case 3u: {
-      state.has_known_requirement = true;
-      if (!IsLockActionApplicable(game_object, lock_entry->action[index])) {
-        break;
-      }
-
-      const auto *const spell = LookupSpellEntry(dbc, lock_entry->index[index]);
-      if (spell != nullptr && SpellHasAnyOpenLockEffect(*spell)) {
-        return state;
-      }
-      break;
-    }
-
-    default:
-      break;
-    }
-  }
-
-  state.unsatisfied_requirement = state.has_known_requirement;
-  return state;
+  const auto lock = game_object.ResolveLockInteraction(spells);
+  const bool ready = lock.status ==
+      openwow::game::CGGameObject_C::LockInteractionStatus::kReady;
+  return {
+      .has_known_requirement = lock.has_requirement,
+      .unsatisfied_requirement = !ready,
+      .has_carried_key = ready && lock.key_item_entry != 0u,
+      .carried_key_item_entry = lock.key_item_entry,
+      .has_open_lock_skill = ready && lock.uses_skill,
+      .current_skill = lock.current_skill,
+      .required_skill = lock.required_skill,
+  };
 }
 
 std::uint32_t ResolveLockedRequirementColor(
@@ -909,8 +722,7 @@ void AppendWorldGameObjectLockLines(
         dbc != nullptr ? ResolveLockedRequirementColor(
                              requirement_state =
                                   BuildWorldGameObjectTooltipRequirementState(
-                                      game_object,
-                                      session.inventory_replica(), *dbc, session.spells()))
+                                      game_object, session.spells()))
                        : kTooltipRedArgb;
     AppendWorldGameObjectRequirementLine(
         tooltip,
@@ -924,14 +736,14 @@ void AppendWorldGameObjectLockLines(
 
   const auto secondary_lock = ResolveWorldGameObjectTooltipSecondaryLock(lock_entry);
   if (!secondary_lock.has_value() ||
-      !IsLockActionApplicable(game_object, secondary_lock->action)) {
+      !game_object.IsLockActionApplicable(secondary_lock->action)) {
     return;
   }
 
   if (!requirement_state.has_known_requirement &&
       (game_object.GetFlags() & openwow::game::GO_FLAG_LOCKED) != 0u) {
     requirement_state = BuildWorldGameObjectTooltipRequirementState(
-        game_object, session.inventory_replica(), *dbc, session.spells());
+        game_object, session.spells());
   }
 
   switch (secondary_lock->type) {
@@ -986,7 +798,7 @@ void AppendWorldGameObjectLockLines(
   }
 
   case 3u: {
-    const auto *const spell = LookupSpellEntry(*dbc, secondary_lock->index);
+    const auto *const spell = dbc->spell().LookupEntry(secondary_lock->index);
     if (spell == nullptr) {
       return;
     }

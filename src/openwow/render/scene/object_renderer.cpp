@@ -243,6 +243,7 @@ constexpr std::array<std::uint32_t, 4> kCharacterReplaceableTextureTypes{
                                         const ModelAttachmentSpec &rhs) noexcept {
   return lhs.role == rhs.role && lhs.scale == rhs.scale &&
          lhs.animation_id == rhs.animation_id &&
+         lhs.use_parent_origin_if_missing == rhs.use_parent_origin_if_missing &&
          AttachmentVisualsEqual(lhs.visual, rhs.visual);
 }
 
@@ -3749,10 +3750,26 @@ void ObjectRenderer::RenderInstanceAttachments(
       continue;
     }
 
-    const auto &attachment = placement.transform;
+    auto attachment = placement.transform;
+    if (attachment.reason == m2::M2ResultReason::kMissingAttachment &&
+        binding.desired.use_parent_origin_if_missing) {
+      const auto parent = system.QueryModelWorldTransformMatrix(inst.m2_instance_id);
+      attachment = {.status = parent.status, .reason = parent.reason,
+                    .detail = parent.detail, .matrix = parent.matrix};
+    }
     if (attachment.status != m2::M2ResultStatus::kReady) {
+      if (m2::IsTerminalM2ResultStatus(attachment.status) &&
+          binding.placement_failure_reason != attachment.reason) {
+        openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+            "ObjectRenderer attachment: stage=placement guid=" +
+            std::to_string(inst.guid.GetRawValue()) + " source=" +
+            binding.bound_model_path + " attachment=" +
+            std::to_string(binding.bound_attachment_id) + " reason=" + attachment.detail);
+        binding.placement_failure_reason = attachment.reason;
+      }
       continue;
     }
+    binding.placement_failure_reason = m2::M2ResultReason::kNone;
 
     float inherited_scale = 1.0f;
     if (binding.desired.role == ModelAttachmentRole::kQuestOverlay) {

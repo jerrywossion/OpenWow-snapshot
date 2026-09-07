@@ -965,8 +965,8 @@ bool SpellAction_ValidateAndInitiateCast(const WorldSession& session,
     return false;
   }
 
-  const auto preflight = session.spells().ValidatePlayerCastRequest(session,
-                                                                    spell_id);
+  const auto preflight = session.spells().ValidatePlayerCastRequest(
+      session, spell_id, ObjectGuid(target_guid));
   if (preflight != SpellCastResult::kSuccess) {
     DisplaySpellActionFailure(session, spell_id, preflight,
                               player->GetGuid());

@@ -97,6 +97,7 @@ enum class ModelAttachmentRole : std::uint8_t {
   kHelm,
   kCape,
   kCorpseLootSparkle,
+  kGameObjectLootSparkle,
   kQuestOverlay,
 };
 
@@ -111,6 +112,7 @@ struct ModelAttachmentSpec {
   std::shared_ptr<const WeaponAttachmentVisual> visual;
   float scale{1.0f};
   std::uint16_t animation_id{0};
+  bool use_parent_origin_if_missing{false};
 };
 
 struct ItemVisualChildBinding {
@@ -135,6 +137,7 @@ struct ModelAttachmentBinding {
   std::uint32_t m2_model_id{0};
   std::uint32_t m2_instance_id{0};
   bool request_failed{false};
+  m2::M2ResultReason placement_failure_reason{m2::M2ResultReason::kNone};
   std::vector<ItemVisualChildBinding> item_visual_children;
 
   std::uint32_t transparent_draw_ordinal{0};
