@@ -24,7 +24,8 @@ if locale == "zhCN" then
         show = "触控",
         hideHint = "隐藏触控 HUD，露出原生界面",
         showHint = "显示触控 HUD",
-        gestureHint = "移动、镜头与世界点击手势始终可用。",
+        gestureHint = "隐藏时摇杆停止并停用；镜头与世界点击手势仍可使用。",
+        move = "移动",
         character = "人物",
         spellbook = "法术",
         talents = "天赋",
@@ -52,7 +53,8 @@ else
         show = "Touch",
         hideHint = "Hide the touch HUD to access the original UI",
         showHint = "Show the touch HUD",
-        gestureHint = "Movement, camera and world-tap gestures remain available.",
+        gestureHint = "Hiding stops and disables the stick. Camera and world-tap gestures remain available.",
+        move = "Move",
         character = "Hero",
         spellbook = "Spells",
         talents = "Talents",
@@ -275,16 +277,23 @@ function OpenWoWMobile_ApplyVisibility()
 end
 
 local joystick = CreateFrame("Frame", "OpenWoWMobileJoystick", root)
-joystick:Hide()
+-- Explicit opt-in consumed by the native touch router. The normal frame hit
+-- determines ownership, including visibility, layout and occluding panels.
+joystick.__ow_touch_movement = true
+joystick:EnableMouse(true)
 local joystickBase = joystick:CreateTexture(nil, "BACKGROUND")
 joystickBase:SetAllPoints(joystick)
 joystickBase:SetTexture("Interface\\Buttons\\UI-Quickslot2")
 joystickBase:SetVertexColor(0.4, 0.52, 0.66, 0.62)
 local joystickKnob = CreateFrame("Frame", nil, joystick)
+joystickKnob:SetPoint("CENTER", joystick, "CENTER", 0, 0)
 local joystickKnobTexture = joystickKnob:CreateTexture(nil, "ARTWORK")
 joystickKnobTexture:SetAllPoints(joystickKnob)
 joystickKnobTexture:SetTexture("Interface\\Buttons\\UI-Quickslot2")
 joystickKnobTexture:SetVertexColor(0.92, 0.76, 0.34, 0.92)
+local joystickLabel = joystick:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+joystickLabel:SetPoint("BOTTOM", joystick, "BOTTOM", 0, 8)
+joystickLabel:SetText(L.move)
 
 local function UpdateActionVisual(button, actionIndex)
     button.actionIndex = actionIndex
@@ -551,27 +560,23 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     SizeButton(toggleButton, 48, u)
     PlaceToggle()
     joystick:SetSize(118 * u, 118 * u)
+    joystick:ClearAllPoints()
+    joystick:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 32 * u, 32 * u)
     joystickKnob:SetSize(54 * u, 54 * u)
+    local font, _, flags = joystickLabel:GetFont()
+    joystickLabel:SetFont(font, 11 * u, flags)
+    joystickLabel:ClearAllPoints()
+    joystickLabel:SetPoint("BOTTOM", joystick, "BOTTOM", 0, 8 * u)
     OpenWoWMobile_RefreshActions()
 end
 
-function OpenWoWMobile_SetJoystick(originX, originY, knobX, knobY, active)
-    if not active then
-        joystick:Hide()
-        return
-    end
-    local unitsPerPixel = GetScreenHeight() / state.drawableHeight
-    local left = UIParent:GetLeft()
-    local bottom = UIParent:GetBottom()
-    local originUiX = originX * unitsPerPixel - left
-    local originUiY = (state.drawableHeight - originY) * unitsPerPixel - bottom
-    local knobUiX = knobX * unitsPerPixel - left
-    local knobUiY = (state.drawableHeight - knobY) * unitsPerPixel - bottom
-    joystick:ClearAllPoints()
-    joystick:SetPoint("CENTER", UIParent, "BOTTOMLEFT", originUiX, originUiY)
+function OpenWoWMobile_SetJoystick(directionX, directionY, active)
+    local travel = (118 - 54) * 0.5 * (state.unitsPerPoint or 1)
     joystickKnob:ClearAllPoints()
-    joystickKnob:SetPoint("CENTER", UIParent, "BOTTOMLEFT", knobUiX, knobUiY)
-    joystick:Show()
+    joystickKnob:SetPoint("CENTER", joystick, "CENTER",
+        active and directionX * travel or 0,
+        active and -directionY * travel or 0)
+    joystickBase:SetVertexColor(0.4, 0.52, 0.66, active and 0.9 or 0.62)
 end
 
 root:RegisterEvent("PLAYER_ENTERING_WORLD")

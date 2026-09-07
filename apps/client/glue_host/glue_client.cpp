@@ -679,6 +679,9 @@ GlueClient::GlueClient(Options opts)
 }
 
 GlueClient::~GlueClient() {
+#if defined(OPENWOW_PLATFORM_IOS)
+  game_loop_.game_ui().input_router().CancelTouchMovement("host-destroyed");
+#endif
 
   m2_system_.BindFrameJobSystem(nullptr);
   frame_job_system_.Shutdown();

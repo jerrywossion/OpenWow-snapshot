@@ -416,6 +416,7 @@ void FrameInputRouter::BindLuaState(lua_State *state) noexcept {
 }
 
 void FrameInputRouter::Reset() noexcept {
+  CancelTouchMovement("ui-reset");
   lua_ = nullptr;
   focused_frame_.clear();
   mouseover_frame_.clear();
@@ -788,6 +789,86 @@ bool FrameInputRouter::HitTestTouchTarget(const float x, const float y) {
   }
   const auto* const frame = frames_.FindFrame(hit);
   return frame == nullptr || !FrameIsWorldFrame(*frame);
+}
+
+FrameInputRouter::TouchMovementStart FrameInputRouter::BeginTouchMovement(
+    const float x, const float y, std::function<void()> cancel) {
+  if (lua_ == nullptr || !application_active_ || touch_context_) {
+    return TouchMovementStart::kNotControl;
+  }
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  const std::string hit = traversal_.HitTarget(x, y, viewport_height());
+  const auto ref = frames_.FindLuaRef(hit);
+  if (!ref || ResolveHyperlinkAt(hit, x, y) != nullptr) {
+    return TouchMovementStart::kNotControl;
+  }
+  // The authored control opts in explicitly; neither its name nor a screen
+  // percentage defines its input area. Occluding UI wins the ordinary hit.
+  lua_rawgeti(lua_, LUA_REGISTRYINDEX, *ref);
+  const bool movement_control = lua_istable(lua_, -1) &&
+      GetBooleanField(lua_, -1, "__ow_touch_movement");
+  lua_pop(lua_, 1);
+  if (!movement_control) return TouchMovementStart::kNotControl;
+  if (touch_movement_) return TouchMovementStart::kConsumed;
+
+  const TouchTarget target{.frame_name = hit, .lua_ref = *ref, .x = x, .y = y};
+  CommitPendingTouchTap("movement-control");
+  if (!TouchTargetIsCurrent(target)) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+        "Touch movement cancelled: frame=" + hit +
+        " source=finger-down reason=target-hidden-replaced-or-covered");
+    return TouchMovementStart::kConsumed;
+  }
+  touch_movement_ = TouchMovementCapture{target, std::move(cancel)};
+  return TouchMovementStart::kCaptured;
+}
+
+std::optional<std::array<float, 2>> FrameInputRouter::ResolveTouchMovement(
+    const float x, const float y) {
+  if (!touch_movement_) return std::nullopt;
+  const auto target = touch_movement_->target;
+  // This is a geometry consumption boundary. A size callback can invalidate
+  // the capture, so recheck identity and availability after resolving it.
+  const auto* rect = layout_.FindRect(target.frame_name);
+  if (!touch_movement_) return std::nullopt;
+  if (frames_.FindLuaRef(target.frame_name) != target.lua_ref ||
+      !traversal_.IsEffectivelyVisible(target.frame_name) ||
+      !FrameUsesMouse(lua_, frames_, target.frame_name)) {
+    CancelTouchMovement("control-unavailable");
+    return std::nullopt;
+  }
+  if (rect == nullptr || rect->width <= 0 || rect->height <= 0 ||
+      !std::isfinite(x) || !std::isfinite(y)) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+        "Touch movement failed: frame=" + target.frame_name +
+        " source=finger-position reason=invalid-control-geometry-or-position");
+    CancelTouchMovement("invalid-geometry-or-position");
+    return std::nullopt;
+  }
+  const float radius_x = static_cast<float>(rect->width) * 0.5F;
+  const float radius_y = static_cast<float>(rect->height) * 0.5F;
+  float dx = (x - static_cast<float>(rect->x) - radius_x) / radius_x;
+  float dy = (y - static_cast<float>(rect->y) - radius_y) / radius_y;
+  const float length = std::sqrt(dx * dx + dy * dy);
+  if (length > 1.0F) {
+    dx /= length;
+    dy /= length;
+  }
+  return std::array<float, 2>{dx, dy};
+}
+
+void FrameInputRouter::EndTouchMovement() {
+  touch_movement_.reset();
+}
+
+void FrameInputRouter::CancelTouchMovement(const char* reason) {
+  const auto movement = std::exchange(touch_movement_, std::nullopt);
+  if (!movement) return;
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+      "Touch movement cancelled: frame=" + movement->target.frame_name +
+      " source=frame-input reason=" + reason);
+  movement->cancel();
 }
 
 bool FrameInputRouter::HandlePointerDownByFlag(float x, float y,
@@ -2010,6 +2091,7 @@ void FrameInputRouter::SetApplicationActive(const bool active) {
   application_active_ = active;
   if (!application_active_) {
     keyboard_captures_.clear();
+    CancelTouchMovement("application-inactive");
     CancelTouch();
   }
 
@@ -2085,6 +2167,9 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
          (needs_mouse && target.hyperlink_link.empty() &&
           !FrameUsesMouse(lua_, frames_, target.frame_name)));
   };
+  if (touch_movement_ && unavailable(touch_movement_->target, true)) {
+    CancelTouchMovement("control-hidden-or-mouse-disabled");
+  }
   if ((touch_gesture_ && unavailable(touch_gesture_->target,
                                     touch_gesture_->phase != TouchPhase::kScroll)) ||
       (touch_context_ && unavailable(touch_context_->target, true)) ||
@@ -2116,6 +2201,9 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
 void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
   if (lua_ref == LUA_NOREF || lua_ref == LUA_REFNIL) {
     return;
+  }
+  if (touch_movement_ && touch_movement_->target.lua_ref == lua_ref) {
+    CancelTouchMovement("control-released");
   }
   if ((touch_gesture_ && touch_gesture_->target.lua_ref == lua_ref) ||
       (touch_context_ && touch_context_->target.lua_ref == lua_ref) ||

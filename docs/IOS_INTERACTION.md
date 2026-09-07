@@ -16,28 +16,31 @@ desktop client.
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
 | UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
-| Lower-left world | Move at least 9 device points from the touch origin | Floating movement stick; vertical movement plus horizontal strafe |
+| Visible movement stick | Press the control and move from its center | Forward/backward plus horizontal strafe, with a 20% axis dead zone; retains capture outside the control until release |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action after the 260 ms double-tap window |
-| World, including the lower-left movement region | One-finger double tap in the same location | Direct right-click interaction on the second release |
-| World, including the lower-left movement region | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
+| World exposed outside UI controls | One-finger double tap in the same location | Direct right-click interaction on the second release |
+| World exposed outside UI controls | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
 | Empty world | Two-finger pinch | Camera zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
-| Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and stick visual |
+| Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and movement control; hiding releases held movement |
 
-UI always wins hit testing. A lone lower-left world contact initially remains
-eligible for taps and inspection; movement starts after 9 device points, with
-the stick's existing movement dead zone still applied. The joystick visual and
-movement haptic appear only when movement owns the contact. On release without
-movement, this region supports the same single tap, double tap and long-press
-inspection as the rest of the world.
+Movement starts only on the visible, mouse-enabled joystick frame. The internal
+HUD explicitly marks that control with `__ow_touch_movement`; the native input
+router resolves the ordinary topmost frame hit, respecting UI scale, safe-area
+layout, visibility, clipping and occluding panels. There is no percentage-based
+movement region. Pressing near the stick center stays in the dead zone;
+pressing or dragging toward its edge moves in that direction. Input displacement
+uses the resolved frame center and size, while the knob stays inside its base.
 
-If another finger joins while the left contact is pending, the left contact
-becomes the movement stick and its pending click is cancelled. Conversely, a
-left contact joining an existing UI/camera/world contact starts as movement.
-This preserves movement plus skills/camera without issuing a world click when
-the movement finger releases. Once a contact owns movement, camera or a direct
-UI control, it retains that role until release.
+The movement capture is separate from the UI pointer, so skills, panels and
+camera gestures can use another finger in either arrival order. A second finger
+on the occupied stick is consumed. A finger beginning in the world keeps its
+world/camera role even if it subsequently crosses the stick. A movement finger
+keeps its role outside the stick until release; it never turns into a world click.
+Hiding the control or an ancestor, disabling its mouse input or releasing its
+Lua binding cancels movement immediately through the frame input lifecycle.
+Restoring the HUD does not recapture a finger still down from before hiding.
 Application deactivation, focus loss, UI-mode changes and touch cancellation
 all release movement, camera and UI capture explicitly.
 
@@ -88,8 +91,9 @@ hit ownership and hyperlinks before dispatch. Its hardware-action scope comes
 only from the completed physical tap, never from a hover or an arbitrary timer.
 Focus loss, rotation, UI reload, target teardown and mouse takeover discard
 pending taps. Existing movement, camera, pinch and direct-control ownership is
-preserved; committing a pending left contact to movement or starting a camera
-drag/pinch cancels its world tap.
+preserved; starting a camera drag/pinch cancels its world tap. Pressing the
+movement control commits an earlier completed single tap as a separate input,
+then revalidates the control before capturing the movement finger.
 
 Long-press inspection never sends a left-button down, click or right-button
 action. This matters for buttons registered for down-clicks: inspecting an
@@ -132,7 +136,7 @@ and the toolbar; an actual mouse movement takes over from touch inspection.
 
 ## Mobile HUD
 
-The right-side HUD is loaded in iOS world sessions from the internal
+The mobile HUD is loaded in iOS world sessions from the internal
 `Interface/OpenWoW/MobileUI` TOC. macOS can opt into the same layer with the
 `mobileHudPreview` CVar; it is off by default on macOS. Other desktop builds do
 not load it.
@@ -159,10 +163,12 @@ not load it.
   minimap is hidden. Hiding the HUD closes the drawer; restoring it returns to
   the combat fan. `OpenWoWMobileHUDShown` uses the normal account saved-variable
   lifecycle, including logout and UI reload.
-- Hiding the HUD changes presentation only: native FrameXML input, floating
-  movement, camera, pinch and world taps retain their existing routing. Hidden
-  HUD buttons cannot intercept touches, and HUD hiding does not cancel held
-  movement or camera contacts. The stick visual is hidden with the HUD.
+- A visible 118-point movement stick rests at the lower left, 32 points inside
+  the safe root. Its 54-point knob returns to center on release. Hiding the HUD
+  releases and disables this control; its former position becomes ordinary
+  UI/world input. Native FrameXML, camera, pinch and world taps remain available,
+  and an existing camera contact continues. Showing the HUD requires a fresh
+  press on the stick before movement can resume.
 - Interactive targets are at least 48 points, labels are 11 points, and action
   counts are 12 points. Layout and text scale from device points, including the
   current safe-area insets, in both landscape orientations. Chinese labels are
@@ -181,8 +187,8 @@ mobile HUD is hidden. Frames deliberately positioned outside `UIParent` or
 anchored to the world viewport need their own presentation policy.
 
 The mobile HUD adds its existing 14-point spacing inside this shared root;
-it does not apply the UIKit insets a second time. Joystick visuals convert
-full-screen touch positions to root-relative coordinates.
+it does not apply the UIKit insets a second time. The joystick anchors to the
+same root and hit testing consumes its resolved drawable rectangle.
 External keyboard, mouse/trackpad and controller routes stay active. Virtual
 movement uses independent source ownership, so releasing one input device does
 not cancel the same command still held by another.
@@ -263,23 +269,26 @@ not establish device visual, interaction or comfort acceptance.
 
 1. On login, realm and character screens, tap buttons, edit fields and scroll
    or drag controls; no duplicate click should occur.
-2. In world, drag from the lower-left region to move diagonally and reverse
-   direction, then release inside and outside the stick radius. The character
-   must stop immediately. A stationary tap/hold there must not start movement.
-   Hold the left finger still, add a camera/skill finger and then move the left
-   finger: each role must remain independent, with no click on left release.
-   Repeat with the camera/skill finger arriving first.
+2. In world, press the visible stick center, then drag diagonally, reverse
+   direction and return to center. The center must stop movement; a directional
+   press near the edge must start it. Release inside and outside the stick:
+   movement must stop immediately, without a world click. Drag from exposed
+   world just outside every stick edge: expect camera motion, never movement,
+   even when the finger later crosses the stick. Put another UI window over
+   the stick and verify the covering control receives input. Start with the
+   camera/skill finger first and repeat in the opposite order. A second finger
+   on the occupied stick must not steal movement or trigger a click/tooltip.
 3. Hold movement while dragging the camera, pinching zoom and activating an
    action. Each contact must retain its own function.
 4. Tap a world unit and confirm a ground-target spell with a short world tap.
-   Double tap an NPC/object, including in the lower-left movement region: expect right-click
+   Double tap an NPC/object, including exposed lower-left world: expect right-click
    interaction on the second release, with no toolbar or preliminary left-click
    selection/cast. Double tap with a ground-target spell active to check the
    normal right-click cancel. A single tap waits about 260 ms before selection
    or ground-target confirmation. Pinching must never produce a right click.
    Reload/background between taps and during the second touch: releasing the
    old contact must not trigger an action in the resumed/reloaded UI.
-   Hold an interactable in either world region, then release: no action
+   Hold an interactable in any exposed world area, then release: no action
    should occur until Right click/右键 is tapped in the toolbar. Verify the
    normal NPC/object interaction, then repeat with Close/关闭 and outside
    dismissal. Camera drag and two-finger pinch must not open that toolbar.
@@ -300,9 +309,14 @@ not establish device visual, interaction or comfort acceptance.
    repeat with the utility drawer open. All mobile visuals must disappear;
    operate the exposed original action bars, bags and panels. Touch/触控 must
    restore the fan with current icons and cooldowns, with the drawer closed.
-   Repeat while another finger holds movement or camera drag: its ownership
-   must remain unchanged. Log out/re-enter and reload UI to check the saved
-   visibility choice. Hide/show the minimap and check the launcher remains
+   Repeat while another finger holds movement: hiding must stop it immediately;
+   showing again while that finger stays down must not restart movement or
+   make its release click the world. Drag over the former stick position while
+   hidden: expect camera motion, with no invisible movement zone. Repeat during
+   camera drag: that camera contact must continue. Reload while holding the
+   stick: the old finger must stop and stay inactive through its release.
+   Log out/re-enter and reload UI to check the saved visibility choice.
+   Hide/show the minimap and check the launcher remains
    reachable inside the safe area, without covering the journal launcher.
 7. Open every utility panel. The drawer must replace the fan; tapping its gaps
    must not trigger world actions, and Back/返回 must restore the fan. Check
@@ -351,6 +365,9 @@ not establish device visual, interaction or comfort acceptance.
 The log records `iOS internal mobile interaction layer loaded` after the
 internal TOC succeeds. A missing or invalid mobile layer is a world-UI startup
 error rather than a silent fallback.
+`Touch movement cancelled` records control/lifecycle cancellation with the frame,
+input source and reason. Include it for hidden-HUD, reload or stuck-movement
+failures; normal finger release does not require a cancellation entry.
 `HUD viewport safe insets` records changed drawable dimensions and the
 left/top/right/bottom insets in framebuffer pixels. Include those entries when
 reporting notch, rotation or hit-target alignment failures.

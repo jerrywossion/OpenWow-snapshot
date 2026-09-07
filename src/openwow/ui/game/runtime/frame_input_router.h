@@ -45,6 +45,14 @@ public:
   bool HandleTouchMove(float x, float y, std::uint32_t timestamp);
   bool HandleTouchUp(float x, float y, std::uint32_t timestamp);
   [[nodiscard]] bool HitTestTouchTarget(float x, float y);
+  // Explicit movement controls use normal frame hit testing but capture a
+  // separate finger, leaving the UI pointer available for skills and panels.
+  enum class TouchMovementStart { kNotControl, kCaptured, kConsumed };
+  TouchMovementStart BeginTouchMovement(float x, float y,
+                                        std::function<void()> cancel);
+  [[nodiscard]] std::optional<std::array<float, 2>> ResolveTouchMovement(float x, float y);
+  void EndTouchMovement();
+  void CancelTouchMovement(const char* reason);
   void CancelTouch();
   void UpdateTouchGestures(std::uint32_t timestamp);
   enum class TouchTapMatch { kSingle, kDouble, kCancelled };
@@ -173,6 +181,11 @@ private:
     bool double_tap{false};
   };
 
+  struct TouchMovementCapture {
+    TouchTarget target;
+    std::function<void()> cancel;
+  };
+
   [[nodiscard]] bool TouchTargetIsCurrent(const TouchTarget& target);
   [[nodiscard]] bool TouchTargetAcceptsSecondary(const TouchTarget& target);
   TouchTapMatch ResolvePendingTouchTap(const TouchTarget& next, bool can_double,
@@ -248,6 +261,7 @@ private:
   std::optional<TouchContext> touch_context_;
   std::optional<PendingTouchTap> pending_touch_tap_;
   std::optional<WorldTouchTap> world_touch_tap_;
+  std::optional<TouchMovementCapture> touch_movement_;
   std::optional<std::uint32_t> pending_touch_context_action_;
   bool touch_pointer_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;

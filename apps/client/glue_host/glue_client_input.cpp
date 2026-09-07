@@ -142,7 +142,6 @@ std::pair<int, int> ResolveInWorldMouseButtonDispatchPosition(const SDL_MouseBut
 }
 
 #if defined(OPENWOW_PLATFORM_IOS)
-constexpr float kMobileMovementRadiusPoints = 72.0F;
 constexpr float kMobileMovementDeadZone = 0.20F;
 constexpr float kMobileCameraDragThresholdPoints = 9.0F;
 constexpr float kMobileWorldTapTolerancePoints = 12.0F;
@@ -156,16 +155,6 @@ float TouchDistance(const mobile::TouchPoint& first,
   return std::sqrt(dx * dx + dy * dy);
 }
 
-bool IsMobileMovementRegion(const mobile::TouchPoint& point,
-                            const mobile::ViewportMetrics& viewport) {
-  const float safe_left = viewport.safe_area_points.left;
-  const float safe_bottom = viewport.safe_area_points.bottom;
-  return point.logical_x >= safe_left &&
-         point.logical_x <= static_cast<float>(viewport.logical_width) * 0.44F &&
-         point.logical_y >= static_cast<float>(viewport.logical_height) * 0.44F &&
-         point.logical_y <=
-             static_cast<float>(viewport.logical_height) - safe_bottom;
-}
 #endif
 
 }
@@ -808,27 +797,42 @@ void GlueClient::RefreshMobileInputViewport() {
 
 void GlueClient::UpdateMobileMovement(
     const mobile::TouchContact& contact) {
-  const float dx = contact.current.logical_x - contact.start.logical_x;
-  const float dy = contact.current.logical_y - contact.start.logical_y;
-  const float length = std::sqrt(dx * dx + dy * dy);
-  const float limited_length = std::min(length, kMobileMovementRadiusPoints);
-  const float scale = length > 0.0F ? limited_length / length : 0.0F;
-  const float normalized_x =
-      dx * scale / kMobileMovementRadiusPoints;
-  const float normalized_y =
-      dy * scale / kMobileMovementRadiusPoints;
+  if (!game_loop_.game_ui().is_initialized()) {
+    ReleaseMobileMovement();
+    return;
+  }
+  const auto direction = game_loop_.game_ui().input_router().ResolveTouchMovement(
+      contact.current.drawable_x, contact.current.drawable_y);
+  if (!direction) {
+    ReleaseMobileMovement();
+    return;
+  }
+  const float normalized_x = (*direction)[0];
+  const float normalized_y = (*direction)[1];
 
-  auto set_command = [this](bool& active, const bool desired,
+  const auto movement_held = [this, finger_id = contact.finger_id] {
+    const auto* current = mobile_input_.FindContact(finger_id);
+    return current != nullptr && current->owner == mobile::TouchOwner::kMovement;
+  };
+  auto set_command = [this, &movement_held](bool& active, const bool desired,
                             const char* source, const char* command) {
-    if (active == desired) {
+    if (!movement_held() || active == desired) {
       return;
     }
+    // A binding can run Lua that hides the control. Publish ownership first
+    // so its cancellation releases this command before that callback returns.
+    active = desired;
     if (desired) {
-      active = game_loop_.binding_input().VirtualCommandDown(
-          source, openwow::game::BindingCommand(command));
+      if (!game_loop_.binding_input().VirtualCommandDown(
+              source, openwow::game::BindingCommand(command))) {
+        active = false;
+        openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+            std::string("Touch movement command failed: source=") + source +
+            " command=" + command + " operation=down reason=binding-rejected");
+        ReleaseMobileMovement();
+      }
     } else {
       (void)game_loop_.binding_input().VirtualCommandUp(source);
-      active = false;
     }
   };
 
@@ -844,36 +848,32 @@ void GlueClient::UpdateMobileMovement(
     hardware_action_grant.emplace();
   }
 
-  const bool outside_dead_zone = limited_length >=
-                                 kMobileMovementRadiusPoints *
-                                     kMobileMovementDeadZone;
-  set_command(mobile_move_forward_,
-              outside_dead_zone && normalized_y < -kMobileMovementDeadZone,
+  set_command(mobile_move_forward_, normalized_y < -kMobileMovementDeadZone,
               "mobile-forward", openwow::game::BindingAction::kMoveForward);
-  set_command(mobile_move_backward_,
-              outside_dead_zone && normalized_y > kMobileMovementDeadZone,
+  set_command(mobile_move_backward_, normalized_y > kMobileMovementDeadZone,
               "mobile-backward", openwow::game::BindingAction::kMoveBackward);
-  set_command(mobile_strafe_left_,
-              outside_dead_zone && normalized_x < -kMobileMovementDeadZone,
+  set_command(mobile_strafe_left_, normalized_x < -kMobileMovementDeadZone,
               "mobile-strafe-left", openwow::game::BindingAction::kStrafeLeft);
-  set_command(mobile_strafe_right_,
-              outside_dead_zone && normalized_x > kMobileMovementDeadZone,
+  set_command(mobile_strafe_right_, normalized_x > kMobileMovementDeadZone,
               "mobile-strafe-right", openwow::game::BindingAction::kStrafeRight);
 
-  if (lua != nullptr) {
+  if (lua != nullptr && movement_held()) {
     (void)openwow::ui::CallLuaGlobalIfFunction(
         lua, "OpenWoWMobile_SetJoystick",
-        static_cast<double>(contact.start.drawable_x),
-        static_cast<double>(contact.start.drawable_y),
-        static_cast<double>(contact.start.drawable_x + dx * scale *
-                            mobile_input_.viewport().drawable_scale_x),
-        static_cast<double>(contact.start.drawable_y + dy * scale *
-                            mobile_input_.viewport().drawable_scale_y),
+        static_cast<double>(normalized_x),
+        static_cast<double>(normalized_y),
         true);
   }
 }
 
 void GlueClient::ReleaseMobileMovement() {
+  if (auto* contact = mobile_input_.FindContactByOwner(mobile::TouchOwner::kMovement)) {
+    // A hidden/released control consumes the rest of its old finger lifetime.
+    contact->owner = mobile::TouchOwner::kIgnored;
+  }
+  if (game_loop_.game_ui().is_initialized()) {
+    game_loop_.game_ui().input_router().EndTouchMovement();
+  }
   auto release = [this](bool& active, const char* source) {
     if (!active) {
       return;
@@ -899,7 +899,7 @@ void GlueClient::ReleaseMobileMovement() {
   release(mobile_strafe_right_, "mobile-strafe-right");
   if (lua != nullptr) {
     (void)openwow::ui::CallLuaGlobalIfFunction(
-        lua, "OpenWoWMobile_SetJoystick", 0.0, 0.0, 0.0, 0.0, false);
+        lua, "OpenWoWMobile_SetJoystick", 0.0, 0.0, false);
   }
 }
 
@@ -937,15 +937,6 @@ void GlueClient::EndMobileCamera() {
 void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   using mobile::TouchOwner;
 
-  const auto activate_pending_movement = [this](mobile::TouchContact& contact) {
-    contact.owner = TouchOwner::kMovement;
-    if (game_loop_.game_ui().is_initialized()) {
-      game_loop_.game_ui().input_router().DismissWorldTouch();
-    }
-    UpdateMobileMovement(contact);
-    mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
-  };
-
   if (event.type == SDL_FINGERDOWN) {
     auto* const contact = mobile_input_.BeginContact(event);
     if (contact == nullptr) {
@@ -955,11 +946,20 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
       auto* const game_ui = game_loop_.game_ui().is_initialized()
                                 ? &game_loop_.game_ui()
                                 : nullptr;
-      if (auto* const pending = mobile_input_.FindContactByOwner(TouchOwner::kMovementPending);
-          pending != nullptr && pending != contact) {
-        // With another finger joining, reserve the left contact for movement.
-        // Its release must not click an object while the other finger acts.
-        activate_pending_movement(*pending);
+      if (game_ui != nullptr) {
+        const auto movement = game_ui->input_router().BeginTouchMovement(
+            contact->current.drawable_x, contact->current.drawable_y,
+            [this] { ReleaseMobileMovement(); });
+        using MovementStart = openwow::ui::game::runtime::FrameInputRouter::TouchMovementStart;
+        if (movement != MovementStart::kNotControl) {
+          contact->owner = movement == MovementStart::kCaptured
+                               ? TouchOwner::kMovement : TouchOwner::kIgnored;
+          if (contact->owner == TouchOwner::kMovement) {
+            UpdateMobileMovement(*contact);
+            mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
+          }
+          return;
+        }
       }
       if (game_ui != nullptr &&
           !mobile_input_.HasOwner(TouchOwner::kWorldUi) &&
@@ -979,30 +979,11 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
         return;
       }
 
-      const bool movement_origin = !mobile_input_.HasOwner(TouchOwner::kMovement) &&
-          !mobile_input_.HasOwner(TouchOwner::kMovementPending) &&
-          IsMobileMovementRegion(contact->current,
-                                 mobile_input_.viewport());
-      const bool other_world_input = mobile_input_.HasOwner(TouchOwner::kWorldUi) ||
-          mobile_input_.HasOwner(TouchOwner::kWorldTap) ||
-          mobile_input_.HasOwner(TouchOwner::kWorldCamera) ||
-          mobile_input_.HasOwner(TouchOwner::kPinch);
-      if (movement_origin && other_world_input) {
-        // A second left-hand contact starts the stick without taking the
-        // existing right-hand contact's world tap, camera or UI ownership.
-        contact->owner = TouchOwner::kMovement;
-        UpdateMobileMovement(*contact);
-        mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
-        return;
-      }
-
       auto* const other_world_contact =
           mobile_input_.FindContactByOwner(TouchOwner::kWorldTap) != nullptr
               ? mobile_input_.FindContactByOwner(TouchOwner::kWorldTap)
               : mobile_input_.FindContactByOwner(TouchOwner::kWorldCamera);
-      // A lone, stationary contact may inspect or click anywhere in the world,
-      // including over a gathering object inside the floating-stick region.
-      contact->owner = movement_origin ? TouchOwner::kMovementPending : TouchOwner::kWorldTap;
+      contact->owner = TouchOwner::kWorldTap;
       if (other_world_contact != nullptr) {
         other_world_contact->owner = TouchOwner::kPinch;
         contact->owner = TouchOwner::kPinch;
@@ -1050,12 +1031,6 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   if (event.type == SDL_FINGERMOTION) {
     auto* const contact = mobile_input_.UpdateContact(event);
     if (contact == nullptr) {
-      return;
-    }
-    if (contact->owner == TouchOwner::kMovementPending) {
-      if (TouchDistance(contact->start, contact->current) >= kMobileCameraDragThresholdPoints) {
-        activate_pending_movement(*contact);
-      }
       return;
     }
     if (contact->owner == TouchOwner::kWorldUi) {
@@ -1163,16 +1138,9 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
     }
     return;
   }
-  if (ended->owner == TouchOwner::kWorldTap || ended->owner == TouchOwner::kMovementPending) {
+  if (ended->owner == TouchOwner::kWorldTap) {
     const float dx = ended->current.logical_x - ended->start.logical_x;
     const float dy = ended->current.logical_y - ended->start.logical_y;
-    if (ended->owner == TouchOwner::kMovementPending &&
-        dx * dx + dy * dy >= kMobileCameraDragThresholdPoints * kMobileCameraDragThresholdPoints) {
-      if (game_loop_.game_ui().is_initialized()) {
-        game_loop_.game_ui().input_router().DismissWorldTouch();
-      }
-      return;
-    }
     if (dx * dx + dy * dy <=
         kMobileWorldTapTolerancePoints *
             kMobileWorldTapTolerancePoints) {
