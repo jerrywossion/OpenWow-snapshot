@@ -73,6 +73,8 @@ class FontFace final {
   [[nodiscard]] float ascent() const noexcept;
   [[nodiscard]] FontStyle style() const noexcept;
   [[nodiscard]] std::shared_ptr<FontFace> WithPixelHeight(int pixel_height) const;
+  [[nodiscard]] std::shared_ptr<FontFace> WithSizeAndStyle(
+      int pixel_height, FontStyle style) const;
 
   [[nodiscard]] GlyphMetrics Glyph(std::uint32_t codepoint) const;
   [[nodiscard]] float Advance(std::uint32_t previous_glyph,

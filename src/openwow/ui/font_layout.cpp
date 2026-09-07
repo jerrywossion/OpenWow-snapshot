@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 namespace openwow::ui {
 namespace {
@@ -51,6 +52,7 @@ std::shared_ptr<openwow::render::text::FontFace> AcquireMeasurementFace(
                      .outline = style.outline,
                      .monochrome = style.monochrome};
   const std::uint64_t vfs_revision = vfs != nullptr ? vfs->lookup_revision() : 0;
+  std::shared_ptr<openwow::render::text::FontFace> source_face;
   {
     const std::lock_guard lock(cache_mutex);
     auto& bucket = cache[vfs];
@@ -62,13 +64,30 @@ std::shared_ptr<openwow::render::text::FontFace> AcquireMeasurementFace(
         found != bucket.faces.end()) {
       return found->second;
     }
+    if (vfs != nullptr) {
+      for (const auto& [cached_key, cached_face] : bucket.faces) {
+        if (cached_key.path == path && cached_face) {
+          source_face = cached_face;
+          break;
+        }
+      }
+    }
   }
 
   std::shared_ptr<openwow::render::text::FontFace> face;
-  if (vfs != nullptr) {
-    const auto bytes = vfs->ReadFileBytes(path);
+  if (source_face) {
+    face = source_face->WithSizeAndStyle(pixel_size, style);
+    if (!face) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+          "FontLayout: font initialization failed path=" + path +
+              " source=retained-font-bytes pixel_height=" +
+              std::to_string(pixel_size) + " reason=font-decode-failed");
+    }
+  } else if (vfs != nullptr) {
+    auto bytes = vfs->ReadFileBytes(path);
+    const bool has_bytes = bytes && !bytes->empty();
     if (bytes && !bytes->empty()) {
-      face = openwow::render::text::FontFace::LoadMemory(path, *bytes,
+      face = openwow::render::text::FontFace::LoadMemory(path, std::move(*bytes),
                                                          pixel_size, style);
     }
     if (!face) {
@@ -79,7 +98,7 @@ std::shared_ptr<openwow::render::text::FontFace> AcquireMeasurementFace(
               " source=" +
               (source.has_value() ? source->string() : "missing") +
               " pixel_height=" + std::to_string(pixel_size) + " reason=" +
-              (bytes && !bytes->empty() ? "font-decode-failed"
+              (has_bytes ? "font-decode-failed"
                                          : "read-failed-or-empty"));
     }
   } else {

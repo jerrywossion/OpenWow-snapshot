@@ -278,22 +278,30 @@ std::shared_ptr<openwow::render::text::FontFace> BgfxTextCache::LoadFace(
     failed_faces_.insert(key);
     return {};
   }
-  const auto bytes = vfs_->ReadFileBytes(path);
-  if (!bytes || bytes->empty()) {
-    const auto source = vfs_->Resolve(path);
-    openwow::diagnostics::Log(
-        openwow::diagnostics::LogLevel::kError,
-        "BgfxTextCache: font initialization failed path=" + path +
-            " source=" +
-            (source.has_value() ? source->string() : "missing") +
-            " pixel_height=" + std::to_string(height_px) +
-            " reason=read-failed-or-empty");
-    failed_faces_.insert(key);
-    return {};
+  std::shared_ptr<openwow::render::text::FontFace> face;
+  const auto source_face = std::find_if(
+      faces_.begin(), faces_.end(), [&](const auto& entry) {
+        return entry.second->path() == path;
+      });
+  if (source_face != faces_.end()) {
+    face = source_face->second->WithSizeAndStyle(height_px, style);
+  } else {
+    auto bytes = vfs_->ReadFileBytes(path);
+    if (!bytes || bytes->empty()) {
+      const auto source = vfs_->Resolve(path);
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kError,
+          "BgfxTextCache: font initialization failed path=" + path +
+              " source=" +
+              (source.has_value() ? source->string() : "missing") +
+              " pixel_height=" + std::to_string(height_px) +
+              " reason=read-failed-or-empty");
+      failed_faces_.insert(key);
+      return {};
+    }
+    face = openwow::render::text::FontFace::LoadMemory(
+        path, std::move(*bytes), height_px, style);
   }
-  auto face =
-      openwow::render::text::FontFace::LoadMemory(path, *bytes, height_px,
-                                                  style);
   if (face) {
     faces_.emplace(key, face);
   } else {

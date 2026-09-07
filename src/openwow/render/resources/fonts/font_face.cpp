@@ -119,7 +119,12 @@ float FontFace::ascent() const noexcept { return impl_->ascent; }
 FontStyle FontFace::style() const noexcept { return impl_->style; }
 
 std::shared_ptr<FontFace> FontFace::WithPixelHeight(const int pixel_height) const {
-  return LoadSharedMemory(impl_->path, impl_->bytes, pixel_height, impl_->style);
+  return WithSizeAndStyle(pixel_height, impl_->style);
+}
+
+std::shared_ptr<FontFace> FontFace::WithSizeAndStyle(
+    const int pixel_height, const FontStyle style) const {
+  return LoadSharedMemory(impl_->path, impl_->bytes, pixel_height, style);
 }
 
 GlyphMetrics FontFace::Glyph(std::uint32_t codepoint) const {

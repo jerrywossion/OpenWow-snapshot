@@ -15,6 +15,23 @@ startup stderr line `OpenWoW log: <absolute path>` identifies the actual path.
 Do not collect logs from the game/content root. No additional trace file is
 needed. These are maintained diagnostics, not temporary acceptance probes.
 
+For a development-signed device build, connect and unlock the iPhone, then
+copy just the log with Xcode's device tool. Replace `My iPhone` with the
+configured device name or identifier:
+
+```sh
+xcrun devicectl device copy from --device "My iPhone" \
+  --domain-type appDataContainer --domain-identifier ink.mnt.elune \
+  --source "Library/Application Support/OpenWoW/logs/openwow-client.log" \
+  --destination /tmp/openwow-client-ios.log --timeout 45
+```
+
+This transfer does not launch the client or attach a debugger, and does not
+download the Data archives. The source path is relative to the iOS app data
+container; a custom `OPENWOW_USER_DATA` setting requires its corresponding
+container-relative path. File sharing is disabled in the app's Info.plist, so
+the log is not exposed through the iPhone Files app.
+
 ## What the records measure
 
 Search for `Perf:`. Span records contain `operation`, monotonic `start_us`,
@@ -122,3 +139,32 @@ duration, timing availability, logging overhead or thermal behavior. Those
 remain device acceptance items. Missing slow-span records do not prove that a
 stage is free: sub-threshold work, suppression, and time spent waiting for
 external state must be considered alongside summaries and gate snapshots.
+
+## Layout and font optimization follow-up
+
+Texture ownership changes now queue the changed texture and update its entry
+in the existing layout dependency graph. Binding a button, slider or status-bar
+texture previously invalidated the entire graph, causing the next frame-tree
+construction commit to resolve all retained UI objects. Local ownership changes
+now use the existing incremental dependency closure. Construction commits,
+geometry-query boundaries, ownership transitions and size callbacks remain in
+their existing order; graph-wide invalidation still applies to teardown and
+rollback.
+
+The measurement and rendering face caches now reuse a loaded font's immutable
+source bytes for other pixel sizes and styles. Each variant still has its own
+FreeType face and glyph state. Reuse stays within each existing cache and VFS
+revision, with the existing failure diagnostics and invalidation lifecycle.
+This avoids reading and copying the same multi-megabyte CJK font again for
+each newly encountered size or outline. First-use glyph rasterization and
+texture uploads still require work.
+
+For this follow-up, keep the same Release launch configuration, character,
+zhCN Data and render scale. Measure fresh world entry, first and second calendar
+opening, bags and item tooltips, character panel, spellbook and quest log.
+Check panel geometry, button textures, scrolling and text as well as stutter.
+Compare `world.loading_screen_dismissed`, `ui.script_callback`, `frame.hitch`,
+`layout_full_total` / `layout_incremental_total`, and repeated font `mpq.read`
+records against the prior session. If disconnected, include the earliest
+network warning through the return to login. Runtime speedup and complete
+removal of first-open stalls require device confirmation.
