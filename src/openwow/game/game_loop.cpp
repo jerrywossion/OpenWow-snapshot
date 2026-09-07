@@ -362,7 +362,7 @@ render::PostProcessSettings ReadPostProcessSettings() {
       .rectangle_textures = enabled("ffxRectangle"),
       .multisample =
           static_cast<std::uint8_t>(std::clamp(cvars.GetCVarInt("gxMultisample"), 1, 16)),
-      .render_scale = runtime_policy.world_render_scale,
+      .render_scale = cvars.GetCVarFloat("renderScale"),
       .lazy_effect_framebuffers = runtime_policy.constrained_mobile_runtime,
   };
 }

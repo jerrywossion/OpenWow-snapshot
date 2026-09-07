@@ -1,5 +1,6 @@
 #include "openwow/ui/script_cvar_ranges.h"
 
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/render/backend/bgfx/retail_render_profile.h"
 #include "openwow/foundation/text/ascii.h"
 #include "openwow/ui/game/game_ui_scale.h"
@@ -31,6 +32,17 @@ std::optional<ExtShadowQualityScriptCaps> g_ext_shadow_quality_test_caps;
 
 std::optional<double> QueryScriptCVarRange(std::string_view name,
                                            const ScriptCVarRangeQuery query) {
+  if (openwow::text::EqualsIgnoreCaseAscii(name, "renderScale")) {
+    switch (query) {
+    case ScriptCVarRangeQuery::kMin:
+    case ScriptCVarRangeQuery::kAbsoluteMin:
+      return openwow::core::kWorldRenderScaleMin;
+    case ScriptCVarRangeQuery::kMax:
+    case ScriptCVarRangeQuery::kAbsoluteMax:
+      return openwow::core::kWorldRenderScaleMax;
+    }
+  }
+
   // The stock options loader queries this before initializing its slider.
   // Publish the iOS extension here for both Glue and world FrameXML, keeping
   // their original lower bound, step and apply/cancel callbacks authoritative.

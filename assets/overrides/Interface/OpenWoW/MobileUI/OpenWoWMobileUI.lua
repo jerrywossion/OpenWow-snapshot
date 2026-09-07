@@ -34,6 +34,9 @@ if locale == "zhCN" then
         bags = "背包",
         chat = "聊天",
         system = "系统",
+        graphics = "画质",
+        renderScale = "世界分辨率",
+        renderScaleHint = "即时生效，界面清晰度不变",
         primary = "点击",
         secondary = "右键",
         dismiss = "关闭",
@@ -63,6 +66,9 @@ else
         bags = "Bags",
         chat = "Chat",
         system = "System",
+        graphics = "Graphics",
+        renderScale = "World resolution",
+        renderScaleHint = "Applies immediately. UI stays sharp.",
         primary = "Click",
         secondary = "Right click",
         dismiss = "Close",
@@ -156,6 +162,11 @@ utilityPanel:EnableMouse(true)
 AddPanelBackground(utilityPanel, 0.9)
 utilityPanel:Hide()
 
+local graphicsPanel = CreateFrame("Frame", "OpenWoWMobileGraphicsPanel", root)
+graphicsPanel:EnableMouse(true)
+AddPanelBackground(graphicsPanel, 0.9)
+graphicsPanel:Hide()
+
 local function CreateLabeledButton(name, parent, label, iconPath, callback)
     local button = CreateFrame("Button", name, parent)
     AddButtonVisuals(button, iconPath)
@@ -193,6 +204,7 @@ local jumpButton = CreateLabeledButton(
     function() RunMobileBinding("JUMP") end)
 local drawerButton
 local function SetDrawerShown(shown)
+    graphicsPanel:Hide()
     if shown then
         actionCluster:Hide()
         utilityPanel:Show()
@@ -208,7 +220,7 @@ drawerButton = CreateLabeledButton(
     "OpenWoWMobileDrawerButton", root, L.drawer,
     "Interface\\Icons\\INV_Misc_Gear_01",
     function()
-        SetDrawerShown(not utilityPanel:IsShown())
+        SetDrawerShown(graphicsPanel:IsShown() or not utilityPanel:IsShown())
     end)
 
 local utilityDefinitions = {
@@ -232,6 +244,68 @@ for index, definition in ipairs(utilityDefinitions) do
             RunMobileBinding(binding)
         end)
 end
+
+local renderScaleTitle = graphicsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+renderScaleTitle:SetText(L.renderScale)
+local renderScaleValue = graphicsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local renderScaleHint = graphicsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+renderScaleHint:SetText(L.renderScaleHint)
+
+local renderScaleSlider = CreateFrame("Slider", "OpenWoWMobileRenderScale", graphicsPanel)
+renderScaleSlider:SetOrientation("HORIZONTAL")
+renderScaleSlider:SetMinMaxValues(GetCVarMin("renderScale") * 100,
+                                  GetCVarMax("renderScale") * 100)
+renderScaleSlider:SetValueStep(5)
+renderScaleSlider:EnableMouse(true)
+local renderScaleTrack = renderScaleSlider:CreateTexture(nil, "BACKGROUND")
+renderScaleTrack:SetTexture(0.3, 0.35, 0.42, 1)
+renderScaleSlider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+
+local refreshingRenderScale = false
+local function RefreshRenderScale()
+    local scale = assert(tonumber(GetCVar("renderScale")),
+                          "OpenWoWMobile: invalid renderScale CVar")
+    refreshingRenderScale = true
+    renderScaleSlider:SetValue(scale * 100)
+    refreshingRenderScale = false
+    renderScaleValue:SetText(string.format("%d%%  |  %.1f FPS",
+                                           math.floor(scale * 100 + 0.5), GetFramerate()))
+end
+
+local function ApplyRenderScale(percent)
+    SetCVar("renderScale", string.format("%.2f", percent / 100))
+    RefreshRenderScale()
+end
+
+renderScaleSlider:SetScript("OnValueChanged", function(self, value)
+    if not refreshingRenderScale then
+        ApplyRenderScale(value)
+    end
+end)
+graphicsPanel:SetScript("OnShow", RefreshRenderScale)
+local renderScaleRefreshElapsed = 0
+graphicsPanel:SetScript("OnUpdate", function(self, elapsed)
+    renderScaleRefreshElapsed = renderScaleRefreshElapsed + elapsed
+    if renderScaleRefreshElapsed >= 0.25 then
+        renderScaleRefreshElapsed = 0
+        RefreshRenderScale()
+    end
+end)
+
+local renderScalePresets = {}
+for index, percent in ipairs({50, 75, 100}) do
+    renderScalePresets[index] = CreateLabeledButton(
+        "OpenWoWMobileRenderScalePreset" .. index, graphicsPanel,
+        percent .. "%", nil, function() ApplyRenderScale(percent) end)
+end
+
+utilityButtons[#utilityButtons + 1] = CreateLabeledButton(
+    "OpenWoWMobileGraphicsButton", utilityPanel, L.graphics,
+    "Interface\\Icons\\Trade_Engineering",
+    function()
+        utilityPanel:Hide()
+        graphicsPanel:Show()
+    end)
 
 local layerButton = CreateLabeledButton(
     "OpenWoWMobileLayerButton", actionCluster, "1–6",
@@ -555,6 +629,34 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
         button:SetPoint("TOPLEFT", utilityPanel, "TOPLEFT",
                         utilityGap + column * (utilitySize + utilityGap),
                         -(utilityGap + row * (utilitySize + utilityGap)))
+    end
+
+    graphicsPanel:ClearAllPoints()
+    graphicsPanel:SetAllPoints(utilityPanel)
+    local function PlaceGraphicsText(text, y, size)
+        local font, _, flags = text:GetFont()
+        text:SetFont(font, size * u, flags)
+        text:ClearAllPoints()
+        text:SetPoint("TOP", graphicsPanel, "TOP", 0, -y * u)
+        text:SetWidth(200 * u)
+    end
+    PlaceGraphicsText(renderScaleTitle, 12, 14)
+    PlaceGraphicsText(renderScaleValue, 42, 12)
+    PlaceGraphicsText(renderScaleHint, 130, 11)
+    renderScaleSlider:ClearAllPoints()
+    renderScaleSlider:SetSize(192 * u, 48 * u)
+    renderScaleSlider:SetPoint("TOP", graphicsPanel, "TOP", 0, -70 * u)
+    renderScaleSlider:GetThumbTexture():SetSize(32 * u, 48 * u)
+    renderScaleTrack:ClearAllPoints()
+    renderScaleTrack:SetPoint("CENTER", renderScaleSlider, "CENTER", 0, 0)
+    renderScaleTrack:SetSize(192 * u, 6 * u)
+    for index, button in ipairs(renderScalePresets) do
+        SizeButton(button, 56, u)
+        button:ClearAllPoints()
+        button:SetPoint("BOTTOMLEFT", graphicsPanel, "BOTTOMLEFT",
+                        (16 + (index - 1) * 68) * u, 10 * u)
+        button.label:ClearAllPoints()
+        button.label:SetPoint("CENTER", button, "CENTER", 0, 0)
     end
 
     SizeButton(toggleButton, 48, u)

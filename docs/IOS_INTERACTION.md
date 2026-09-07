@@ -152,6 +152,11 @@ not load it.
   in a lower-right utility drawer with 64-point targets. Opening it replaces
   the combat fan, and the same menu button becomes Back. Selecting a panel
   closes the drawer. Its background absorbs touches between menu buttons.
+- Menu / 功能 → Graphics / 画质 opens the world-resolution control in the same
+  drawer. The slider adjusts from 50% to 100% in 5% steps; 50%, 75% and 100%
+  buttons make scene comparisons quick. The panel shows the current setting
+  and FPS. Changes apply on the next world frame while UI keeps its output
+  resolution. Back returns to the utility buttons.
 - Counts, usability tint, current-action highlight, cooldowns, current action
   page and bindings use the normal game APIs. The original target frame supplies
   target information; there is no duplicate target caption or inactive-layer
@@ -280,6 +285,42 @@ and reload span from the resolved user-data root's `logs/openwow-client.log`
 (normally `~/Library/Application Support/OpenWoW/logs/openwow-client.log`),
 including the first `OpenWoWMobile` or FrameXML/Lua error and its context.
 These visual, interaction and reload checks remain user acceptance items.
+
+## World rendering resolution
+
+`renderScale` is an archived CVar shared by the world renderer on every
+platform. iOS defaults to `0.75`; desktop defaults to `1.0`. The iOS performance
+profile does not overwrite the user's value. The normal `Config.wtf` lifecycle
+preserves it across UI reloads and client restarts. Invalid, non-finite and
+out-of-range inputs are rejected with a console message and a diagnostic;
+invalid saved values are reconciled to the platform default at registration.
+
+Use Menu / 功能 → Graphics / 画质 on the mobile HUD, or enter
+`/console renderScale 0.75` in chat. Values from `0.5` through `1.0` are accepted;
+`/run print(GetCVar("renderScale"))` reads the setting. Only world scene targets
+are scaled; output resolution, UI sizing and touch coordinates keep their
+existing behavior. The regular graphics resolution setting still controls
+the output window/display, independently of this scale.
+
+For this control's device acceptance, use the signed Release
+`build/ios-device-development/apps/client/Release-iphoneos/OpenWoW.app`,
+build-12340 Data with `zhCN`, and a character in the configured compatible realm:
+
+1. Keep the same scene and camera, then switch between 100%, 75% and 50% and
+   drag the slider through intermediate steps. The caption and world sharpness
+   should update without reloading UI; UI text and touch targets stay unchanged.
+   Compare the displayed FPS after each setting settles. A CPU or frame-cap
+   limit may keep FPS unchanged.
+2. Use Back to return to the utility menu, reopen Graphics, rotate the device,
+   then hide/restore the HUD. The current setting and controls should remain
+   usable. Reload UI and restart normally; the chosen value should persist,
+   including while `iosPerformanceProfile` remains enabled.
+3. If behavior differs, return the latest session's `logs/openwow-client.log`
+   from the resolved user-data root, from `log-start` through the switches.
+   `PostProcess: world render targets` records the scale, output and capture
+   dimensions, sample count and allocation status; `CVar validation` identifies
+   rejected inputs. These are persistent diagnostics. Touch behavior, visual
+   quality, restart persistence and performance gains require device feedback.
 
 ## Device acceptance
 

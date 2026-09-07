@@ -4,6 +4,9 @@
 
 namespace openwow::core {
 
+inline constexpr float kWorldRenderScaleMin = 0.5f;
+inline constexpr float kWorldRenderScaleMax = 1.0f;
+
 struct PlatformRuntimePolicy {
   bool constrained_mobile_runtime{false};
   std::uint32_t foreground_fps_limit{200u};
@@ -19,7 +22,7 @@ struct PlatformRuntimePolicy {
   std::uint32_t glue_texture_uploads_per_frame{128u};
   std::uint32_t transient_vertex_buffer_bytes{32u * 1024u * 1024u};
   std::uint32_t transient_index_buffer_bytes{8u * 1024u * 1024u};
-  float world_render_scale{1.0f};
+  float default_world_render_scale{1.0f};
   std::int32_t world_tile_load_radius{2};
   std::int32_t world_tile_unload_radius{2};
   std::uint32_t terrain_alpha_map_dimension{64u};
@@ -44,7 +47,7 @@ struct PlatformRuntimePolicy {
       .glue_texture_uploads_per_frame = 8u,
       .transient_vertex_buffer_bytes = 16u * 1024u * 1024u,
       .transient_index_buffer_bytes = 4u * 1024u * 1024u,
-      .world_render_scale = 0.75f,
+      .default_world_render_scale = 0.75f,
       .world_tile_load_radius = 1,
       .world_tile_unload_radius = 2,
       .terrain_alpha_map_dimension = 32u,

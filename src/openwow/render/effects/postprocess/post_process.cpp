@@ -1,5 +1,6 @@
 
 #include "openwow/render/effects/postprocess/post_process.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/render/resources/textures/texture_surface_copy.h"
 #include "openwow/render/resources/shaders/shader_registry.h"
 #include "openwow/foundation/diagnostics/logging.h"
@@ -64,7 +65,8 @@ float NormalizeRenderScale(const float scale) noexcept {
   if (!std::isfinite(scale)) {
     return 1.0f;
   }
-  return std::clamp(scale, 0.5f, 1.0f);
+  return std::clamp(scale, openwow::core::kWorldRenderScaleMin,
+                    openwow::core::kWorldRenderScaleMax);
 }
 
 std::uint32_t ResolveScaledDimension(const std::uint32_t native_dimension,
@@ -381,6 +383,18 @@ void PostProcess::CreateFramebuffers() {
   if (!lazy_effect_framebuffers_ || IsGlowActive() || IsDeathEffectActive()) {
     CreateEffectFramebuffers();
   }
+
+  const bool scene_ready = bgfx::isValid(scene_fb_) && bgfx::isValid(scene_tex_) &&
+                           bgfx::isValid(scene_depth_);
+  openwow::diagnostics::Log(
+      scene_ready ? openwow::diagnostics::LogLevel::kInfo
+                  : openwow::diagnostics::LogLevel::kError,
+      "PostProcess: world render targets scale=" + std::to_string(render_scale_) +
+          " output=" + std::to_string(width_) + "x" + std::to_string(height_) +
+          " capture=" + std::to_string(scene_target_.logical.width) + "x" +
+          std::to_string(scene_target_.logical.height) +
+          " multisample=" + std::to_string(multisample_) +
+          (scene_ready ? " status=ready" : " status=failed reason=scene attachment/framebuffer creation"));
 }
 
 void PostProcess::CreateEffectFramebuffers() {
@@ -1031,7 +1045,7 @@ void PostProcess::SetSettings(const PostProcessSettings settings) {
   const std::uint8_t next_multisample = NormalizeMultisample(settings.multisample);
   const float next_render_scale = NormalizeRenderScale(settings.render_scale);
   if (next_multisample != multisample_ ||
-      std::fabs(next_render_scale - render_scale_) > 0.001f ||
+      next_render_scale != render_scale_ ||
       framebuffer_mode_changed) {
     multisample_ = next_multisample;
     render_scale_ = next_render_scale;
@@ -1062,7 +1076,7 @@ bool PostProcess::IsInitialized() const {
 }
 
 bool PostProcess::IsAnyEffectActive() const {
-  return render_scale_ < 0.999f || multisample_ > 1u ||
+  return render_scale_ < 1.0f || multisample_ > 1u ||
          (state_.ffx_enabled && (IsDeathEffectActive() || IsGlowActive() ||
                                  std::fabs(state_.color_grade_r - 1.0f) > 0.001f ||
                                  std::fabs(state_.color_grade_g - 1.0f) > 0.001f ||

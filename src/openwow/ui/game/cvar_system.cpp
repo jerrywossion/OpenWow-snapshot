@@ -5,6 +5,7 @@
 #include "openwow/core/console.h"
 #include "openwow/core/cvar.h"
 #include "openwow/core/decimal_parse.h"
+#include "openwow/core/platform_runtime_policy.h"
 #include "openwow/platform/system/os_system_info.h"
 #include "openwow/core/screenshot_system.h"
 #include "openwow/data/formats/dbc/dbc_table_registry.h"
@@ -859,6 +860,26 @@ bool ParticleDensityValidationCallback(const std::string &, const std::string &,
   }
 
   return true;
+}
+
+bool RenderScaleValidationCallback(const std::string &name, const std::string &,
+                                   const std::string &new_value) {
+  char *end = nullptr;
+  const float value = std::strtof(new_value.c_str(), &end);
+  if (end != new_value.c_str() && end == new_value.c_str() + new_value.size() &&
+      value >= openwow::core::kWorldRenderScaleMin &&
+      value <= openwow::core::kWorldRenderScaleMax) {
+    return true;
+  }
+
+  openwow::core::ida::ConsoleAddLine(
+      "renderScale must be a number between 0.5 and 1.0.",
+      openwow::core::ida::COLOR_DEFAULT);
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kWarn,
+      "CVar validation: rejected " + name + " value=\"" + new_value +
+          "\" source=CVar write/config reason=expected a finite number in [0.5, 1.0]");
+  return false;
 }
 
 bool ValidateCameraFloatRange(const std::string& new_value,
@@ -1974,6 +1995,13 @@ void CVarSystem::RegisterDefaults() {
       "Enable/Disable use of nvvp3 and nvfp2 shaders. Only relevant when using the GLL gxApi.");
   register_gx_fallback("fixedFunction", "0", pending_display,
                        "Force fixed function rendering");
+
+  RegisterNativeCVar(
+      "renderScale",
+      std::to_string(openwow::core::GetPlatformRuntimePolicy().default_world_render_scale),
+      F::Archive, "World rendering resolution scale (0.5-1.0; UI is unchanged)",
+      RenderScaleValidationCallback, openwow::core::kWorldRenderScaleMin,
+      openwow::core::kWorldRenderScaleMax, 1);
 
   RegisterCVar("farclip", "350", F::Archive, "View distance");
   RegisterCVar("nearclip", "0.2", F::Archive, "Near clip plane distance");
