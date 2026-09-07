@@ -937,6 +937,15 @@ void GlueClient::EndMobileCamera() {
 void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   using mobile::TouchOwner;
 
+  const auto activate_pending_movement = [this](mobile::TouchContact& contact) {
+    contact.owner = TouchOwner::kMovement;
+    if (game_loop_.game_ui().is_initialized()) {
+      game_loop_.game_ui().input_router().DismissWorldTouch();
+    }
+    UpdateMobileMovement(contact);
+    mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
+  };
+
   if (event.type == SDL_FINGERDOWN) {
     auto* const contact = mobile_input_.BeginContact(event);
     if (contact == nullptr) {
@@ -946,6 +955,12 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
       auto* const game_ui = game_loop_.game_ui().is_initialized()
                                 ? &game_loop_.game_ui()
                                 : nullptr;
+      if (auto* const pending = mobile_input_.FindContactByOwner(TouchOwner::kMovementPending);
+          pending != nullptr && pending != contact) {
+        // With another finger joining, reserve the left contact for movement.
+        // Its release must not click an object while the other finger acts.
+        activate_pending_movement(*pending);
+      }
       if (game_ui != nullptr &&
           !mobile_input_.HasOwner(TouchOwner::kWorldUi) &&
           game_ui->input_router().HandleTouchDown(
@@ -964,9 +979,17 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
         return;
       }
 
-      if (!mobile_input_.HasOwner(TouchOwner::kMovement) &&
+      const bool movement_origin = !mobile_input_.HasOwner(TouchOwner::kMovement) &&
+          !mobile_input_.HasOwner(TouchOwner::kMovementPending) &&
           IsMobileMovementRegion(contact->current,
-                                 mobile_input_.viewport())) {
+                                 mobile_input_.viewport());
+      const bool other_world_input = mobile_input_.HasOwner(TouchOwner::kWorldUi) ||
+          mobile_input_.HasOwner(TouchOwner::kWorldTap) ||
+          mobile_input_.HasOwner(TouchOwner::kWorldCamera) ||
+          mobile_input_.HasOwner(TouchOwner::kPinch);
+      if (movement_origin && other_world_input) {
+        // A second left-hand contact starts the stick without taking the
+        // existing right-hand contact's world tap, camera or UI ownership.
         contact->owner = TouchOwner::kMovement;
         UpdateMobileMovement(*contact);
         mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
@@ -977,7 +1000,9 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
           mobile_input_.FindContactByOwner(TouchOwner::kWorldTap) != nullptr
               ? mobile_input_.FindContactByOwner(TouchOwner::kWorldTap)
               : mobile_input_.FindContactByOwner(TouchOwner::kWorldCamera);
-      contact->owner = TouchOwner::kWorldTap;
+      // A lone, stationary contact may inspect or click anywhere in the world,
+      // including over a gathering object inside the floating-stick region.
+      contact->owner = movement_origin ? TouchOwner::kMovementPending : TouchOwner::kWorldTap;
       if (other_world_contact != nullptr) {
         other_world_contact->owner = TouchOwner::kPinch;
         contact->owner = TouchOwner::kPinch;
@@ -1025,6 +1050,12 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   if (event.type == SDL_FINGERMOTION) {
     auto* const contact = mobile_input_.UpdateContact(event);
     if (contact == nullptr) {
+      return;
+    }
+    if (contact->owner == TouchOwner::kMovementPending) {
+      if (TouchDistance(contact->start, contact->current) >= kMobileCameraDragThresholdPoints) {
+        activate_pending_movement(*contact);
+      }
       return;
     }
     if (contact->owner == TouchOwner::kWorldUi) {
@@ -1132,9 +1163,16 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
     }
     return;
   }
-  if (ended->owner == TouchOwner::kWorldTap) {
+  if (ended->owner == TouchOwner::kWorldTap || ended->owner == TouchOwner::kMovementPending) {
     const float dx = ended->current.logical_x - ended->start.logical_x;
     const float dy = ended->current.logical_y - ended->start.logical_y;
+    if (ended->owner == TouchOwner::kMovementPending &&
+        dx * dx + dy * dy >= kMobileCameraDragThresholdPoints * kMobileCameraDragThresholdPoints) {
+      if (game_loop_.game_ui().is_initialized()) {
+        game_loop_.game_ui().input_router().DismissWorldTouch();
+      }
+      return;
+    }
     if (dx * dx + dy * dy <=
         kMobileWorldTapTolerancePoints *
             kMobileWorldTapTolerancePoints) {
@@ -1160,6 +1198,9 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
           mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
         }
       }
+    } else if (game_loop_.game_ui().is_initialized()) {
+      // The final sample can contain movement without a preceding motion event.
+      game_loop_.game_ui().input_router().DismissWorldTouch();
     }
     return;
   }

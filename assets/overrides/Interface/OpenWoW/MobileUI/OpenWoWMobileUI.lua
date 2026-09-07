@@ -16,6 +16,7 @@ if locale == "zhCN" then
         enemy = "敌人",
         friendly = "友方",
         interact = "交互",
+        interactHint = "此按钮与当前目标交互。采集物、宝箱等无需选中，直接双击场景中的物体。",
         jump = "跳跃",
         drawer = "功能",
         close = "返回",
@@ -43,6 +44,7 @@ else
         enemy = "Enemy",
         friendly = "Friend",
         interact = "Use",
+        interactHint = "This button interacts with your current target. Double-tap a gathering object or chest in the world to use it without selecting it.",
         jump = "Jump",
         drawer = "Menu",
         close = "Back",
@@ -176,6 +178,13 @@ local interactButton = CreateLabeledButton(
     "OpenWoWMobileInteractButton", actionCluster, L.interact,
     "Interface\\Icons\\INV_Misc_Hand_01",
     function() InteractUnit("target") end)
+interactButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText(L.interact)
+    GameTooltip:AddLine(L.interactHint, 1, 1, 1, true)
+    GameTooltip:Show()
+end)
+interactButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 local jumpButton = CreateLabeledButton(
     "OpenWoWMobileJumpButton", actionCluster, L.jump,
     "Interface\\Icons\\Ability_Rogue_Sprint",

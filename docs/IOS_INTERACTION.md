@@ -16,19 +16,28 @@ desktop client.
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
 | UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
-| Empty lower-left world | Drag from any origin | Floating movement stick; vertical movement plus horizontal strafe |
+| Lower-left world | Move at least 9 device points from the touch origin | Floating movement stick; vertical movement plus horizontal strafe |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action after the 260 ms double-tap window |
-| World outside the movement region | One-finger double tap in the same location | Direct right-click interaction on the second release |
-| World outside the movement region | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
+| World, including the lower-left movement region | One-finger double tap in the same location | Direct right-click interaction on the second release |
+| World, including the lower-left movement region | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
 | Empty world | Two-finger pinch | Camera zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
 | Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and stick visual |
 
-The first contact owns its interaction until release. UI always wins hit
-testing; the movement region is considered only for touches that did not hit a
-FrameXML control. A second finger can therefore move and operate the camera or
-an action button at the same time without reclassifying the movement finger.
+UI always wins hit testing. A lone lower-left world contact initially remains
+eligible for taps and inspection; movement starts after 9 device points, with
+the stick's existing movement dead zone still applied. The joystick visual and
+movement haptic appear only when movement owns the contact. On release without
+movement, this region supports the same single tap, double tap and long-press
+inspection as the rest of the world.
+
+If another finger joins while the left contact is pending, the left contact
+becomes the movement stick and its pending click is cancelled. Conversely, a
+left contact joining an existing UI/camera/world contact starts as movement.
+This preserves movement plus skills/camera without issuing a world click when
+the movement finger releases. Once a contact owns movement, camera or a direct
+UI control, it retains that role until release.
 Application deactivation, focus loss, UI-mode changes and touch cancellation
 all release movement, camera and UI capture explicitly.
 
@@ -53,6 +62,15 @@ raw mouse handlers or hyperlink handlers, not guesses about a page or item.
 World selection and ground-target confirmation also wait 260 ms; double tapping
 uses the normal world right-click behavior, including cancelling targeting.
 
+The HUD's Use/交互 button invokes `InteractUnit("target")` and therefore acts on
+the selected target. Its tooltip explains the separate world gesture. To gather
+a quest object, open a chest or use a world object that cannot be selected,
+double tap the visible object itself. The world click picks a GUID under the
+touch and passes it directly to object interaction; it does not first select it
+or substitute the current target. GameObject activation retains the existing
+range, lock/skill, quest and server checks and the normal game-object use/report
+requests. The same path works with no target or with an unrelated unit selected.
+
 A second touch on a different target commits the previous single tap, then
 starts an independent gesture. If that first action changes the next target's
 visibility or hit ownership, the next contact is consumed. For a matching
@@ -70,7 +88,8 @@ hit ownership and hyperlinks before dispatch. Its hardware-action scope comes
 only from the completed physical tap, never from a hover or an arbitrary timer.
 Focus loss, rotation, UI reload, target teardown and mouse takeover discard
 pending taps. Existing movement, camera, pinch and direct-control ownership is
-preserved; starting a camera drag or pinch cancels a pending world tap.
+preserved; committing a pending left contact to movement or starting a camera
+drag/pinch cancels its world tap.
 
 Long-press inspection never sends a left-button down, click or right-button
 action. This matters for buttons registered for down-clicks: inspecting an
@@ -244,22 +263,35 @@ not establish device visual, interaction or comfort acceptance.
 
 1. On login, realm and character screens, tap buttons, edit fields and scroll
    or drag controls; no duplicate click should occur.
-2. In world, move diagonally and reverse direction, then release inside and
-   outside the stick radius. The character must stop immediately.
+2. In world, drag from the lower-left region to move diagonally and reverse
+   direction, then release inside and outside the stick radius. The character
+   must stop immediately. A stationary tap/hold there must not start movement.
+   Hold the left finger still, add a camera/skill finger and then move the left
+   finger: each role must remain independent, with no click on left release.
+   Repeat with the camera/skill finger arriving first.
 3. Hold movement while dragging the camera, pinching zoom and activating an
    action. Each contact must retain its own function.
 4. Tap a world unit and confirm a ground-target spell with a short world tap.
-   Double tap an NPC/object outside the movement region: expect right-click
+   Double tap an NPC/object, including in the lower-left movement region: expect right-click
    interaction on the second release, with no toolbar or preliminary left-click
    selection/cast. Double tap with a ground-target spell active to check the
    normal right-click cancel. A single tap waits about 260 ms before selection
    or ground-target confirmation. Pinching must never produce a right click.
    Reload/background between taps and during the second touch: releasing the
    old contact must not trigger an action in the resumed/reloaded UI.
-   Hold an interactable outside the movement region, then release: no action
+   Hold an interactable in either world region, then release: no action
    should occur until Right click/右键 is tapped in the toolbar. Verify the
    normal NPC/object interaction, then repeat with Close/关闭 and outside
    dismissal. Camera drag and two-finger pinch must not open that toolbar.
+   Find a quest gathering object that cannot become the selected target. Stand
+   within use range, clear the target and double tap the object itself; expect
+   its normal use/loot/cast response and the corresponding quest progress after
+   the server responds. Repeat with an unrelated NPC selected, with the object
+   in the lower-left region, and with the mobile HUD hidden. The selected NPC
+   must not receive the object's interaction. Repeat with an ordinary chest or
+   another usable GameObject, and check an out-of-range interaction still follows
+   the existing approach/error behavior. A scene model obscured by a UI control
+   remains a UI hit; hide the mobile HUD or move the camera to expose it.
 5. Verify both action layers on iPhone and iPad, including cooldown, count,
    usability and action-page changes. Check that the thumb can move from the
    primary action to jump, the layer switch and the surrounding skills without
@@ -322,6 +354,17 @@ error rather than a silent fallback.
 `HUD viewport safe insets` records changed drawable dimensions and the
 left/top/right/bottom insets in framebuffer pixels. Include those entries when
 reporting notch, rotation or hit-target alignment failures.
+
+`World secondary click` records each dispatched coordinate-based right click,
+the drawable touch coordinates, hit kind, picked GUID and separately selected
+GUID. `hit=gameobject` with a nonzero picked GUID confirms model picking reached
+object interaction; it does not prove server acceptance. `hit=terrain` or
+`hit=none` means that click did not pick the object. If this entry is absent,
+include preceding `Touch action` cancellations. Existing debug-level
+`interaction send CMSG_GAMEOBJ_USE` / `CMSG_GAMEOBJ_REPORT_USE` entries, when
+present, identify outgoing object requests. For a gathering failure include
+the quest/object name, any use/range/skill error, whether loot or casting began,
+and whether the quest counter changed.
 
 For a failed device check, return `logs/openwow-client.log` from the resolved
 iOS user-data root, covering the latest `log-start`/`Client startup` through the

@@ -3870,6 +3870,25 @@ void DispatchWorldClick(openwow::game::WorldSession &session,
   const int click_x = static_cast<int>(screen_x);
   const int click_y = static_cast<int>(screen_y);
   const auto pick = world_frame.Pick(click_x, click_y);
+  if (button == click::WorldClickButton::kSecondary) {
+    using HitType = openwow::render::PickResult::HitType;
+    const char* hit_kind = "none";
+    if (pick.hit) {
+      switch (pick.type) {
+        case HitType::kUnit: hit_kind = "unit"; break;
+        case HitType::kGameObject: hit_kind = "gameobject"; break;
+        case HitType::kCorpse: hit_kind = "corpse"; break;
+        case HitType::kTerrain: hit_kind = "terrain"; break;
+        case HitType::kItem: hit_kind = "item"; break;
+        case HitType::kNone: break;
+      }
+    }
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+        "World secondary click: x=" + std::to_string(click_x) +
+        " y=" + std::to_string(click_y) + " hit=" + hit_kind +
+        " picked_guid=" + std::to_string(pick.guid.GetRawValue()) +
+        " selected_guid=" + std::to_string(session.objects().GetTargetGuid().GetRawValue()));
+  }
 
   if (pick.hit && pick.type != openwow::render::PickResult::HitType::kTerrain &&
       pick.type != openwow::render::PickResult::HitType::kNone && !pick.guid.IsEmpty()) {
