@@ -149,7 +149,9 @@ construction commit to resolve all retained UI objects. Local ownership changes
 now use the existing incremental dependency closure. Construction commits,
 geometry-query boundaries, ownership transitions and size callbacks remain in
 their existing order; graph-wide invalidation still applies to teardown and
-rollback.
+rollback. Replacing dependency edges also retains the previous scroll owner's
+range invalidation, so moving a texture out of scroll content updates the old
+range at the next existing layout commit.
 
 The measurement and rendering face caches now reuse a loaded font's immutable
 source bytes for other pixel sizes and styles. Each variant still has its own
