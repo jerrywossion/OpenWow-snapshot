@@ -22,6 +22,7 @@
 #include "openwow/world/camera/world_camera.h"
 #include "openwow/game/chat_display.h"
 #include "openwow/game/chat_message_formatters.h"
+#include "openwow/game/combat_log_internal.h"
 #include "openwow/game/combat/application/client_control_transition.h"
 #include "openwow/game/combat/adapters/ui/auto_attack_activity_presenter.h"
 #include "openwow/game/comsat_client.h"
@@ -351,6 +352,31 @@ void DisplayQuestgiverQuestFailedMessage(WorldSession &session, const QuestFaile
 constexpr int kQuestRewardItemSystemMessage = 162;
 constexpr int kQuestRewardMultipleItemsSystemMessage = 163;
 
+void LogQuestRewardPresentationFailure(const std::uint32_t quest_id,
+                                       const std::uint32_t item_id,
+                                       const std::string_view reason) {
+  diagnostics::Log(diagnostics::LogLevel::kWarn,
+      "Quest reward presentation failed opcode=SMSG_QUESTGIVER_QUEST_COMPLETE quest=" +
+          std::to_string(quest_id) + " item=" + std::to_string(item_id) +
+          " reason=" + std::string(reason));
+}
+
+void DisplayQuestCompletionChatReward(WorldSession &session,
+                                      const std::uint32_t quest_id,
+                                      const char *format_key, const int amount,
+                                      const int chat_type) {
+  const auto format = Localization::Get().GetString(format_key, "");
+  if (format.empty()) {
+    LogQuestRewardPresentationFailure(quest_id, 0,
+        "missing localized format " + std::string(format_key));
+    return;
+  }
+  std::array<char, 3000> text{};
+  FormatRuntimeStringTemplateInto(text.data(), text.size(), format.c_str(), amount);
+  ChatFrame_DisplayMessage(session.objects(), text.data(), chat_type,
+      nullptr, 0, nullptr, nullptr, nullptr, 0, 0, 0, 0, 0, nullptr);
+}
+
 std::string BuildQuestCompletionItemLink(const std::uint32_t item_id,
                                          const ItemTemplate &item_template) {
   if (item_id == 0 || item_template.name.empty()) {
@@ -379,6 +405,8 @@ void DisplayQuestCompletionRewardItemMessage(WorldSession &session, const std::u
                        return;
                      }
                      if (!success || session.query_cache().GetItemTemplate(item_id) == nullptr) {
+                       LogQuestRewardPresentationFailure(0, item_id,
+                           success ? "item cache callback has no record" : "item query failed");
                        return;
                      }
                      DisplayQuestCompletionRewardItemMessage(session, item_id, item_count,
@@ -390,6 +418,7 @@ void DisplayQuestCompletionRewardItemMessage(WorldSession &session, const std::u
 
   const auto item_link = BuildQuestCompletionItemLink(item_id, *item_template);
   if (item_link.empty()) {
+    LogQuestRewardPresentationFailure(0, item_id, "item record has no display name");
     return;
   }
 
@@ -402,28 +431,61 @@ void DisplayQuestCompletionRewardItemMessage(WorldSession &session, const std::u
   ui::game::DisplaySystemMessage(kQuestRewardItemSystemMessage, item_link.c_str());
 }
 
-void DisplayQuestCompletionRewardItemMessages(WorldSession &session, const std::uint32_t quest_id,
-                                              const std::uint32_t selected_reward_item_id) {
-  if (quest_id == 0) {
-    return;
-  }
-
+void DisplayQuestCompletionRewards(WorldSession &session, const QuestCompleteInfo complete,
+                                    const std::uint32_t selected_reward_item_id) {
+  const auto quest_id = complete.quest_id;
   const auto owner = session.lifetime_token();
   const auto *quest_template = session.quests().GetOrRequestTemplate(
       quest_id, QuestManager::QueryRequestOptions{
                     .dedupe_callbacks = false,
-                    .callback = [owner, &session, quest_id, selected_reward_item_id](const bool success) {
+                    .callback = [owner, &session, complete, selected_reward_item_id](const bool success) {
                       if (owner.expired()) {
                         return;
                       }
+                      const auto quest_id = complete.quest_id;
                       if (!success || session.quests().GetTemplate(quest_id) == nullptr) {
+                        LogQuestRewardPresentationFailure(quest_id, 0,
+                            success ? "quest cache callback has no record" : "quest query failed");
                         return;
                       }
-                      DisplayQuestCompletionRewardItemMessages(session, quest_id,
-                                                               selected_reward_item_id);
+                      DisplayQuestCompletionRewards(session, complete, selected_reward_item_id);
                     }});
   if (quest_template == nullptr) {
     return;
+  }
+
+  if (quest_template->title.empty()) {
+    LogQuestRewardPresentationFailure(quest_id, 0, "quest record has no title");
+  } else {
+    ui::game::DisplaySystemMessage(147, quest_template->title.c_str());
+  }
+  session.sound_runtime().PlaySoundKitByName("igQuestListComplete");
+  if (complete.xp_reward != 0) {
+    ui::game::DisplaySystemMessage(161, static_cast<std::int32_t>(complete.xp_reward));
+  }
+  if (static_cast<std::int32_t>(complete.money_reward) > 0) {
+    const auto money = MoneyDisplay::FormatLocalizedCoinText(complete.money_reward, ", ");
+    if (money.empty()) {
+      LogQuestRewardPresentationFailure(quest_id, 0, "money format unavailable");
+    } else {
+      ui::game::DisplaySystemMessage(164, money.c_str());
+    }
+  }
+  if (static_cast<std::int32_t>(complete.honor_reward) > 0) {
+    const auto honor = static_cast<int>(complete.honor_reward / 10u);
+    DisplayQuestCompletionChatReward(session, quest_id, "COMBATLOG_HONORAWARD",
+                                    honor, ChatDisplayType::kCombatHonor);
+    CombatLog_FireCombatTextSD(CombatTextMsgIdx::kHonorGained, honor);
+  }
+  if (static_cast<std::int32_t>(complete.talent_reward) > 0) {
+    DisplayQuestCompletionChatReward(session, quest_id, "LEVEL_UP_CHAR_POINTS",
+        static_cast<int>(complete.talent_reward), ChatDisplayType::kMoney);
+  }
+  if (static_cast<std::int32_t>(complete.arena_points) > 0) {
+    DisplayQuestCompletionChatReward(session, quest_id, "COMBATLOG_ARENAPOINTSAWARD",
+        static_cast<int>(complete.arena_points), ChatDisplayType::Value(ChatMsg::kArenaPoints));
+    CombatLog_FireCombatTextSD(CombatTextMsgIdx::kArenaPointsGained,
+                             static_cast<int>(complete.arena_points));
   }
 
   for (const auto &reward_item : quest_template->reward_items) {
@@ -437,6 +499,10 @@ void DisplayQuestCompletionRewardItemMessages(WorldSession &session, const std::
   if (selected_reward_item_id != 0) {
     DisplayQuestCompletionRewardItemMessage(session, selected_reward_item_id, 1, false);
   }
+  const auto dialog = GetActiveQuestDialogCloseState(session.quests());
+  const auto keep_dialog_open =
+      dialog.is_open && ShouldKeepQuestDialogOpenAfterTurnIn(session, quest_id);
+  CloseQuestDialogLikeIda58CA70(session, dialog, keep_dialog_open, false);
 }
 
 }
@@ -665,7 +731,6 @@ void WorldSession::HandleQuestLogFull(const net::wotlk::WorldPacket & ) {
 }
 
 bool WorldSession::HandleQuestGiverQuestComplete(const net::wotlk::WorldPacket &pkt) {
-  const auto dialog = GetActiveQuestDialogCloseState(quests_);
   PacketReader reader(pkt.payload.data(), pkt.payload.size());
   QuestCompleteInfo complete{};
   if (!reader.ReadU32(complete.quest_id) ||
@@ -680,10 +745,7 @@ bool WorldSession::HandleQuestGiverQuestComplete(const net::wotlk::WorldPacket &
   last_quest_complete_ = complete;
   const auto quest_id = last_quest_complete_.quest_id;
   const auto selected_reward_item_id = quests_.TakePendingRewardSelectionItem(quest_id);
-  DisplayQuestCompletionRewardItemMessages(*this, quest_id, selected_reward_item_id);
-  const auto keep_dialog_open =
-      dialog.is_open && ShouldKeepQuestDialogOpenAfterTurnIn(*this, quest_id);
-  CloseQuestDialogLikeIda58CA70(*this, dialog, keep_dialog_open, false);
+  DisplayQuestCompletionRewards(*this, complete, selected_reward_item_id);
   return true;
 }
 
