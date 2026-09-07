@@ -193,6 +193,30 @@ External keyboard, mouse/trackpad and controller routes stay active. Virtual
 movement uses independent source ownership, so releasing one input device does
 not cancel the same command still held by another.
 
+## UI scale
+
+On iOS, the original video settings UI scale slider supports **0.64–1.50**, in
+the original **0.01** steps. Enable Use UI Scale/使用 UI 缩放, then move the
+slider above 1 to enlarge the original frames and text. A value of 1.20 makes
+them 20% larger than scale 1. The default remains 1 with custom scaling off;
+Apply/Okay, Cancel, defaults and configuration persistence use the original
+FrameXML paths. Dragging retains the existing immediate preview behavior.
+
+The extension publishes an iOS-only `GetCVarMax("uiScale")` result before the
+original options loader sets up the slider. Both login-screen and in-world
+video settings use that same range, so a saved 1.20 is represented without
+clipping it to 1 during refresh. No original XML/Lua override or generic slider
+change is needed. Desktop range-query behavior and the 0.64–1 scale computation
+remain unchanged, including when macOS mobile HUD preview is enabled.
+
+The upper bound is the supported slider range, not a new clamp on `SetScale`
+or console CVar writes. Values manually entered outside 0.64–1.50 or between
+the slider's steps are not exactly representable by this control. The mobile
+joystick, skill fan and launcher keep their device-point sizes as the original
+UI grows; touch hit testing uses the same resolved geometry as rendering.
+Larger original panels have less room on a phone, so check their edges and
+reachable buttons on the intended device before settling on a scale.
+
 ## Iterate the HUD on macOS
 
 Build and install the normal Release application using [BUILDING.md](BUILDING.md).
@@ -361,6 +385,18 @@ not establish device visual, interaction or comfort acceptance.
     replace the inspected frame before toolbar activation: it must cancel
     rather than click the newly exposed control. Reload/background while a
     tooltip or toolbar is pinned and verify it is cleared.
+13. In the original video settings, enable UI scaling and exercise 0.64, 0.80
+    and 1.00 before trying 1.20 and 1.50. Apply each value, reopen the settings,
+    then change it and Cancel: the previous applied scale must return, including
+    transitions in both directions across 1. Open the panel at a saved 1.20
+    and Apply without dragging: it must stay at 1.20. Repeat after `/reload`
+    and logout/login, including opening the login-screen video settings before
+    re-entering the world. Defaults and disabling custom scale must retain
+    their original behavior. With each scale, check text, panel/button hit
+    alignment, dragging, tooltips and minimap placement in both orientations;
+    mobile controls must keep their device-point size. Repeat the 0.64–1
+    checks on desktop, whose slider remains unchanged. Scaling, panel fit and
+    apply/cancel behavior remain device acceptance items until confirmed.
 
 The log records `iOS internal mobile interaction layer loaded` after the
 internal TOC succeeds. A missing or invalid mobile layer is a world-UI startup
@@ -388,6 +424,10 @@ iOS user-data root, covering the latest `log-start`/`Client startup` through the
 failure, together with the device, orientation, HUD visibility/layer and steps.
 Keep the first Lua/resource error and surrounding context, especially entries
 mentioning `OpenWoWMobile`, `RegisterForSave`, `SetFont` or `SavedVariables`.
+For scaling failures, also report `GetCVar("useUiScale")` and
+`GetCVar("uiScale")` before opening, after dragging and after Apply/Cancel,
+plus whether the issue occurred in login or world settings. Include the first
+FrameXML/Lua error and `HUD viewport safe insets` entries from that interval.
 For double-tap/inspection/drag failures also include `Touch action`,
 `source=double-tap`, `source=single-tap-timeout`, `Touch context`, `Touch drag`,
 `Touch scroll`, and the first originating FrameXML/Lua error. Record whether

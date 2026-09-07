@@ -23,6 +23,7 @@
 #include "openwow/ui/game/api/game_lua_api_guild_roster_view.h"
 #include "openwow/ui/game/api/game_lua_api_talent.h"
 #include "openwow/ui/game/game_ui_manager.h"
+#include "openwow/ui/game/game_ui_scale.h"
 #include "openwow/ui/script_boolean.h"
 #include "openwow/ui/runtime/security/protected_action_gate.h"
 #include "openwow/ui/game/secure_execution.h"
@@ -2531,7 +2532,8 @@ void CVarSystem::RegisterDefaults() {
                "Receive notification when guild members log on/off");
 
   RegisterCVar("useUiScale", "0", F::Archive, "Enable UI scaling");
-  RegisterCVar("uiScale", "1.0", F::Archive, "UI scale factor", 0.64f, 1.0f);
+  RegisterCVar("uiScale", "1.0", F::Archive, "UI scale factor",
+               0.64f, kConfiguredUiScaleSliderMaximum);
 
   RegisterCVar("Gamma", "1.0", F::Archive, "Gamma correction");
   RegisterCVar("scriptErrors", "0", F::Account, "Show Lua script errors");
