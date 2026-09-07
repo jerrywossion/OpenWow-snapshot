@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "openwow/foundation/text/ascii.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/actions/bindings/adapters/lua/binding_script_executor.h"
 #include "openwow/input/input_manager.h"
 #include "openwow/runtime/time/game_clock.h"
@@ -24,6 +25,7 @@
 #include "openwow/ui/game/runtime/lua_interned_field_key.h"
 #include "openwow/ui/game/runtime/frame_traversal_index.h"
 #include "openwow/ui/game/secure_execution.h"
+#include "openwow/ui/runtime/security/protected_action_gate.h"
 #include "openwow/ui/widgets/simple_edit_box.h"
 #include "openwow/ui/widgets/simple_frame.h"
 #include "openwow/ui/widgets/simple_minimap.h"
@@ -33,6 +35,9 @@ namespace {
 
 constexpr float kDragThresholdSquared = 100.0F;
 constexpr char kRegisteredDragButtonMaskField[] = "__ow_registered_drag_button_mask";
+constexpr std::uint32_t kTouchInspectMilliseconds = 475u;
+constexpr float kTouchSlopPoints = 9.0F;
+constexpr float kTouchScrollPoints = 24.0F;
 
 template <typename PushArguments>
 bool FireFrameHandler(lua_State *state, int frame_ref, const char *handler, int argument_count,
@@ -50,7 +55,7 @@ bool FireFrameHandler(lua_State *state, int frame_ref, const char *handler, int 
     lua_pop(state, 1);
   }
   lua_settop(state, top);
-  return invocation.invoked;
+  return invocation.invoked && invocation.status == LUA_OK;
 }
 
 bool FireNoArg(lua_State *state, int frame_ref, const char *handler) {
@@ -264,6 +269,19 @@ bool FrameRefHasHandler(lua_State *state, int frame_ref, const char *handler) {
   return found;
 }
 
+bool FrameAcceptsTouchDrag(lua_State* state, const int ref) {
+  const int top = lua_gettop(state);
+  lua_rawgeti(state, LUA_REGISTRYINDEX, ref);
+  if (!lua_istable(state, -1)) {
+    lua_settop(state, top);
+    return false;
+  }
+  lua_getfield(state, -1, kRegisteredDragButtonMaskField);
+  const auto mask = static_cast<std::uint32_t>(lua_tointeger(state, -1));
+  lua_settop(state, top);
+  return (mask & 1u) != 0u && FrameRefHasHandler(state, ref, "OnDragStart");
+}
+
 bool IsRegisteredClickPhase(lua_State *state, int frame_ref, std::string_view button_name,
                             bool is_down) {
   const int top = lua_gettop(state);
@@ -415,6 +433,10 @@ void FrameInputRouter::Reset() noexcept {
   pending_edit_box_update_refs_.clear();
   edit_box_drag_select_frame_.clear();
   touch_capture_active_ = false;
+  touch_gesture_.reset();
+  touch_context_.reset();
+  pending_touch_context_action_.reset();
+  touch_pointer_active_ = false;
   running_macro_input_button_provider_ = {};
 }
 
@@ -428,6 +450,8 @@ void FrameInputRouter::MarkMouseFocusDirty() noexcept {
 
 void FrameInputRouter::ReplayMouseFocusIfDirty() {
   if (lua_ == nullptr || !mouse_focus_dirty_) return;
+  if (touch_gesture_ && touch_gesture_->phase != TouchPhase::kInspect &&
+      !touch_context_) return;
   if (!have_last_mouse_position_) {
     const auto [mouse_x, mouse_y] =
         openwow::input::InputManager::Get().GetMousePosition();
@@ -646,8 +670,11 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   return HandlePointerDownByFlag(x, y, button_flag, false);
 }
 
-bool FrameInputRouter::HandleTouchDown(float x, float y) {
+bool FrameInputRouter::HandleTouchDown(float x, float y,
+                                       float pixels_per_point_x,
+                                       float pixels_per_point_y) {
   constexpr std::uint32_t kLeftButtonFlag = 1u;
+  if (lua_ == nullptr) return false;
   if (touch_capture_active_) {
     return true;
   }
@@ -655,9 +682,82 @@ bool FrameInputRouter::HandleTouchDown(float x, float y) {
       capture != nullptr && capture->active) {
     return true;
   }
-  touch_capture_active_ =
-      HandlePointerDownByFlag(x, y, kLeftButtonFlag, true);
-  return touch_capture_active_;
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  std::string hit = traversal_.HitTarget(x, y, viewport_height());
+  const bool context_control = touch_context_ &&
+      traversal_.Contains(touch_context_->presentation_frame, x, y, viewport_height()) &&
+      FramesShareInputHierarchy(hit, touch_context_->presentation_frame);
+  const bool dismiss_context = touch_context_.has_value() && !context_control;
+  if (!context_control) {
+    ClearTouchContext();
+    ClearTouchHover();
+    // OnLeave / context dismissal may change the hit target.
+    layout_.SolveIfDirty();
+    RebuildTraversalIfDirty();
+    hit = traversal_.HitTarget(x, y, viewport_height());
+  }
+  if (dismiss_context) {
+    // Like a touch context menu, its outside-dismiss gesture is consumed. It
+    // must not equip an item or become world movement through the closed menu.
+    touch_gesture_ = TouchGesture{.phase = TouchPhase::kCancelled};
+    touch_capture_active_ = true;
+    return true;
+  }
+  const auto* hyperlink = ResolveHyperlinkAt(hit, x, y);
+  if (hyperlink != nullptr) hit = hyperlink->frame_name;
+  const auto ref = frames_.FindLuaRef(hit);
+  const auto* frame = frames_.FindFrame(hit);
+  if (!ref || frame == nullptr || FrameIsWorldFrame(*frame)) return false;
+
+  TouchGesture gesture;
+  gesture.target = {.frame_name = hit, .lua_ref = *ref, .x = x, .y = y};
+  if (hyperlink != nullptr) {
+    gesture.target.hyperlink_link = hyperlink->link;
+    gesture.target.hyperlink_text = hyperlink->text;
+  }
+  gesture.started_at_ms = openwow::core::GameClock::GetTickCount32();
+  gesture.pixels_per_point_x = std::max(1.0F, pixels_per_point_x);
+  gesture.pixels_per_point_y = std::max(1.0F, pixels_per_point_y);
+  gesture.current_x = x;
+  gesture.current_y = y;
+  gesture.scroll_y = y;
+  gesture.can_drag = FrameAcceptsTouchDrag(lua_, *ref) &&
+      (!IsButtonFrame(*frame) || !ReadButtonVisualState(lua_, *ref).disabled);
+  for (const auto& entry : traversal_.input_snapshot()) {
+    if (entry.effective_visible && entry.uses_mouse_wheel && entry.lua_ref != LUA_NOREF &&
+        (entry.frame == nullptr || !FrameIsWorldFrame(*entry.frame)) &&
+        FramesShareInputHierarchy(hit, entry.key) &&
+        traversal_.Contains(entry.key, x, y, viewport_height())) {
+      gesture.scroll_target = TouchTarget{
+          .frame_name = entry.key, .lua_ref = entry.lua_ref, .x = x, .y = y};
+      break;
+    }
+  }
+  using Kind = openwow::ui::framexml::UiFrame::RuntimeKind;
+  const bool direct_surface = frame->runtime_kind == Kind::Model ||
+      frame->runtime_kind == Kind::PlayerModel || frame->runtime_kind == Kind::DressUpModel ||
+      frame->runtime_kind == Kind::TabardModel || frame->runtime_kind == Kind::ColorSelect;
+  const bool direct = context_control || direct_surface || IsSliderFrame(*frame) ||
+      FrameIsEditBox(*frame) || TitleRegionContainsPoint(lua_, *ref, hit, layout_, x, y);
+  gesture.phase = direct ? TouchPhase::kDirect : TouchPhase::kPending;
+  touch_gesture_ = std::move(gesture);
+  touch_capture_active_ = true;
+  if (direct) {
+    if (!context_control) {
+      const auto target = touch_gesture_->target;
+      PublishTouchHover(x, y);
+      if (!touch_gesture_ || !TouchTargetIsCurrent(target)) {
+        CancelTouch();
+        return true;
+      }
+    }
+    (void)HandlePointerDownByFlag(x, y, kLeftButtonFlag, true);
+  } else if (IsButtonFrame(*frame)) {
+    const auto visual = ReadButtonVisualState(lua_, *ref);
+    if (!visual.disabled && !visual.locked) SetButtonVisualState(lua_, *ref, "PUSHED");
+  }
+  return true;
 }
 
 bool FrameInputRouter::HitTestTouchTarget(const float x, const float y) {
@@ -822,15 +922,54 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
   if (touch_capture_active_ && button_flag == 1u) {
     return true;
   }
-  return HandlePointerUpByFlag(x, y, button_flag, false);
+  const bool handled = HandlePointerUpByFlag(x, y, button_flag, false);
+  DispatchTouchContextAction();
+  return handled;
 }
 
 bool FrameInputRouter::HandleTouchUp(float x, float y) {
   if (!touch_capture_active_) {
     return false;
   }
+  (void)HandleTouchMove(x, y);
+  UpdateTouchInspection();
   touch_capture_active_ = false;
-  return HandlePointerUpByFlag(x, y, 1u, true);
+  auto gesture = std::exchange(touch_gesture_, std::nullopt);
+  if (!gesture) return true;
+  if (gesture->phase == TouchPhase::kInspect) {
+    if (TouchTargetIsCurrent(gesture->target)) {
+      touch_context_ = TouchContext{.target = std::move(gesture->target)};
+      PresentTouchContext();
+    } else {
+      ClearTouchHover();
+    }
+    return true;
+  }
+  if (gesture->phase == TouchPhase::kPending &&
+      TouchTargetIsCurrent(gesture->target)) {
+    PublishTouchHover(gesture->target.x, gesture->target.y);
+    if (TouchTargetIsCurrent(gesture->target)) {
+      (void)HandlePointerDownByFlag(gesture->target.x, gesture->target.y, 1u, true);
+    }
+  }
+  if (frames_.FindLuaRef(gesture->target.frame_name) == gesture->target.lua_ref) {
+    const auto* frame = frames_.FindFrame(gesture->target.frame_name);
+    if (frame != nullptr && IsButtonFrame(*frame) &&
+        !ReadButtonVisualState(lua_, gesture->target.lua_ref).disabled) {
+      SetButtonVisualState(lua_, gesture->target.lua_ref, "NORMAL");
+    }
+  }
+  if (const auto* capture = FindCapture(1u); capture != nullptr && capture->active) {
+    (void)HandlePointerUpByFlag(x, y, 1u, true);
+  }
+  if (pending_touch_context_action_) {
+    DispatchTouchContextAction();
+  } else if (!touch_context_) {
+    ClearTouchHover();
+  } else {
+    PublishTouchHover(touch_context_->target.x, touch_context_->target.y);
+  }
+  return true;
 }
 
 bool FrameInputRouter::HandlePointerUpByFlag(float x, float y,
@@ -974,11 +1113,330 @@ bool FrameInputRouter::HandlePointerUpByFlag(float x, float y,
 }
 
 bool FrameInputRouter::HandleMouseMove(float x, float y) {
+  if (touch_pointer_active_ || touch_gesture_) CancelTouch();
   return HandlePointerMove(x, y, false);
 }
 
 bool FrameInputRouter::HandleTouchMove(float x, float y) {
-  return touch_capture_active_ && HandlePointerMove(x, y, true);
+  UpdateTouchInspection();
+  if (!touch_capture_active_ || !touch_gesture_) return false;
+  auto& gesture = *touch_gesture_;
+  gesture.current_x = x;
+  gesture.current_y = y;
+  if (gesture.phase == TouchPhase::kDirect || gesture.phase == TouchPhase::kDrag) {
+    if (!touch_context_) {
+      SetTouchCursorPosition(x, y);
+    }
+    SecureExecution::SecureScope hardware_input_scope(lua_);
+    SecureExecution::HardwareActionGrantScope hardware_action_grant;
+    return HandlePointerMove(x, y, true);
+  }
+  if (gesture.phase == TouchPhase::kCancelled) return true;
+  const float dx = (x - gesture.target.x) / gesture.pixels_per_point_x;
+  const float dy = (y - gesture.target.y) / gesture.pixels_per_point_y;
+  const bool moved = dx * dx + dy * dy >= kTouchSlopPoints * kTouchSlopPoints;
+  if (gesture.phase == TouchPhase::kInspect && moved) {
+    if (gesture.can_drag) return BeginTouchDrag();
+    gesture.phase = TouchPhase::kCancelled;
+    ClearTouchHover();
+    return true;
+  } else if (gesture.phase == TouchPhase::kPending && moved) {
+    if (frames_.FindLuaRef(gesture.target.frame_name) == gesture.target.lua_ref) {
+      const auto* frame = frames_.FindFrame(gesture.target.frame_name);
+      if (frame != nullptr && IsButtonFrame(*frame) &&
+          !ReadButtonVisualState(lua_, gesture.target.lua_ref).disabled) {
+        SetButtonVisualState(lua_, gesture.target.lua_ref, "NORMAL");
+      }
+    }
+    gesture.phase = gesture.scroll_target && std::fabs(dy) > std::fabs(dx)
+                        ? TouchPhase::kScroll : TouchPhase::kCancelled;
+    if (gesture.phase == TouchPhase::kScroll) {
+      gesture.target = std::move(*gesture.scroll_target);
+      gesture.scroll_target.reset();
+    }
+  }
+  if (gesture.phase == TouchPhase::kScroll) {
+    const float delta = (y - gesture.scroll_y) / gesture.pixels_per_point_y;
+    if (std::fabs(delta) >= kTouchScrollPoints) {
+      const float step = delta > 0.0F ? 1.0F : -1.0F;
+      // Bound work per input sample, including a coalesced fast swipe.
+      const auto owner = gesture.target;
+      const int steps = std::min(8, static_cast<int>(std::fabs(delta) / kTouchScrollPoints));
+      gesture.scroll_y += steps * step * kTouchScrollPoints * gesture.pixels_per_point_y;
+      SecureExecution::SecureScope hardware_input_scope(lua_);
+      SecureExecution::HardwareActionGrantScope hardware_action_grant;
+      for (int i = 0; i < steps && touch_gesture_; ++i) {
+        if (frames_.FindLuaRef(owner.frame_name) != owner.lua_ref ||
+            !traversal_.IsEffectivelyVisible(owner.frame_name) ||
+            !FireFrameHandler(lua_, owner.lua_ref, "OnMouseWheel", 1,
+                              [&] { lua_pushinteger(lua_, step > 0 ? 1 : -1); })) {
+          openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+              "Touch scroll cancelled: frame=" + owner.frame_name +
+              " source=vertical-swipe reason=wheel-owner-unavailable-or-handler-failed");
+          CancelTouch();
+          break;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+bool FrameInputRouter::TouchTargetIsCurrent(const TouchTarget& target) {
+  if (lua_ == nullptr) return false;
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  const auto hit = traversal_.HitTarget(target.x, target.y, viewport_height());
+  if (target.frame_name.empty()) {
+    const auto* frame = frames_.FindFrame(hit);
+    return hit.empty() || (frame != nullptr && FrameIsWorldFrame(*frame));
+  }
+  if (frames_.FindLuaRef(target.frame_name) != target.lua_ref ||
+      !traversal_.IsEffectivelyVisible(target.frame_name)) return false;
+  const auto* hyperlink = ResolveHyperlinkAt(hit, target.x, target.y);
+  if (!target.hyperlink_link.empty()) {
+    return hyperlink != nullptr && hyperlink->frame_name == target.frame_name &&
+        hyperlink->link == target.hyperlink_link && hyperlink->text == target.hyperlink_text;
+  }
+  return hit == target.frame_name && hyperlink == nullptr;
+}
+
+void FrameInputRouter::SetTouchCursorPosition(const float x, const float y) {
+  touch_pointer_active_ = true;
+  last_mouse_x_ = x;
+  last_mouse_y_ = y;
+  have_last_mouse_position_ = true;
+  openwow::input::InputManager::Get().SetMousePosition(
+      static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
+}
+
+void FrameInputRouter::PublishTouchHover(const float x, const float y) {
+  if (lua_ == nullptr) return;
+  SetTouchCursorPosition(x, y);
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  RefreshMouseFocusAt(x, y, false);
+}
+
+void FrameInputRouter::ClearTouchHover() {
+  if (!touch_pointer_active_ || lua_ == nullptr) return;
+  touch_pointer_active_ = false;
+  last_mouse_x_ = -1.0F;
+  last_mouse_y_ = -1.0F;
+  have_last_mouse_position_ = true;
+  mouse_focus_dirty_ = false;
+  openwow::input::InputManager::Get().SetMousePosition(-1, -1);
+  const auto previous = std::exchange(mouseover_frame_, {});
+  const auto hyperlink = std::exchange(hovered_hyperlink_, std::nullopt);
+  if (auto* minimap = frames_.FindMinimap(previous); minimap != nullptr) {
+    minimap->ClearHoverTooltip();
+  }
+  if (hyperlink) {
+    if (const auto ref = frames_.FindLuaRef(hyperlink->frame_name); ref) {
+      (void)FireHyperlink(lua_, *ref, "OnHyperlinkLeave", hyperlink->link, hyperlink->text);
+    }
+  }
+  if (const auto ref = frames_.FindLuaRef(previous); ref) {
+    SetFrameHighlightForMouseFocus(lua_, *ref, false);
+    (void)FireBoolean(lua_, *ref, "OnLeave", false);
+  }
+}
+
+void FrameInputRouter::UpdateTouchInspection() {
+  if (lua_ == nullptr) return;
+  if (touch_context_ && !touch_context_->presentation_frame.empty() &&
+      !traversal_.IsEffectivelyVisible(touch_context_->presentation_frame)) {
+    CancelTouch();
+    return;
+  }
+  const TouchTarget* target = touch_gesture_ ? &touch_gesture_->target :
+      (touch_context_ ? &touch_context_->target : nullptr);
+  if (target != nullptr && !target->frame_name.empty() &&
+      (frames_.FindLuaRef(target->frame_name) != target->lua_ref ||
+       !traversal_.IsEffectivelyVisible(target->frame_name))) {
+    CancelTouch();
+    return;
+  }
+  if (!touch_gesture_ || touch_gesture_->phase != TouchPhase::kPending ||
+      openwow::core::GameClock::GetTickCount32() - touch_gesture_->started_at_ms <
+          kTouchInspectMilliseconds) return;
+  const auto inspected = touch_gesture_->target;
+  if (!TouchTargetIsCurrent(inspected)) {
+    CancelTouch();
+    return;
+  }
+  if (!touch_gesture_) return;
+  touch_gesture_->phase = TouchPhase::kInspect;
+  if (const auto* frame = frames_.FindFrame(inspected.frame_name);
+      frame != nullptr && IsButtonFrame(*frame) &&
+      !ReadButtonVisualState(lua_, inspected.lua_ref).disabled) {
+    SetButtonVisualState(lua_, inspected.lua_ref, "NORMAL");
+  }
+  // Hover is not a hardware-action grant. No mouse-down or Click is sent.
+  PublishTouchHover(inspected.x, inspected.y);
+}
+
+bool FrameInputRouter::BeginTouchDrag() {
+  if (!touch_gesture_) return false;
+  const auto gesture = *touch_gesture_;
+  if (!TouchTargetIsCurrent(gesture.target) || !touch_gesture_) {
+    CancelTouch();
+    return true;
+  }
+  SecureExecution::SecureScope hardware_input_scope(lua_);
+  SecureExecution::HardwareActionGrantScope hardware_action_grant;
+  const lua_adapter::ScopedMouseButtonOverride button_override(lua_, "LeftButton");
+  const detail::ScopedCurrentMouseButtonMaskOverride mask_override(
+      lua_, LiveButtonMask(1u, true));
+  auto* capture = FindCapture(1u);
+  *capture = {.frame_name = gesture.target.frame_name, .button_flag = 1u,
+              .start_x = gesture.target.x, .start_y = gesture.target.y,
+              .active = true, .drag_started = true};
+  pressed_button_mask_ |= 1u;
+  touch_gesture_->phase = TouchPhase::kDrag;
+  SetTouchCursorPosition(gesture.target.x, gesture.target.y);
+  // Begin directly at the registered drag boundary; a down-click could cast
+  // or use the object before its drag script gets a chance to pick it up.
+  if (!FireButton(lua_, gesture.target.lua_ref, "OnDragStart", "LeftButton")) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Touch drag rejected: frame=" + gesture.target.frame_name +
+        " source=hold-drag reason=OnDragStart-failed");
+    CancelTouch();
+    return true;
+  }
+  if (!touch_gesture_) return true;
+  ClearTouchHover();
+  if (!touch_gesture_) return true;
+  SetTouchCursorPosition(gesture.current_x, gesture.current_y);
+  return HandlePointerMove(gesture.current_x, gesture.current_y, true);
+}
+
+void FrameInputRouter::ClearTouchContext() {
+  pending_touch_context_action_.reset();
+  const auto context = std::exchange(touch_context_, std::nullopt);
+  if (!context || lua_ == nullptr) return;
+  const int top = lua_gettop(lua_);
+  lua_getglobal(lua_, "OpenWoWMobile_HideTouchContext");
+  if (!lua_isfunction(lua_, -1) || ProfiledPCall(lua_, 0, 0, 0) != LUA_OK) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Touch context dismissal failed: source=MobileUI reason=" +
+        std::string(lua_tostring(lua_, -1) ? lua_tostring(lua_, -1) : "missing presentation callback"));
+  }
+  lua_settop(lua_, top);
+}
+
+void FrameInputRouter::PresentTouchContext() {
+  if (!touch_context_ || lua_ == nullptr) return;
+  const auto target = touch_context_->target;
+  const bool world = static_cast<bool>(touch_context_->world_action);
+  bool secondary = world;
+  bool draggable = false;
+  if (!world) {
+    secondary = IsRegisteredClickPhase(lua_, target.lua_ref, "RightButton", false) ||
+        IsRegisteredClickPhase(lua_, target.lua_ref, "RightButton", true) ||
+        FrameRefHasHandler(lua_, target.lua_ref, "OnMouseDown") ||
+        FrameRefHasHandler(lua_, target.lua_ref, "OnMouseUp") ||
+        !target.hyperlink_link.empty();
+    draggable = FrameAcceptsTouchDrag(lua_, target.lua_ref);
+  }
+  const int top = lua_gettop(lua_);
+  lua_getglobal(lua_, "OpenWoWMobile_ShowTouchContext");
+  bool shown = false;
+  if (lua_isfunction(lua_, -1)) {
+    lua_pushnumber(lua_, target.x);
+    lua_pushnumber(lua_, target.y);
+    lua_pushboolean(lua_, secondary);
+    lua_pushboolean(lua_, draggable);
+    lua_pushlightuserdata(lua_, this);
+    lua_pushcclosure(lua_, [](lua_State* state) -> int {
+      const auto button = luaL_checkinteger(state, 1);
+      if (button != 0 && button != 1 && button != 4) {
+        return luaL_error(state, "Touch context: invalid button");
+      }
+      if (!GameUI_CanPerformHardwareEventAction()) {
+        return luaL_error(state, "Touch context requires a hardware action");
+      }
+      auto* input = static_cast<FrameInputRouter*>(lua_touserdata(state, lua_upvalueindex(1)));
+      if (!input->touch_context_) return luaL_error(state, "Touch context has expired");
+      // Dispatch after the toolbar's own pointer-up has released its capture.
+      input->pending_touch_context_action_ = static_cast<std::uint32_t>(button);
+      return 0;
+    }, 1);
+    if (ProfiledPCall(lua_, 5, 1, 0) == LUA_OK && lua_isstring(lua_, -1) && touch_context_) {
+      const std::string name = lua_tostring(lua_, -1);
+      if (frames_.FindLuaRef(name)) {
+        touch_context_->presentation_frame = name;
+        shown = true;
+      }
+    }
+  }
+  if (!shown) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Touch context presentation failed: frame=" + target.frame_name +
+        " source=MobileUI reason=" +
+        std::string(lua_tostring(lua_, -1) ? lua_tostring(lua_, -1) : "missing or invalid presentation"));
+  }
+  lua_settop(lua_, top);
+  if (!shown) CancelTouch();
+}
+
+void FrameInputRouter::DispatchTouchContextAction() {
+  const auto button = std::exchange(pending_touch_context_action_, std::nullopt);
+  if (!button || !touch_context_) return;
+  const auto context = *touch_context_;
+  ClearTouchContext();
+  if (*button == 0u) {
+    ClearTouchHover();
+    return;
+  }
+  if (!TouchTargetIsCurrent(context.target)) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Touch context action cancelled: frame=" + context.target.frame_name +
+        " button=" + std::to_string(*button) +
+        " source=context-toolbar reason=target-hidden-replaced-or-covered");
+    ClearTouchHover();
+    return;
+  }
+  PublishTouchHover(context.target.x, context.target.y);
+  if (context.world_action) {
+    SecureExecution::SecureScope hardware_input_scope(lua_);
+    SecureExecution::HardwareActionGrantScope hardware_action_grant;
+    context.world_action(*button);
+  } else if (TouchTargetIsCurrent(context.target)) {
+    (void)HandlePointerDownByFlag(context.target.x, context.target.y, *button, true);
+    if (const auto* capture = FindCapture(*button); capture != nullptr && capture->active) {
+      (void)HandlePointerUpByFlag(context.target.x, context.target.y, *button, true);
+    }
+  }
+  ClearTouchHover();
+}
+
+void FrameInputRouter::PreviewWorldTouch(float x, float y) {
+  if (!touch_capture_active_) PublishTouchHover(x, y);
+}
+
+void FrameInputRouter::DismissWorldTouch() {
+  if (touch_capture_active_) return;
+  ClearTouchContext();
+  ClearTouchHover();
+}
+
+void FrameInputRouter::ShowWorldTouchContext(float x, float y,
+                                            std::function<void(std::uint32_t)> action) {
+  if (touch_capture_active_) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+        "Touch context cancelled: source=world-hold reason=UI-contact-active");
+    return;
+  }
+  ClearTouchContext();
+  TouchTarget target{.x = x, .y = y};
+  if (!TouchTargetIsCurrent(target)) {
+    ClearTouchHover();
+    return;
+  }
+  touch_context_ = TouchContext{.target = target, .world_action = std::move(action)};
+  PublishTouchHover(x, y);
+  if (touch_context_) PresentTouchContext();
 }
 
 bool FrameInputRouter::HandlePointerMove(float x, float y, bool touch) {
@@ -1094,11 +1552,20 @@ void FrameInputRouter::CancelPointerCapture(const std::uint32_t button_flag) {
 }
 
 void FrameInputRouter::CancelTouch() {
-  if (!touch_capture_active_) {
-    return;
-  }
+  const bool had_contact = touch_capture_active_;
   touch_capture_active_ = false;
-  CancelPointerCapture(1u);
+  const auto gesture = std::exchange(touch_gesture_, std::nullopt);
+  if (gesture && lua_ != nullptr &&
+      frames_.FindLuaRef(gesture->target.frame_name) == gesture->target.lua_ref) {
+    const auto* frame = frames_.FindFrame(gesture->target.frame_name);
+    if (frame != nullptr && IsButtonFrame(*frame) &&
+        !ReadButtonVisualState(lua_, gesture->target.lua_ref).disabled) {
+      SetButtonVisualState(lua_, gesture->target.lua_ref, "NORMAL");
+    }
+  }
+  if (had_contact) CancelPointerCapture(1u);
+  ClearTouchContext();
+  ClearTouchHover();
 }
 
 bool FrameInputRouter::HandleMouseWheel(float x, float y, float delta) {
@@ -1415,6 +1882,7 @@ void FrameInputRouter::SetApplicationActive(const bool active) {
   application_active_ = active;
   if (!application_active_) {
     keyboard_captures_.clear();
+    CancelTouch();
   }
 
   QueueEditBoxCaretRefresh(focused_frame_);
@@ -1483,6 +1951,17 @@ bool FrameInputRouter::FocusedFrameIsEffectivelyVisible() const {
 void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
                                                    bool focused_was_effectively_visible) {
   MarkMouseFocusDirty();
+  const auto unavailable = [&](const TouchTarget& target, const bool needs_mouse) {
+    return !target.frame_name.empty() &&
+        (!traversal_.IsEffectivelyVisible(target.frame_name) ||
+         (needs_mouse && target.hyperlink_link.empty() &&
+          !FrameUsesMouse(lua_, frames_, target.frame_name)));
+  };
+  if ((touch_gesture_ && unavailable(touch_gesture_->target,
+                                    touch_gesture_->phase != TouchPhase::kScroll)) ||
+      (touch_context_ && unavailable(touch_context_->target, true))) {
+    CancelTouch();
+  }
   for (auto &capture : mouse_button_captures_) {
     if (capture.active && capture.frame_name == frame_name &&
         !FrameUsesMouse(lua_, frames_, frame_name)) {
@@ -1508,6 +1987,10 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
 void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
   if (lua_ref == LUA_NOREF || lua_ref == LUA_REFNIL) {
     return;
+  }
+  if ((touch_gesture_ && touch_gesture_->target.lua_ref == lua_ref) ||
+      (touch_context_ && touch_context_->target.lua_ref == lua_ref)) {
+    CancelTouch();
   }
   pending_edit_box_update_refs_.erase(lua_ref);
   pending_edit_box_updates_.erase(

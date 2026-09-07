@@ -379,6 +379,8 @@ void GameUIManager::Update(float dt) {
 
   GameUI_PollScreenshotCompletions();
 
+  frame_input_router_.UpdateTouchInspection();
+
   frame_api::UpdateLuaTooltipObjects(lua_state(), dt);
   frame_api::RefreshCursorAnchoredTooltipFrames(lua_state());
 

@@ -10,11 +10,15 @@ desktop client.
 
 | Surface | Gesture | Result |
 | --- | --- | --- |
-| Existing FrameXML | Tap or drag | Uses the frame's existing button, edit-box, slider and drag scripts |
+| FrameXML button or hyperlink | Short tap | Left-button down/up on release, using the original click handlers |
+| FrameXML button or hyperlink | Hold for 475 ms without moving | Hover/tooltip only; release leaves a small Click / Right click / Close toolbar |
+| Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
+| Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
+| UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
 | Empty lower-left world | Drag from any origin | Floating movement stick; vertical movement plus horizontal strafe |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action |
-| Empty world | Hold for 475 ms, then release | Secondary/context interaction |
+| World outside the movement region | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
 | Empty world | Two-finger pinch | Camera zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
 | Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and stick visual |
@@ -25,6 +29,46 @@ FrameXML control. A second finger can therefore move and operate the camera or
 an action button at the same time without reclassifying the movement finger.
 Application deactivation, focus loss, UI-mode changes and touch cancellation
 all release movement, camera and UI capture explicitly.
+
+## Inspect, act and drag
+
+Long-press inspection never sends a left-button down, click or right-button
+action. This matters for buttons registered for down-clicks: inspecting an
+item must not equip/use it, and inspecting a spell must not cast it. Short taps
+still use the original down/up sequence when released, with pressed feedback
+while the gesture is pending. An early move beyond 9 device points cancels the
+tap or scrolls an eligible UI; it does not rearrange action bars accidentally.
+Continuous native controls (sliders, edit boxes, title regions, model views
+and color pickers) keep their immediate pointer path.
+
+After a hold is released, the contextual toolbar offers explicit primary and
+secondary clicks. Right click is disabled when the frame has neither a
+registered right-click phase nor an applicable pointer/hyperlink handler. It
+does not guess labels such as Equip, Sell or Cast from the current page: those
+actions continue to be decided by the original scripts. Clicking outside the
+toolbar dismisses it and consumes that contact; Close also leaves without
+executing an action. The toolbar works with the combat HUD hidden and stays
+inside the shared safe area. Mobile action icons now supply normal action
+tooltips too.
+
+For a drag, keep the inspecting finger down and move it; do not release into
+the toolbar first. Only frames with a registered left drag and an
+`OnDragStart` handler enter this path. The router publishes actual drawable
+cursor coordinates and the left-button input context before invoking the
+existing drag handlers. Original action-bar locking, pickup restrictions,
+secure execution, cursor payloads and drop handling remain authoritative.
+Unsupported drags cancel without firing a click. Cancellation ends an active
+drag without delivering `OnReceiveDrag` to an accidental destination.
+
+The input router owns the pending gesture and inspected target. UI update and incoming touch events advance hold recognition; draw
+publication does not advance a gesture. Hover itself supplies no protected-action grant. Toolbar activation
+finishes its own pointer-up capture before dispatching a separate click to the
+inspected target, avoiding reentrant capture replacement. Frame identity,
+visibility, hit ownership and hyperlink identity are checked again before
+dispatch, so an expired or covered UI target is not replaced by whatever is
+now underneath it. World inspection follows the live pointer position, as
+desktop world hover does. Focus loss, rotation and UI teardown clear inspection
+and the toolbar; an actual mouse movement takes over from touch inspection.
 
 ## Mobile HUD
 
@@ -163,8 +207,11 @@ not establish device visual, interaction or comfort acceptance.
    outside the stick radius. The character must stop immediately.
 3. Hold movement while dragging the camera, pinching zoom and activating an
    action. Each contact must retain its own function.
-4. Tap an empty-world unit, long-press an interactable, and confirm a
-   ground-target spell with a world tap.
+4. Tap a world unit and confirm a ground-target spell with a short world tap.
+   Hold an interactable outside the movement region, then release: no action
+   should occur until Right click/右键 is tapped in the toolbar. Verify the
+   normal NPC/object interaction, then repeat with Close/关闭 and outside
+   dismissal. Camera drag and two-finger pinch must not open that toolbar.
 5. Verify both action layers on iPhone and iPad, including cooldown, count,
    usability and action-page changes. Check that the thumb can move from the
    primary action to jump, the layer switch and the surrounding skills without
@@ -191,6 +238,22 @@ not establish device visual, interaction or comfort acceptance.
    screen-clamped panel to each edge and reload to check its saved position.
    Repeat the drag/reload check with a custom UI scale enabled.
    On iPad, confirm that zero side insets do not create artificial side gaps.
+10. Hold an inventory item, a spell/action button, a unit frame and a chat
+    hyperlink. Inspect their normal tooltip without activating them; after
+    release, check explicit left/right actions and both dismissal paths.
+    Include a button registered for `LeftButtonDown`: only a short tap or an
+    explicit toolbar click may trigger it. Repeat with the combat HUD hidden.
+11. With normal pickup permissions and action-bar locking configured for the
+    intended drag, hold a draggable item/action then move to a valid slot.
+    Verify pickup and drop exactly once, with no click/cast afterwards. Moving
+    before the hold threshold must not start that drag. Cancel a drag by
+    backgrounding or rotating and check that no unintended drop occurs.
+12. Swipe a scrollable list/chat view; drag a slider, text selection, title
+    region and model control. Check hit/cursor alignment at device scale,
+    including during simultaneous movement with the other finger. Hide or
+    replace the inspected frame before toolbar activation: it must cancel
+    rather than click the newly exposed control. Reload/background while a
+    tooltip or toolbar is pinned and verify it is cleared.
 
 The log records `iOS internal mobile interaction layer loaded` after the
 internal TOC succeeds. A missing or invalid mobile layer is a world-UI startup
@@ -204,5 +267,9 @@ iOS user-data root, covering the latest `log-start`/`Client startup` through the
 failure, together with the device, orientation, HUD visibility/layer and steps.
 Keep the first Lua/resource error and surrounding context, especially entries
 mentioning `OpenWoWMobile`, `RegisterForSave`, `SetFont` or `SavedVariables`.
+For inspection/drag failures also include `Touch context`, `Touch drag`,
+`Touch scroll`, and the first originating FrameXML/Lua error. Record whether
+the failure occurred before the hold, during inspection, on toolbar activation,
+at drag start, on drop or on cancellation.
 Device overlap, finger comfort, multi-touch timing and reload/resume behavior
 remain user acceptance items until confirmed on this build.

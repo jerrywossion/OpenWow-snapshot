@@ -38,11 +38,17 @@ public:
   bool HandleMouseButtonDownByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseButtonUpByFlag(float x, float y, std::uint32_t button_flag);
   bool HandleMouseMove(float x, float y);
-  bool HandleTouchDown(float x, float y);
+  bool HandleTouchDown(float x, float y, float pixels_per_point_x = 1.0F,
+                       float pixels_per_point_y = 1.0F);
   bool HandleTouchMove(float x, float y);
   bool HandleTouchUp(float x, float y);
   [[nodiscard]] bool HitTestTouchTarget(float x, float y);
   void CancelTouch();
+  void UpdateTouchInspection();
+  void PreviewWorldTouch(float x, float y);
+  void DismissWorldTouch();
+  void ShowWorldTouchContext(float x, float y,
+                             std::function<void(std::uint32_t)> action);
   bool HandleMouseWheel(float x, float y, float delta);
   bool HandleKeyDown(std::uint32_t key, bool shift_down = false, bool ctrl_down = false);
   bool HandleKeyUp(std::uint32_t key);
@@ -119,6 +125,44 @@ private:
     std::string text;
   };
 
+  struct TouchTarget {
+    std::string frame_name;
+    int lua_ref{-2};
+    float x{};
+    float y{};
+    std::string hyperlink_link;
+    std::string hyperlink_text;
+  };
+
+  enum class TouchPhase { kPending, kDirect, kInspect, kDrag, kScroll, kCancelled };
+  struct TouchGesture {
+    TouchTarget target;
+    TouchPhase phase{TouchPhase::kPending};
+    std::uint32_t started_at_ms{};
+    float pixels_per_point_x{1.0F};
+    float pixels_per_point_y{1.0F};
+    float current_x{};
+    float current_y{};
+    float scroll_y{};
+    bool can_drag{false};
+    std::optional<TouchTarget> scroll_target;
+  };
+
+  struct TouchContext {
+    TouchTarget target;
+    std::string presentation_frame;
+    std::function<void(std::uint32_t)> world_action;
+  };
+
+  [[nodiscard]] bool TouchTargetIsCurrent(const TouchTarget& target);
+  void SetTouchCursorPosition(float x, float y);
+  void PublishTouchHover(float x, float y);
+  void ClearTouchHover();
+  void ClearTouchContext();
+  void PresentTouchContext();
+  void DispatchTouchContextAction();
+  bool BeginTouchDrag();
+
   static std::size_t ButtonCaptureIndex(std::uint32_t button_flag) noexcept;
   MouseButtonCaptureState *FindCapture(std::uint32_t button_flag) noexcept;
   bool HandlePointerDownByFlag(float x, float y,
@@ -175,6 +219,10 @@ private:
 
   bool application_active_{true};
   bool touch_capture_active_{false};
+  std::optional<TouchGesture> touch_gesture_;
+  std::optional<TouchContext> touch_context_;
+  std::optional<std::uint32_t> pending_touch_context_action_;
+  bool touch_pointer_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;
 };
 
