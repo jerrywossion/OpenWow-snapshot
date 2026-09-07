@@ -16,22 +16,23 @@ desktop client.
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
 | UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
-| Visible movement stick | Press the control and move from its center | Forward/backward plus horizontal strafe, with a 20% axis dead zone; retains capture outside the control until release |
+| Visible HUD, exposed left movement area | Touch to reposition the stick, then drag from that point | Forward/backward plus horizontal strafe, with a 20% axis dead zone; retains capture outside the control until release |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action after the 260 ms double-tap window |
 | World exposed outside UI controls | One-finger double tap in the same location | Direct right-click interaction on the second release |
 | World exposed outside UI controls | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
-| Empty world | Two-finger pinch | Camera zoom |
+| Utility drawer | Tap Zoom in / Zoom out | Adjust camera distance; simultaneous world touches do not zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
 | Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and movement control; hiding releases held movement |
 
-Movement starts only on the visible, mouse-enabled joystick frame. The internal
-HUD explicitly marks that control with `__ow_touch_movement`; the native input
-router resolves the ordinary topmost frame hit, respecting UI scale, safe-area
-layout, visibility, clipping and occluding panels. There is no percentage-based
-movement region. Pressing near the stick center stays in the dead zone;
-pressing or dragging toward its edge moves in that direction. Input displacement
-uses the resolved frame center and size, while the knob stays inside its base.
+With the HUD visible, the left 40% of its safe area activates a floating stick.
+The HUD authors a background frame marked `__ow_touch_movement`, with
+`__ow_touch_movement_control` naming the visible stick whose resolved size
+sets the movement radius. The ordinary topmost hit preserves occluding UI,
+clipping and safe-area ownership. A touch relocates the stick center to its
+starting point; dragging beyond the 20% axis dead zone starts movement.
+The left activation area and stick disappear and release capture with the HUD.
+Hide the HUD when selecting or interacting with world objects in that area.
 
 The movement capture is separate from the UI pointer, so skills, panels and
 camera gestures can use another finger in either arrival order. A second finger
@@ -53,8 +54,9 @@ points of the first. UI also requires the same frame reference and hyperlink
 identity, so neighboring items or links do not form a double tap. The original
 right-button down/up or world right-click path runs exactly once on the second
 release. The first tap is consumed; it never activates the target first.
-Two simultaneous fingers no longer mean right click; world pinching remains
-camera zoom.
+A second simultaneous world finger is ignored for its entire contact lifetime.
+The first retains its camera or tap ownership. Camera distance is controlled by
+Zoom in / Zoom out in the utility drawer.
 
 A single tap on a UI target supporting right click waits for that recognition
 window before sending the original left-button down/up. Left-only controls,
@@ -90,8 +92,8 @@ work is removed before invoking Lua and rechecks frame identity, visibility,
 hit ownership and hyperlinks before dispatch. Its hardware-action scope comes
 only from the completed physical tap, never from a hover or an arbitrary timer.
 Focus loss, rotation, UI reload, target teardown and mouse takeover discard
-pending taps. Existing movement, camera, pinch and direct-control ownership is
-preserved; starting a camera drag/pinch cancels its world tap. Pressing the
+pending taps. Existing movement, camera and direct-control ownership is
+preserved; starting a camera drag cancels its world tap. Pressing the
 movement control commits an earlier completed single tap as a separate input,
 then revalidates the control before capturing the movement finger.
 
@@ -337,19 +339,19 @@ not establish device visual, interaction or comfort acceptance.
 
 1. On login, realm and character screens, tap buttons, edit fields and scroll
    or drag controls; no duplicate click should occur.
-2. In world, press the visible stick center, then drag diagonally, reverse
-   direction and return to center. The center must stop movement; a directional
-   press near the edge must start it. Release inside and outside the stick:
-   movement must stop immediately, without a world click. Drag from exposed
-   world just outside every stick edge: expect camera motion, never movement,
-   even when the finger later crosses the stick. Put another UI window over
-   the stick and verify the covering control receives input. Start with the
-   camera/skill finger first and repeat in the opposite order. A second finger
-   on the occupied stick must not steal movement or trigger a click/tooltip.
-3. Hold movement while dragging the camera, pinching zoom and activating an
-   action. Each contact must retain its own function.
+2. With the HUD visible, touch several exposed locations in the left movement
+   area: the stick must move to the touch and remain idle until dragged away
+   from its new center. Drag diagonally, reverse and return to center; release
+   inside/outside the stick must stop movement without a world click. Cover
+   the activation area with a UI window and verify that UI receives input.
+   A second movement finger must not steal the stick. Hide the HUD and verify
+   the same left-side locations select/interact with world objects again.
+3. Hold movement while dragging the camera and activating an action, in both
+   arrival orders. Pinch two world fingers: camera distance must remain fixed.
+   Open the utility drawer and tap Zoom in / Zoom out repeatedly; only those
+   buttons change camera distance, and the drawer remains open.
 4. Tap a world unit and confirm a ground-target spell with a short world tap.
-   Double tap an NPC/object, including exposed lower-left world: expect right-click
+   Double tap an NPC/object, including lower-left world with the HUD hidden: expect right-click
    interaction on the second release, with no toolbar or preliminary left-click
    selection/cast. Double tap with a ground-target spell active to check the
    normal right-click cancel. A single tap waits about 260 ms before selection
@@ -359,7 +361,8 @@ not establish device visual, interaction or comfort acceptance.
    Hold an interactable in any exposed world area, then release: no action
    should occur until Right click/右键 is tapped in the toolbar. Verify the
    normal NPC/object interaction, then repeat with Close/关闭 and outside
-   dismissal. Camera drag and two-finger pinch must not open that toolbar.
+   dismissal. Camera drag must not open that toolbar; an ignored extra finger must not
+   produce a second action.
    Find a quest gathering object that cannot become the selected target. Stand
    within use range, clear the target and double tap the object itself; expect
    its normal use/loot/cast response and the corresponding quest progress after

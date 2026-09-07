@@ -26,6 +26,8 @@ if locale == "zhCN" then
         showHint = "显示触控 HUD",
         gestureHint = "隐藏时摇杆停止并停用；镜头与世界点击手势仍可使用。",
         move = "移动",
+        zoomIn = "拉近",
+        zoomOut = "拉远",
         character = "人物",
         spellbook = "法术",
         talents = "天赋",
@@ -58,6 +60,8 @@ else
         showHint = "Show the touch HUD",
         gestureHint = "Hiding stops and disables the stick. Camera and world-tap gestures remain available.",
         move = "Move",
+        zoomIn = "Zoom in",
+        zoomOut = "Zoom out",
         character = "Hero",
         spellbook = "Spells",
         talents = "Talents",
@@ -245,6 +249,13 @@ for index, definition in ipairs(utilityDefinitions) do
         end)
 end
 
+utilityButtons[#utilityButtons + 1] = CreateLabeledButton(
+    "OpenWoWMobileZoomIn", utilityPanel, L.zoomIn,
+    "Interface\\Buttons\\UI-PlusButton-UP", function() CameraZoomIn(1) end)
+utilityButtons[#utilityButtons + 1] = CreateLabeledButton(
+    "OpenWoWMobileZoomOut", utilityPanel, L.zoomOut,
+    "Interface\\Buttons\\UI-MinusButton-UP", function() CameraZoomOut(1) end)
+
 local renderScaleTitle = graphicsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 renderScaleTitle:SetText(L.renderScale)
 local renderScaleValue = graphicsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -350,6 +361,12 @@ function OpenWoWMobile_ApplyVisibility()
     end
 end
 
+local movementArea = CreateFrame("Frame", "OpenWoWMobileMovementArea", root)
+movementArea:SetFrameStrata("BACKGROUND")
+movementArea:SetFrameLevel(0)
+movementArea:EnableMouse(true)
+movementArea.__ow_touch_movement = true
+movementArea.__ow_touch_movement_control = "OpenWoWMobileJoystick"
 local joystick = CreateFrame("Frame", "OpenWoWMobileJoystick", root)
 -- Explicit opt-in consumed by the native touch router. The normal frame hit
 -- determines ownership, including visibility, layout and occluding panels.
@@ -618,8 +635,9 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     local utilitySize = 64 * u
     local utilityGap = 8 * u
     utilityPanel:ClearAllPoints()
+    local utilityRows = math.ceil(#utilityButtons / 3)
     utilityPanel:SetSize(3 * utilitySize + 4 * utilityGap,
-                         3 * utilitySize + 4 * utilityGap)
+                         utilityRows * utilitySize + (utilityRows + 1) * utilityGap)
     utilityPanel:SetPoint("BOTTOMRIGHT", actionCluster, "BOTTOMRIGHT", 0, 0)
     for index, button in ipairs(utilityButtons) do
         local column = math.mod(index - 1, 3)
@@ -661,6 +679,11 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
 
     SizeButton(toggleButton, 48, u)
     PlaceToggle()
+    movementArea:ClearAllPoints()
+    movementArea:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT",
+                          state.safeBounds.left, state.safeBounds.bottom)
+    movementArea:SetSize((state.safeBounds.right - state.safeBounds.left) * 0.4,
+                          state.safeBounds.top - state.safeBounds.bottom)
     joystick:SetSize(118 * u, 118 * u)
     joystick:ClearAllPoints()
     joystick:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 32 * u, 32 * u)
@@ -670,6 +693,14 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     joystickLabel:ClearAllPoints()
     joystickLabel:SetPoint("BOTTOM", joystick, "BOTTOM", 0, 8 * u)
     OpenWoWMobile_RefreshActions()
+end
+
+function OpenWoWMobile_PositionJoystick(x, y)
+    local unitsPerPixel = GetScreenHeight() / state.drawableHeight
+    local originX = x * unitsPerPixel - UIParent:GetLeft()
+    local originY = (state.drawableHeight - y) * unitsPerPixel - UIParent:GetBottom()
+    joystick:ClearAllPoints()
+    joystick:SetPoint("CENTER", UIParent, "BOTTOMLEFT", originX, originY)
 end
 
 function OpenWoWMobile_SetJoystick(directionX, directionY, active)

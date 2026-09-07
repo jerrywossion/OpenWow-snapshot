@@ -146,14 +146,6 @@ constexpr float kMobileMovementDeadZone = 0.20F;
 constexpr float kMobileCameraDragThresholdPoints = 9.0F;
 constexpr float kMobileWorldTapTolerancePoints = 12.0F;
 constexpr std::uint32_t kMobileContextPressMilliseconds = 475u;
-constexpr float kMobilePinchPointsPerWheelStep = 36.0F;
-
-float TouchDistance(const mobile::TouchPoint& first,
-                    const mobile::TouchPoint& second) {
-  const float dx = first.logical_x - second.logical_x;
-  const float dy = first.logical_y - second.logical_y;
-  return std::sqrt(dx * dx + dy * dy);
-}
 
 #endif
 
@@ -955,6 +947,10 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
           contact->owner = movement == MovementStart::kCaptured
                                ? TouchOwner::kMovement : TouchOwner::kIgnored;
           if (contact->owner == TouchOwner::kMovement) {
+            (void)openwow::ui::CallLuaGlobalIfFunction(
+                game_ui->lua_state(), "OpenWoWMobile_PositionJoystick",
+                static_cast<double>(contact->current.drawable_x),
+                static_cast<double>(contact->current.drawable_y));
             UpdateMobileMovement(*contact);
             mobile::PerformHapticFeedback(mobile::HapticFeedback::kLightImpact);
           }
@@ -985,12 +981,7 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
               : mobile_input_.FindContactByOwner(TouchOwner::kWorldCamera);
       contact->owner = TouchOwner::kWorldTap;
       if (other_world_contact != nullptr) {
-        other_world_contact->owner = TouchOwner::kPinch;
-        contact->owner = TouchOwner::kPinch;
-        EndMobileCamera();
-        mobile_pinch_distance_ =
-            TouchDistance(other_world_contact->current, contact->current);
-        if (game_ui != nullptr) game_ui->input_router().DismissWorldTouch();
+        contact->owner = TouchOwner::kIgnored;
       } else if (game_ui != nullptr) {
         const auto match = game_ui->input_router().BeginWorldTouchTap(
             contact->current.drawable_x, contact->current.drawable_y, event.timestamp);
@@ -1067,21 +1058,6 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
           contact->current.logical_y - contact->previous.logical_y);
       return;
     }
-    if (contact->owner == TouchOwner::kPinch) {
-      const auto* const other = mobile_input_.FindOtherContactByOwner(
-          TouchOwner::kPinch, contact->finger_id);
-      if (other == nullptr) {
-        return;
-      }
-      const float distance = TouchDistance(contact->current, other->current);
-      const float delta = distance - mobile_pinch_distance_;
-      if (std::fabs(delta) >= 0.25F) {
-        game_loop_.HandleScrollDelta(std::clamp(
-            delta / kMobilePinchPointsPerWheelStep, -2.0F, 2.0F));
-        mobile_pinch_distance_ = distance;
-      }
-      return;
-    }
     if (contact->owner != TouchOwner::kGlueUi) {
       return;
     }
@@ -1121,21 +1097,6 @@ void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   }
   if (ended->owner == TouchOwner::kWorldCamera) {
     EndMobileCamera();
-    return;
-  }
-  if (ended->owner == TouchOwner::kPinch) {
-    mobile_pinch_distance_ = 0.0F;
-    if (auto* const remaining =
-            mobile_input_.FindContactByOwner(TouchOwner::kPinch);
-        remaining != nullptr) {
-      remaining->owner = TouchOwner::kWorldCamera;
-      remaining->start = remaining->current;
-      remaining->previous = remaining->current;
-      remaining->started_at_ms = event.timestamp;
-      BeginMobileCamera();
-    } else {
-      EndMobileCamera();
-    }
     return;
   }
   if (ended->owner == TouchOwner::kWorldTap) {
@@ -1202,7 +1163,6 @@ void GlueClient::CancelMobileInput() {
   }
   ReleaseMobileMovement();
   EndMobileCamera();
-  mobile_pinch_distance_ = 0.0F;
 
   if (!had_glue_contact) {
     return;

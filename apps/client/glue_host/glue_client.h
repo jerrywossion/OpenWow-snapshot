@@ -335,7 +335,6 @@ class GlueClient {
   bool mobile_strafe_left_{false};
   bool mobile_strafe_right_{false};
   bool mobile_camera_active_{false};
-  float mobile_pinch_distance_{0.0F};
 #endif
 
   openwow::net::NetworkRecvThread recv_thread_;

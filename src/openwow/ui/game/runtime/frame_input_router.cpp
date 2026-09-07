@@ -803,11 +803,13 @@ FrameInputRouter::TouchMovementStart FrameInputRouter::BeginTouchMovement(
   if (!ref || ResolveHyperlinkAt(hit, x, y) != nullptr) {
     return TouchMovementStart::kNotControl;
   }
-  // The authored control opts in explicitly; neither its name nor a screen
-  // percentage defines its input area. Occluding UI wins the ordinary hit.
+  // The HUD authors the activation area and optional stick geometry separately.
+  // Occluding UI wins the ordinary hit before either can capture movement.
   lua_rawgeti(lua_, LUA_REGISTRYINDEX, *ref);
   const bool movement_control = lua_istable(lua_, -1) &&
       GetBooleanField(lua_, -1, "__ow_touch_movement");
+  const auto control_name = lua_istable(lua_, -1)
+      ? GetStringField(lua_, -1, "__ow_touch_movement_control") : std::nullopt;
   lua_pop(lua_, 1);
   if (!movement_control) return TouchMovementStart::kNotControl;
   if (touch_movement_) return TouchMovementStart::kConsumed;
@@ -820,7 +822,20 @@ FrameInputRouter::TouchMovementStart FrameInputRouter::BeginTouchMovement(
         " source=finger-down reason=target-hidden-replaced-or-covered");
     return TouchMovementStart::kConsumed;
   }
-  touch_movement_ = TouchMovementCapture{target, std::move(cancel)};
+  auto control = target;
+  if (control_name) {
+    const auto control_ref = frames_.FindLuaRef(*control_name);
+    if (!control_ref || !traversal_.IsEffectivelyVisible(*control_name) ||
+        !FrameUsesMouse(lua_, frames_, *control_name)) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+          "Touch movement failed: frame=" + hit + " control=" + *control_name +
+          " source=finger-down reason=movement-control-unavailable");
+      return TouchMovementStart::kConsumed;
+    }
+    control = TouchTarget{.frame_name = *control_name, .lua_ref = *control_ref,
+                          .x = x, .y = y};
+  }
+  touch_movement_ = TouchMovementCapture{target, control, std::move(cancel)};
   return TouchMovementStart::kCaptured;
 }
 
@@ -828,13 +843,17 @@ std::optional<std::array<float, 2>> FrameInputRouter::ResolveTouchMovement(
     const float x, const float y) {
   if (!touch_movement_) return std::nullopt;
   const auto target = touch_movement_->target;
+  const auto control = touch_movement_->control;
   // This is a geometry consumption boundary. A size callback can invalidate
   // the capture, so recheck identity and availability after resolving it.
-  const auto* rect = layout_.FindRect(target.frame_name);
+  const auto* rect = layout_.FindRect(control.frame_name);
   if (!touch_movement_) return std::nullopt;
   if (frames_.FindLuaRef(target.frame_name) != target.lua_ref ||
       !traversal_.IsEffectivelyVisible(target.frame_name) ||
-      !FrameUsesMouse(lua_, frames_, target.frame_name)) {
+      !FrameUsesMouse(lua_, frames_, target.frame_name) ||
+      frames_.FindLuaRef(control.frame_name) != control.lua_ref ||
+      !traversal_.IsEffectivelyVisible(control.frame_name) ||
+      !FrameUsesMouse(lua_, frames_, control.frame_name)) {
     CancelTouchMovement("control-unavailable");
     return std::nullopt;
   }
@@ -2167,7 +2186,8 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
          (needs_mouse && target.hyperlink_link.empty() &&
           !FrameUsesMouse(lua_, frames_, target.frame_name)));
   };
-  if (touch_movement_ && unavailable(touch_movement_->target, true)) {
+  if (touch_movement_ && (unavailable(touch_movement_->target, true) ||
+                          unavailable(touch_movement_->control, true))) {
     CancelTouchMovement("control-hidden-or-mouse-disabled");
   }
   if ((touch_gesture_ && unavailable(touch_gesture_->target,
@@ -2202,7 +2222,8 @@ void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
   if (lua_ref == LUA_NOREF || lua_ref == LUA_REFNIL) {
     return;
   }
-  if (touch_movement_ && touch_movement_->target.lua_ref == lua_ref) {
+  if (touch_movement_ && (touch_movement_->target.lua_ref == lua_ref ||
+                          touch_movement_->control.lua_ref == lua_ref)) {
     CancelTouchMovement("control-released");
   }
   if ((touch_gesture_ && touch_gesture_->target.lua_ref == lua_ref) ||

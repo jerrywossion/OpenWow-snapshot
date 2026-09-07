@@ -183,6 +183,7 @@ private:
 
   struct TouchMovementCapture {
     TouchTarget target;
+    TouchTarget control;
     std::function<void()> cancel;
   };
 
