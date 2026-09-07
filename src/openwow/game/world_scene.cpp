@@ -1,5 +1,6 @@
 
 #include "openwow/game/world_scene.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include "openwow/audio/playback/sound_runtime.h"
 #include "openwow/runtime/time/game_clock.h"
@@ -1158,6 +1159,9 @@ void WorldScene::Update(const float dt, const float cam_x,
                         const float environment_detail,
                         const float weather_particle_density,
                         const bool use_weather_shaders) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.scene_update");
   if (!initialized_) return;
   last_frame_delta_seconds_ = dt;
 
@@ -1192,6 +1196,9 @@ void WorldScene::Update(const float dt, const float cam_x,
 void WorldScene::PrepareFrame(const render::api::RendererContext* renderer_context,
                               const WorldSceneRenderCamera& render_camera,
                               const float* view_mtx, const float* proj_mtx) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.scene_prepare");
 
   frame_prepared_ = false;
   visible_entity_ids_.clear();

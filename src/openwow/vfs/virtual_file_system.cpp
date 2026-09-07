@@ -17,6 +17,7 @@
 #include <unordered_set>
 
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/foundation/text/ascii.h"
 
 namespace openwow::vfs {
@@ -348,6 +349,9 @@ std::optional<std::vector<std::uint8_t>> VirtualFileSystem::ReadFilePrefix(
 std::optional<std::vector<std::uint8_t>> VirtualFileSystem::ReadFileBytesImpl(
     const std::string& virtual_path,
     const std::optional<std::size_t> max_bytes) const {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "vfs.resolve_read", virtual_path);
   const auto normalized = NormalizeVirtualPath(virtual_path);
   if (normalized.empty()) {
     return std::nullopt;

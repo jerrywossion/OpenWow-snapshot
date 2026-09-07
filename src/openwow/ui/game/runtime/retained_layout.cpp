@@ -1,4 +1,5 @@
 #include "openwow/ui/game/runtime/retained_layout.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include "openwow/ui/animation/animation_coordinate_space.h"
 #include "openwow/ui/framexml/layout_anchor_resolution.h"
@@ -1151,6 +1152,10 @@ void RetainedLayout::SyncTrackedFramesFromLua() { impl_->Sync(); }
 void RetainedLayout::SolveIfDirty() {
   auto& x = *impl_;
   if (!x.dirty || x.width <= 0.0F || x.height <= 0.0F || x.solving) return;
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "ui.layout_solve_commit",
+      x.full_solve_required ? "full_solve" : "incremental_candidate");
   x.solving = true;
   struct Guard { bool& active; ~Guard() { active = false; } } guard{x.solving};
   x.dirty = false;

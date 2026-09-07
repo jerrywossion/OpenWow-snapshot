@@ -1,4 +1,7 @@
 #include "glue_client.h"
+#if defined(OPENWOW_PLATFORM_IOS)
+#include "mobile/mobile_ios_platform.h"
+#endif
 #include "glue_host/presentation_settings.h"
 #include "glue_host/settings_capability_policy.h"
 #include "scenarios/offline_world_fixture.h"
@@ -30,6 +33,7 @@
 #include "openwow/debug/control/debug_control_json_codec.h"
 #include "openwow/debug/control/debug_control_server.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/game/account_msg.h"
 #include "openwow/game/activities/dance/adapters/data/dbc_dance_move_catalog.h"
 #include "openwow/game/activities/dance/application/dance_studio.h"
@@ -3055,11 +3059,38 @@ int GlueClient::Run() {
   text_input_reactivation_pending_ = true;
   UpdateTextInputState();
 
+  constexpr std::array<const char*, 9> performance_phases{
+      "events", "glue_requests", "scheduler", "layout_beginframe", "glue_scripts",
+      "glue_prepare", "render", "pacing", "endframe"};
+  std::array<double, 9> performance_totals{};
+  std::uint64_t performance_frames = 0;
+  double performance_max_work_ms = 0.0;
+  double performance_gpu_total_ms = 0.0;
+  double performance_gpu_max_ms = 0.0;
+  std::uint64_t performance_gpu_samples = 0;
+  auto performance_window = openwow::diagnostics::PerformanceTimer{};
+  UiMode performance_last_mode = mode_;
+
   while (running_) {
+    const openwow::diagnostics::PerformanceTimer performance_frame;
+    std::array<double, 9> phase_ms{};
+    double last_phase_ms = 0.0;
+    const auto mark_phase = [&](const std::size_t phase) {
+      const double elapsed_ms = performance_frame.ElapsedMs();
+      phase_ms[phase] = elapsed_ms - last_phase_ms;
+      last_phase_ms = elapsed_ms;
+    };
     PumpPendingWindowEvents();
+    mark_phase(0);
     if (!running_)
       break;
     if (!application_active_) {
+      performance_frames = 0;
+      performance_totals = {};
+      performance_max_work_ms = 0.0;
+      performance_gpu_total_ms = performance_gpu_max_ms = 0.0;
+      performance_gpu_samples = 0;
+      performance_window = openwow::diagnostics::PerformanceTimer{};
       (void)clock.Tick();
       SDL_Delay(50);
       continue;
@@ -3075,6 +3106,7 @@ int GlueClient::Run() {
     }
 
     PumpGlueRequests(static_cast<float>(elapsed_sec));
+    mark_phase(1);
     if (!running_)
       break;
 
@@ -3085,6 +3117,7 @@ int GlueClient::Run() {
     }
 
     openwow::core::FrameScheduler::Instance().RunFrame(elapsed_sec);
+    mark_phase(2);
     if (mode_ == UiMode::kInWorld) {
       // Deferred touch clicks and script updates can change edit-box focus.
       UpdateTextInputState();
@@ -3120,8 +3153,10 @@ int GlueClient::Run() {
                                static_cast<std::uint32_t>(std::max(1, layout_height_))};
       renderer_context_->BeginFrame(frame_info);
     }
+    mark_phase(3);
 
     UpdateOnUpdateScripts(elapsed_sec);
+    mark_phase(4);
 
     const bool glue_character_scenes_active = mode_ != UiMode::kInWorld;
     if (glue_character_scenes_active) {
@@ -3145,10 +3180,12 @@ int GlueClient::Run() {
         &glue_widgets_, login_vfs_, glue_fonts_.has_value() ? &*glue_fonts_ : nullptr,
         layout_width_, layout_height_);
     DispatchPendingScrollRangeChangedEvents();
+    mark_phase(5);
 
     Render(now_ms, frame_delta_ms, elapsed_sec);
 
     const bool scenario_should_continue = TickScenario(ScenarioRunner::Stage::kPostRender, now_ms);
+    mark_phase(6);
 
     const bool benchmarking = IsBenchmarkRun();
 
@@ -3166,11 +3203,108 @@ int GlueClient::Run() {
         std::this_thread::yield();
       }
     }
+    mark_phase(7);
 
     if (renderer_context_ != nullptr) {
       renderer_context_->EndFrame();
     }
     DrainScreenshotNotifications();
+    mark_phase(8);
+    if (performance_frame.enabled()) {
+      if (!performance_window.enabled()) {
+        performance_window = performance_frame;
+      }
+      ++performance_frames;
+      for (std::size_t index = 0; index < phase_ms.size(); ++index) {
+        performance_totals[index] += phase_ms[index];
+      }
+      const double work_ms = last_phase_ms - phase_ms[7];
+      performance_max_work_ms = std::max(performance_max_work_ms, work_ms);
+      const auto* stats = renderer_context_ != nullptr ? &renderer_context_->Stats() : nullptr;
+      const bool gpu_valid = stats != nullptr && stats->gpu_time_begin > 0 &&
+                             stats->gpu_time_end > stats->gpu_time_begin &&
+                             stats->gpu_time_ms > 0.0F;
+      if (gpu_valid) {
+        ++performance_gpu_samples;
+        performance_gpu_total_ms += stats->gpu_time_ms;
+        performance_gpu_max_ms = std::max(performance_gpu_max_ms,
+                                          static_cast<double>(stats->gpu_time_ms));
+      }
+      const double window_ms = performance_window.ElapsedMs();
+      const bool summary_due = window_ms >= 5000.0;
+      const bool mode_changed = mode_ != performance_last_mode;
+      if (work_ms >= 50.0 || summary_due || mode_changed) {
+        std::ostringstream detail;
+        detail << "frame=" << clock.FrameCount()
+               << " mode=" << static_cast<int>(mode_)
+               << " scene=" << (game_loop_.IsLoading() ? "loading" :
+                                  game_loop_.IsInWorld() ? "world" : "glue")
+               << " work_wall_ms=" << work_ms;
+        for (std::size_t index = 0; index < phase_ms.size(); ++index) {
+          detail << ' ' << performance_phases[index] << "_ms=" << phase_ms[index];
+        }
+        detail << " renderScale=" << openwow::ui::game::CVarSystem::Instance().GetCVar("renderScale")
+               << " maxFPS=" << openwow::ui::game::CVarSystem::Instance().GetCVar("maxFPS");
+        if (stats != nullptr) {
+          detail << " output=" << stats->backbuffer.width << 'x' << stats->backbuffer.height
+                 << " bgfx_gpu_ms_delayed=" << (gpu_valid ? std::to_string(stats->gpu_time_ms) : "unavailable")
+                 << " draws=" << stats->draw_calls
+                 << " texture_bytes=" << stats->texture_memory_used
+                 << " target_bytes=" << stats->render_target_memory_used;
+        }
+        const auto& ui = game_loop_.game_ui().performance_counters();
+        const auto& layout = game_loop_.game_ui().retained_layout().metrics();
+        detail << " ui_candidates=" << ui.last_render_candidates
+               << " layout_candidates=" << layout.last_resolve_candidates
+               << " layout_full_total=" << layout.full_resolves
+               << " layout_incremental_total=" << layout.incremental_resolves;
+        if (mode_changed) {
+          openwow::diagnostics::LogPerformanceEvent("frame.mode_submitted", detail.str());
+        } else if (work_ms >= 50.0) {
+          static openwow::diagnostics::PerformanceLogSite performance_site;
+          openwow::diagnostics::LogPerformanceDuration(
+              performance_site, "frame.hitch", performance_frame, detail.str(), 50.0);
+        }
+        if (summary_due) {
+#if defined(OPENWOW_PLATFORM_IOS)
+          const auto process = openwow::client::mobile::QueryProcessPerformanceMetrics();
+          detail << " physical_footprint_bytes=" << process.physical_footprint_bytes
+                 << " memory_query_status=" << process.memory_query_status
+                 << " thermal_state=" << process.thermal_state
+                 << " low_power_mode=" << process.low_power_mode;
+#endif
+          detail << " window_ms=" << window_ms
+                 << " window_frames=" << performance_frames
+                 << " window_fps=" << static_cast<double>(performance_frames) * 1000.0 / window_ms
+                 << " window_max_work_ms=" << performance_max_work_ms;
+          for (std::size_t index = 0; index < phase_ms.size(); ++index) {
+            detail << " avg_" << performance_phases[index] << "_ms="
+                   << performance_totals[index] / static_cast<double>(performance_frames);
+          }
+          detail << " gpu_samples=" << performance_gpu_samples
+                 << " avg_gpu_ms_delayed=" << (performance_gpu_samples != 0
+                      ? std::to_string(performance_gpu_total_ms / static_cast<double>(performance_gpu_samples))
+                      : "unavailable")
+                 << " max_gpu_ms_delayed=" << (performance_gpu_samples != 0
+                      ? std::to_string(performance_gpu_max_ms) : "unavailable");
+          openwow::diagnostics::LogPerformanceEvent("frame.summary", detail.str());
+          performance_frames = 0;
+          performance_totals = {};
+          performance_max_work_ms = 0.0;
+          performance_gpu_total_ms = performance_gpu_max_ms = 0.0;
+          performance_gpu_samples = 0;
+          performance_window = openwow::diagnostics::PerformanceTimer{};
+        }
+      }
+      performance_last_mode = mode_;
+    } else {
+      performance_frames = 0;
+      performance_totals = {};
+      performance_max_work_ms = 0.0;
+      performance_gpu_total_ms = performance_gpu_max_ms = 0.0;
+      performance_gpu_samples = 0;
+      performance_window = openwow::diagnostics::PerformanceTimer{};
+    }
     if (!scenario_should_continue) {
       running_ = false;
       break;

@@ -12,6 +12,7 @@
 #include "openwow/world/environment/lighting.h"
 #include "openwow/world/coordinates/map_placement.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/core/platform_runtime_policy.h"
 #include "openwow/world/collision/collision.h"
 #include "openwow/world/environment/chunk_ambient_audio.h"
@@ -448,6 +449,9 @@ std::unique_ptr<CachedWmo>
 WorldMap::PrepareWmoCpuBundle(const WorldMap::LoadFileCallback &load_file,
                               const std::string &wmo_path,
                               std::string *error) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.wmo_read_parse", wmo_path);
   if (!load_file) {
     *error = "no file loader";
     return {};
@@ -4520,6 +4524,9 @@ std::size_t WorldMap::PumpReadyWmoGroups(
 
 void WorldMap::PumpWorldStaging(const std::size_t tile_budget,
                                     const std::size_t wmo_budget) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.publish_staged_assets");
   ++world_staging_pump_sequence_;
   QueueDueWmoRetries();
   const auto pump_started = std::chrono::steady_clock::now();

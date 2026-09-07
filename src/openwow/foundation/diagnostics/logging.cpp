@@ -1,4 +1,5 @@
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -15,6 +16,8 @@
 
 namespace openwow::diagnostics {
 namespace {
+
+std::atomic<bool> g_performance_logging_enabled{false};
 
 struct LogEntry {
   LogLevel level{LogLevel::kInfo};
@@ -273,6 +276,78 @@ std::filesystem::path CurrentLogFile() {
   auto& state = State();
   std::lock_guard<std::mutex> lock(state.mutex);
   return state.log_file;
+}
+
+void SetPerformanceLoggingEnabled(const bool enabled) {
+  g_performance_logging_enabled.store(enabled, std::memory_order_relaxed);
+  Log(LogLevel::kInfo, std::string("Perf: configuration enabled=") +
+      (enabled ? "1" : "0") +
+      " slow_ms=20 severe_ms=250 summary_seconds=5 timing=inclusive_wall");
+}
+
+bool IsPerformanceLoggingEnabled() noexcept {
+  return g_performance_logging_enabled.load(std::memory_order_relaxed);
+}
+
+PerformanceTimer::PerformanceTimer() noexcept
+    : enabled_(IsPerformanceLoggingEnabled()),
+      start_(enabled_ ? std::chrono::steady_clock::now()
+                      : std::chrono::steady_clock::time_point{}) {}
+
+double PerformanceTimer::ElapsedMs() const noexcept {
+  return enabled_ ? std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - start_).count() : 0.0;
+}
+
+std::int64_t PerformanceTimer::StartUs() const noexcept {
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+      start_.time_since_epoch()).count();
+}
+
+void LogPerformanceDuration(PerformanceLogSite& site,
+                            const std::string_view operation,
+                            const PerformanceTimer& timer,
+                            const std::string_view context,
+                            const double threshold_ms) {
+  if (!timer.enabled() || !IsPerformanceLoggingEnabled()) return;
+  const double elapsed_ms = timer.ElapsedMs();
+  if (elapsed_ms < threshold_ms) return;
+  const auto now_us = timer.StartUs() + static_cast<std::int64_t>(elapsed_ms * 1000.0);
+  if (threshold_ms > 0.0 && (elapsed_ms < 250.0 || !site.retain_severe)) {
+    auto next = site.next_log_us.load(std::memory_order_relaxed);
+    if (now_us < next || !site.next_log_us.compare_exchange_strong(
+            next, now_us + 1000000, std::memory_order_relaxed)) {
+      site.suppressed.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+  }
+  const auto suppressed = site.suppressed.exchange(0, std::memory_order_relaxed);
+  Log(LogLevel::kInfo, "Perf: span operation=" + std::string(operation) +
+      " start_us=" + std::to_string(timer.StartUs()) +
+      " duration_ms=" + std::to_string(elapsed_ms) +
+      " suppressed=" + std::to_string(suppressed) +
+      " context=" + std::string(context.substr(0, 2048)));
+}
+
+void LogPerformanceEvent(const std::string_view operation,
+                         const std::string_view context) {
+  if (!IsPerformanceLoggingEnabled()) return;
+  Log(LogLevel::kInfo, "Perf: event operation=" + std::string(operation) +
+      " context=" + std::string(context.substr(0, 2048)));
+}
+
+ScopedPerformanceLog::ScopedPerformanceLog(
+    PerformanceLogSite& site, const std::string_view operation,
+    const std::string_view context, const double threshold_ms)
+    : site_(site), operation_(operation), context_(context),
+      threshold_ms_(threshold_ms) {
+  if (timer_.enabled() && threshold_ms_ == 0.0) {
+    LogPerformanceEvent(operation_, "begin " + std::string(context_));
+  }
+}
+
+ScopedPerformanceLog::~ScopedPerformanceLog() {
+  LogPerformanceDuration(site_, operation_, timer_, context_, threshold_ms_);
 }
 
 }

@@ -1,4 +1,5 @@
 #include "openwow/ui/game/game_ui_manager.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/ui/game/runtime/render/ui_compositor.h"
 #include "openwow/ui/surfaces/game/runtime/world_ui_lifecycle_command.h"
 #include "openwow/debug/diagnostics/debug_console.h"
@@ -375,6 +376,9 @@ void GameUIManager::Shutdown() {
 }
 
 void GameUIManager::Update(float dt) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "ui.update");
   if (!is_initialized() || lua_state() == nullptr)
     return;
 
@@ -418,6 +422,9 @@ void GameUIManager::Render(const std::uint8_t view_id, const float screen_w,
                            const std::uint64_t compositor_generation,
                            const std::uint8_t offscreen_view_begin,
                            const std::uint8_t offscreen_view_count) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "ui.render_prepare_submit");
   if (!is_initialized()) return;
   SetViewportSize(screen_w, screen_h);
   const auto& movie_player = movie_frame_runtime_.player();

@@ -2174,6 +2174,9 @@ void GameLoop::SetDbcLoader(const openwow::data::dbc::DbcLoader *dbc) {
 
 bool GameLoop::StartWorldUiRuntime(const openwow::ui::game::WorldUiGeneration generation,
                                    std::function<void(float)> progress_callback) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.ui_start", current_map_name_, 0.0);
   (void)generation;
   if (!vfs_ || !world_session()) {
     return false;
@@ -3062,6 +3065,11 @@ void GameLoop::PrepareWorldUiForReload() {
 }
 
 void GameLoop::PrepareWorldEntryRuntime() {
+  world_entry_performance_timer_ = openwow::diagnostics::PerformanceTimer{};
+  next_world_entry_performance_ms_ = 0.0;
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.prepare_map", current_map_name_, 0.0);
   openwow::vfs::SetDataPreloadRequestedState(2);
   const std::uint32_t now_ms =
       client_time_fn_ ? client_time_fn_() : openwow::core::GameClock::GetTickCount32();
@@ -3088,6 +3096,9 @@ void GameLoop::PrepareWorldEntryRuntime() {
 }
 
 void GameLoop::FinalizeWorldEntryRuntime() {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.finalize_entry", current_map_name_, 0.0);
 
   Player_C_ResetAreaStateCache();
   Player_C_ResetAreaTickCounter();
@@ -4675,6 +4686,9 @@ void GameLoop::HideLoadingScreen() {
 }
 
 void GameLoop::RefreshLoadingWorldEntryState(float dt) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.loading_update", current_map_name_);
   UpdateNetwork();
 
   EventScheduler::Get().Update(dt);
@@ -4827,21 +4841,58 @@ bool GameLoop::ShouldKeepLoadingScreenVisibleForWorldEntry() const {
 }
 
 bool GameLoop::TryCompleteLoadingScreenWorldEntry() {
-  if (!world_ui_lifecycle_.TryActivateLocalPlayer()) {
+  const bool ui_active = world_ui_lifecycle_.TryActivateLocalPlayer();
+  const auto log_wait = [this, ui_active](const LoadingScreenWorldEntryGateState* gate) {
+    if (!world_entry_performance_timer_.enabled() ||
+        !openwow::diagnostics::IsPerformanceLoggingEnabled()) return;
+    const double elapsed_ms = world_entry_performance_timer_.ElapsedMs();
+    if (elapsed_ms < next_world_entry_performance_ms_) return;
+    next_world_entry_performance_ms_ = elapsed_ms + 1000.0;
+    const auto textures = texture_manager_.StreamingStats();
+    std::ostringstream detail;
+    detail << "map=" << current_map_id_ << " elapsed_ms=" << elapsed_ms
+           << " ui_active=" << ui_active
+           << " texture_pending=" << textures.pending
+           << " texture_prepared=" << textures.prepared
+           << " texture_failed=" << textures.failed;
+    if (gate != nullptr) {
+      detail << " player_present=" << gate->has_active_player
+             << " player_assets=" << gate->active_player_render_assets_ready
+             << " world_surface=" << gate->critical_visible_world_surface_ready
+             << " map_streaming=" << world_scene_.world_map().IsWorldEntryStreamingComplete()
+             << " terrain_uploads=" << world_scene_.IsTerrainWorldEntryLoadDrained()
+             << " doodad_uploads=" << world_scene_.IsDoodadWorldEntryLoadDrained()
+             << " transport_required=" << gate->requires_transport_assets
+             << " transport_present=" << gate->has_transport_object
+             << " transport_assets=" << gate->transport_assets_ready;
+    }
+    openwow::diagnostics::LogPerformanceEvent("world.wait", detail.str());
+  };
+  if (!ui_active) {
+    log_wait(nullptr);
     return false;
   }
 
-  if (ShouldKeepLoadingScreenVisibleForWorldEntry()) {
+  const auto gate = BuildLoadingScreenWorldEntryGateState();
+  if (openwow::game::ShouldKeepLoadingScreenVisibleForWorldEntry(gate)) {
+    log_wait(&gate);
     return false;
   }
 
   world_scene_.world_map().SetWorldEntryStreamingMode(false);
   HideLoadingScreen();
   state_ = SceneState::kInWorld;
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  openwow::diagnostics::LogPerformanceDuration(
+      performance_site, "world.loading_screen_dismissed",
+      world_entry_performance_timer_, current_map_name_, 0.0);
   return true;
 }
 
 void GameLoop::UpdateNetwork() {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.network_dispatch");
   if (!world_session())
     return;
 
@@ -5491,6 +5542,9 @@ void GameLoop::HandlePerFrameWorldMaintenance(const std::uint32_t current_tick_m
 }
 
 void GameLoop::RenderWorld(float dt) {
+  static openwow::diagnostics::PerformanceLogSite performance_site;
+  const openwow::diagnostics::ScopedPerformanceLog performance(
+      performance_site, "world.render_prepare_submit", current_map_name_);
   const auto view_width = static_cast<std::uint16_t>(std::max(1, screen_width_));
   const auto view_height = static_cast<std::uint16_t>(std::max(1, screen_height_));
 

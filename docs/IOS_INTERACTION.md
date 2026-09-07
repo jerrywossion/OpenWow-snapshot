@@ -324,6 +324,9 @@ build-12340 Data with `zhCN`, and a character in the configured compatible realm
 
 ## Device acceptance
 
+For Release performance and first-open stalls, use the focused collection
+procedure in [IOS_PERFORMANCE.md](IOS_PERFORMANCE.md).
+
 Use the signed Release `ios-device-development` build at
 `build/ios-device-development/apps/client/Release-iphoneos/OpenWoW.app`, with
 build-12340 Data and the `zhCN` locale archive chain already synchronized into

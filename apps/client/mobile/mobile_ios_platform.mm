@@ -1,8 +1,25 @@
 #include "mobile_ios_platform.h"
 
 #import <UIKit/UIKit.h>
+#include <mach/mach.h>
 
 namespace openwow::client::mobile {
+
+ProcessPerformanceMetrics QueryProcessPerformanceMetrics() noexcept {
+  ProcessPerformanceMetrics result;
+  task_vm_info_data_t memory{};
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  result.memory_query_status = task_info(
+      mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&memory), &count);
+  if (result.memory_query_status == KERN_SUCCESS) {
+    result.physical_footprint_bytes = static_cast<std::int64_t>(memory.phys_footprint);
+  }
+  @autoreleasepool {
+    result.thermal_state = static_cast<int>(NSProcessInfo.processInfo.thermalState);
+    result.low_power_mode = NSProcessInfo.processInfo.lowPowerModeEnabled;
+  }
+  return result;
+}
 
 SafeAreaInsetsPoints QuerySafeAreaInsetsPoints(void* native_window) noexcept {
   if (native_window == nullptr) {

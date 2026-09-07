@@ -13,6 +13,7 @@
 #include "openwow/render/resources/textures/texture_cache_budget.h"
 #include "openwow/render/resources/textures/texture_mip_upload.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include <algorithm>
 #include <array>
@@ -448,6 +449,9 @@ PreparedTextureUpload DecodeTextureUpload(
     const std::string& path,
     const openwow::data::TextureCacheRowIdentity& row,
     const std::vector<std::uint8_t>& source_bytes) {
+  static diagnostics::PerformanceLogSite performance_site;
+  const diagnostics::ScopedPerformanceLog performance(
+      performance_site, "texture.decode", path);
   PreparedTextureUpload prepared;
   prepared.path = path;
   prepared.row_hash = row.hash;
@@ -628,6 +632,9 @@ PreparedTextureUpload PrepareResolvedTextureUpload(
     const openwow::data::TextureCacheRowIdentity& row,
     openwow::data::TextureCacheRowStore& rows,
     const openwow::data::TextureCacheRowStore::SourceLoader& loader) {
+  static diagnostics::PerformanceLogSite performance_site;
+  const diagnostics::ScopedPerformanceLog performance(
+      performance_site, "texture.prepare_read_decode", request_path);
   if (const auto portrait_source = TryParsePortraitIconTextureKey(row.path);
       portrait_source.has_value()) {
     PreparedTextureUpload prepared{
@@ -1290,6 +1297,9 @@ void TextureManager::EnsureAsyncWorkersLocked() {
 
 std::size_t TextureManager::PumpPreparedUploads(
     const std::size_t max_uploads) {
+  static diagnostics::PerformanceLogSite performance_site;
+  const diagnostics::ScopedPerformanceLog performance(
+      performance_site, "texture.pump_uploads");
   std::shared_ptr<AsyncState> state;
   {
     std::lock_guard lock(cache_mutex_);
@@ -1440,6 +1450,9 @@ PreparedTextureUpload TextureManager::PrepareTextureUpload(
 PreparedTextureUpload TextureManager::PrepareTextureUploadFromLoader(
     const std::string& path,
     const std::function<std::vector<std::uint8_t>(const std::string&)>& loader) {
+  static diagnostics::PerformanceLogSite performance_site;
+  const diagnostics::ScopedPerformanceLog performance(
+      performance_site, "texture.loader_read_decode", path);
   PreparedTextureUpload missing;
   missing.path = path;
   if (path.empty()) {
@@ -1482,6 +1495,9 @@ PreparedTextureUpload TextureManager::PrepareTextureUploadFromLoader(
 
 bgfx::TextureHandle TextureManager::CommitPreparedTexture(
     const PreparedTextureUpload& upload) {
+  static diagnostics::PerformanceLogSite performance_site;
+  const diagnostics::ScopedPerformanceLog performance(
+      performance_site, "texture.commit_upload", upload.path);
   if (!upload.valid || upload.path.empty() || upload.width == 0 ||
       upload.height == 0 || upload.upload_size == 0 ||
       upload.upload_size > upload.rgba_bytes.size() ||

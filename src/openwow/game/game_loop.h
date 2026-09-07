@@ -1,6 +1,7 @@
 #pragma once
 
 #include "openwow/game/world_scene.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/game/world_environment_state.h"
 #include "openwow/game/unit_sound_dispatch.h"
 #include "openwow/game/objects/unit/unit_presentation_runtime.h"
@@ -467,6 +468,8 @@ class GameLoop : private openwow::render::api::RendererDeviceLifecycleObserver {
   bool initialized_{false};
 
   bool prepared_world_entry_{false};
+  openwow::diagnostics::PerformanceTimer world_entry_performance_timer_;
+  double next_world_entry_performance_ms_{0.0};
 
   bool corpse_proximity_active_{false};
 
