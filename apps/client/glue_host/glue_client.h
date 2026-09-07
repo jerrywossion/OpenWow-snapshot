@@ -327,6 +327,13 @@ class GlueClient {
   bool right_mouse_held_{false};
 #if defined(OPENWOW_PLATFORM_IOS)
   mobile::MobileInputController mobile_input_;
+  struct MobileSecondaryTap {
+    float target_x{};
+    float target_y{};
+    std::uint32_t started_at_ms{};
+    bool targets_ui{false};
+  };
+  std::optional<MobileSecondaryTap> mobile_secondary_tap_;
   std::uint32_t last_mobile_glue_tap_ms_{0};
   float last_mobile_glue_tap_x_{0.0F};
   float last_mobile_glue_tap_y_{0.0F};

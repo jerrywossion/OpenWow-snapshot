@@ -972,6 +972,31 @@ bool FrameInputRouter::HandleTouchUp(float x, float y) {
   return true;
 }
 
+bool FrameInputRouter::BeginTouchSecondaryTap() {
+  if (!touch_capture_active_ || !touch_gesture_ ||
+      touch_gesture_->phase != TouchPhase::kPending) return false;
+  const auto target = touch_gesture_->target;
+  if (!TouchTargetIsCurrent(target) || !touch_gesture_ ||
+      touch_gesture_->phase != TouchPhase::kPending) return false;
+  // The host owns both contacts until release. Suppress the pending left tap
+  // and the inspection timer; a two-finger tap must never start with a click.
+  touch_gesture_->phase = TouchPhase::kSecondaryTap;
+  if (const auto* frame = frames_.FindFrame(target.frame_name);
+      frame != nullptr && IsButtonFrame(*frame) &&
+      !ReadButtonVisualState(lua_, target.lua_ref).disabled) {
+    SetButtonVisualState(lua_, target.lua_ref, "NORMAL");
+  }
+  return true;
+}
+
+bool FrameInputRouter::EndTouchSecondaryTap() {
+  if (!touch_capture_active_ || !touch_gesture_ ||
+      touch_gesture_->phase != TouchPhase::kSecondaryTap) return false;
+  const TouchContext context{.target = touch_gesture_->target};
+  CancelTouch();
+  return DispatchTouchAction(context, 4u, "two-finger-tap");
+}
+
 bool FrameInputRouter::HandlePointerUpByFlag(float x, float y,
                                              std::uint32_t button_flag,
                                              bool touch) {
@@ -1385,30 +1410,56 @@ void FrameInputRouter::DispatchTouchContextAction() {
   if (!button || !touch_context_) return;
   const auto context = *touch_context_;
   ClearTouchContext();
-  if (*button == 0u) {
+  (void)DispatchTouchAction(context, *button, "context-toolbar");
+}
+
+bool FrameInputRouter::DispatchTouchAction(const TouchContext& context,
+                                           const std::uint32_t button,
+                                           const char* source) {
+  if (button == 0u) {
     ClearTouchHover();
-    return;
+    return false;
   }
   if (!TouchTargetIsCurrent(context.target)) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-        "Touch context action cancelled: frame=" + context.target.frame_name +
-        " button=" + std::to_string(*button) +
-        " source=context-toolbar reason=target-hidden-replaced-or-covered");
+        "Touch action cancelled: frame=" + context.target.frame_name +
+        " button=" + std::to_string(button) + " source=" + source +
+        " reason=target-hidden-replaced-or-covered");
     ClearTouchHover();
-    return;
+    return false;
   }
   PublishTouchHover(context.target.x, context.target.y);
+  // OnEnter can replace or cover the target, including for world interactions.
+  if (!TouchTargetIsCurrent(context.target)) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Touch action cancelled: frame=" + context.target.frame_name +
+        " button=" + std::to_string(button) + " source=" + source +
+        " reason=target-changed-during-hover");
+    ClearTouchHover();
+    return false;
+  }
+  bool handled = true;
   if (context.world_action) {
     SecureExecution::SecureScope hardware_input_scope(lua_);
     SecureExecution::HardwareActionGrantScope hardware_action_grant;
-    context.world_action(*button);
-  } else if (TouchTargetIsCurrent(context.target)) {
-    (void)HandlePointerDownByFlag(context.target.x, context.target.y, *button, true);
-    if (const auto* capture = FindCapture(*button); capture != nullptr && capture->active) {
-      (void)HandlePointerUpByFlag(context.target.x, context.target.y, *button, true);
+    context.world_action(button);
+  } else {
+    handled = HandlePointerDownByFlag(context.target.x, context.target.y, button, true);
+    if (const auto* capture = FindCapture(button); capture != nullptr && capture->active) {
+      (void)HandlePointerUpByFlag(context.target.x, context.target.y, button, true);
     }
   }
   ClearTouchHover();
+  return handled;
+}
+
+bool FrameInputRouter::HandleWorldTouchSecondaryTap(float x, float y,
+    std::function<void(std::uint32_t)> action) {
+  if (touch_capture_active_) return false;
+  ClearTouchContext();
+  return DispatchTouchAction(
+      TouchContext{.target = {.x = x, .y = y}, .world_action = std::move(action)},
+      4u, "two-finger-tap");
 }
 
 void FrameInputRouter::PreviewWorldTouch(float x, float y) {

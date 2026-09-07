@@ -11,6 +11,7 @@ desktop client.
 | Surface | Gesture | Result |
 | --- | --- | --- |
 | FrameXML button or hyperlink | Short tap | Left-button down/up on release, using the original click handlers |
+| FrameXML button or hyperlink | Two-finger tap, first finger on the target | One right-button down/up after both fingers release; no toolbar or preceding left click |
 | FrameXML button or hyperlink | Hold for 475 ms without moving | Hover/tooltip only; release leaves a small Click / Right click / Close toolbar |
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
@@ -18,6 +19,7 @@ desktop client.
 | Empty lower-left world | Drag from any origin | Floating movement stick; vertical movement plus horizontal strafe |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action |
+| World outside the movement region | Two-finger tap, first finger on the target | Direct right-click interaction at the first finger's position |
 | World outside the movement region | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
 | Empty world | Two-finger pinch | Camera zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
@@ -30,7 +32,28 @@ an action button at the same time without reclassifying the movement finger.
 Application deactivation, focus loss, UI-mode changes and touch cancellation
 all release movement, camera and UI capture explicitly.
 
-## Inspect, act and drag
+## Right click, inspect and drag
+
+Two-finger tapping is the direct secondary action for UI and world targets.
+Place the first finger on the desired item, link, unit or object and briefly
+tap a second finger nearby, then lift both. The second finger joins within
+180 ms and 96 device points; both must release within 300 ms of the first
+contact, with movement below 9 points. The first finger chooses the target,
+not the midpoint between fingers. The router sends exactly one original
+right-button down/up sequence for UI, or the existing world right-click path.
+It never sends a preliminary left click, falls back to a left click, or opens
+the inspection toolbar. Successful dispatch gives light haptic feedback.
+
+Both contacts remain owned by that gesture until release or cancellation.
+Moving either UI finger, holding too long, or adding another contact cancels
+it without activating a control. Moving two world fingers transitions to
+pinch zoom; releasing one finger first never turns the remaining tap into a
+world click. An existing movement contact stays independent. A new touch in
+the exposed movement region starts movement, and a world tap cannot claim a
+second contact on UI. Active drags, sliders, edit boxes, title regions, model
+controls and an existing pinch retain their owners instead of becoming a
+right click. The UI retains the original frame reference and hyperlink and
+rechecks visibility and hit ownership immediately before dispatch.
 
 Long-press inspection never sends a left-button down, click or right-button
 action. This matters for buttons registered for down-clicks: inspecting an
@@ -41,9 +64,10 @@ tap or scrolls an eligible UI; it does not rearrange action bars accidentally.
 Continuous native controls (sliders, edit boxes, title regions, model views
 and color pickers) keep their immediate pointer path.
 
-After a hold is released, the contextual toolbar offers explicit primary and
-secondary clicks. Right click is disabled when the frame has neither a
-registered right-click phase nor an applicable pointer/hyperlink handler. It
+After a hold is released, the contextual toolbar still offers explicit primary
+and secondary clicks as a one-finger alternative. Right click is disabled when
+the frame has neither a registered right-click phase nor an applicable
+pointer/hyperlink handler. It
 does not guess labels such as Equip, Sell or Cast from the current page: those
 actions continue to be decided by the original scripts. Clicking outside the
 toolbar dismisses it and consumes that contact; Close also leaves without
@@ -208,6 +232,10 @@ not establish device visual, interaction or comfort acceptance.
 3. Hold movement while dragging the camera, pinching zoom and activating an
    action. Each contact must retain its own function.
 4. Tap a world unit and confirm a ground-target spell with a short world tap.
+   Two-finger tap an NPC/object outside the movement region, placing the first
+   finger on the target: expect immediate right-click interaction after both
+   fingers release, with no toolbar or preliminary selection/cast. Two-finger
+   tap with a ground-target spell active to check the normal right-click cancel.
    Hold an interactable outside the movement region, then release: no action
    should occur until Right click/右键 is tapped in the toolbar. Verify the
    normal NPC/object interaction, then repeat with Close/关闭 and outside
@@ -243,6 +271,13 @@ not establish device visual, interaction or comfort acceptance.
     release, check explicit left/right actions and both dismissal paths.
     Include a button registered for `LeftButtonDown`: only a short tap or an
     explicit toolbar click may trigger it. Repeat with the combat HUD hidden.
+    Two-finger tap the same targets and check their original right-click
+    behavior exactly once, never `LeftButtonDown`. Place the second finger on
+    a neighboring item and verify that the first item receives the right click.
+    Lift the fingers in both orders. Repeat during held movement, with custom
+    UI scale and with the combat HUD hidden. Move either finger, hold both too
+    long or add another finger: expect no left/right action. Hide or cover the
+    first target before releasing: the newly exposed control must not activate.
 11. With normal pickup permissions and action-bar locking configured for the
     intended drag, hold a draggable item/action then move to a valid slot.
     Verify pickup and drop exactly once, with no click/cast afterwards. Moving
@@ -267,9 +302,11 @@ iOS user-data root, covering the latest `log-start`/`Client startup` through the
 failure, together with the device, orientation, HUD visibility/layer and steps.
 Keep the first Lua/resource error and surrounding context, especially entries
 mentioning `OpenWoWMobile`, `RegisterForSave`, `SetFont` or `SavedVariables`.
-For inspection/drag failures also include `Touch context`, `Touch drag`,
+For secondary-tap/inspection/drag failures also include `Touch action`,
+`source=two-finger-tap`, `Touch context`, `Touch drag`,
 `Touch scroll`, and the first originating FrameXML/Lua error. Record whether
-the failure occurred before the hold, during inspection, on toolbar activation,
-at drag start, on drop or on cancellation.
+the failure occurred on the first/second contact or release, before the hold,
+during inspection, on toolbar activation, at drag start, on drop or on
+cancellation.
 Device overlap, finger comfort, multi-touch timing and reload/resume behavior
 remain user acceptance items until confirmed on this build.

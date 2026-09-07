@@ -42,6 +42,8 @@ public:
                        float pixels_per_point_y = 1.0F);
   bool HandleTouchMove(float x, float y);
   bool HandleTouchUp(float x, float y);
+  bool BeginTouchSecondaryTap();
+  bool EndTouchSecondaryTap();
   [[nodiscard]] bool HitTestTouchTarget(float x, float y);
   void CancelTouch();
   void UpdateTouchInspection();
@@ -49,6 +51,8 @@ public:
   void DismissWorldTouch();
   void ShowWorldTouchContext(float x, float y,
                              std::function<void(std::uint32_t)> action);
+  bool HandleWorldTouchSecondaryTap(float x, float y,
+                                    std::function<void(std::uint32_t)> action);
   bool HandleMouseWheel(float x, float y, float delta);
   bool HandleKeyDown(std::uint32_t key, bool shift_down = false, bool ctrl_down = false);
   bool HandleKeyUp(std::uint32_t key);
@@ -134,7 +138,7 @@ private:
     std::string hyperlink_text;
   };
 
-  enum class TouchPhase { kPending, kDirect, kInspect, kDrag, kScroll, kCancelled };
+  enum class TouchPhase { kPending, kSecondaryTap, kDirect, kInspect, kDrag, kScroll, kCancelled };
   struct TouchGesture {
     TouchTarget target;
     TouchPhase phase{TouchPhase::kPending};
@@ -161,6 +165,8 @@ private:
   void ClearTouchContext();
   void PresentTouchContext();
   void DispatchTouchContextAction();
+  bool DispatchTouchAction(const TouchContext& context, std::uint32_t button,
+                           const char* source);
   bool BeginTouchDrag();
 
   static std::size_t ButtonCaptureIndex(std::uint32_t button_flag) noexcept;

@@ -20,6 +20,7 @@ enum class TouchOwner : std::uint8_t {
   kMovement,
   kWorldCamera,
   kWorldTap,
+  kSecondaryTap,
   kPinch,
 };
 
