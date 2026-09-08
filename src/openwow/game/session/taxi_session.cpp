@@ -275,16 +275,30 @@ void WorldSession::HandleTaxiNodeStatus(const net::wotlk::WorldPacket &pkt) {
   }
 
   const auto &status = taxi_.last_status();
-  if (status.npc_guid == 0) return;
-
   auto *unit = objects().GetMutableUnit(ObjectGuid(status.npc_guid));
-  if (!unit) return;
-
   constexpr std::uint32_t kNpcFlagFlightmaster = 0x00002000;
-  if ((unit->State().GetNpcFlags() & kNpcFlagFlightmaster) == 0) return;
+  if (unit == nullptr || (unit->State().GetNpcFlags() & kNpcFlagFlightmaster) == 0) {
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kWarn,
+        "Taxi node status stage=resolve source=SMSG_TAXINODE_STATUS guid=" +
+            std::to_string(status.npc_guid) +
+            " status=" + std::to_string(status.status) +
+            " reason=" + (unit == nullptr ? "unit-unavailable" : "flightmaster-role-missing"));
+    return;
+  }
 
   unit->SetOverlayModelIndexOverride(status.status == 0 ? kOverlayModelIndexTaxiEnable : 0);
   unit->UpdateOverlayModel();
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "Taxi node status stage=server-state source=SMSG_TAXINODE_STATUS guid=" +
+          std::to_string(status.npc_guid) + " entry=" + std::to_string(unit->GetEntry()) +
+          " display=" + std::to_string(unit->Presentation().CurrentDisplayId()) +
+          " status=" + std::to_string(status.status) +
+          " quest_status=" +
+          std::to_string(static_cast<std::uint32_t>(unit->GetOverlayDisplayType())) +
+          " overlay=" + std::to_string(unit->GetActiveOverlayModelIndex()) +
+          " attached=" + std::to_string(unit->IsOverlayBoneAttached()));
 }
 
 }

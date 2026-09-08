@@ -3301,6 +3301,16 @@ std::size_t ObjectRenderer::UpdateModelAttachments(RenderInstance &inst,
       continue;
     }
 
+    const auto log_failure = [&](const char *stage, const std::string &reason) {
+      openwow::diagnostics::Log(
+          openwow::diagnostics::LogLevel::kWarn,
+          "ObjectRenderer attachment: stage=" + std::string(stage) +
+              " guid=" + std::to_string(inst.guid.GetRawValue()) +
+              " source=" + desired.model_path +
+              " attachment=" + std::to_string(desired.attachment_id) +
+              " reason=" + reason);
+    };
+
     const bool attachment_texture_changed =
         binding.bound_texture_path != desired.texture_path;
     const bool attachment_fully_bound =
@@ -3361,6 +3371,9 @@ std::size_t ObjectRenderer::UpdateModelAttachments(RenderInstance &inst,
           m2_system_.AcquireModelAsync(desired.model_path, m2::M2StreamPriority::kVisibleUnit);
       binding.requested_model_path = desired.model_path;
       binding.request_failed = !binding.stream_ticket;
+      if (binding.request_failed) {
+        log_failure("acquire", "stream-request-rejected");
+      }
       ++requests;
     }
     if (!binding.stream_ticket || binding.request_failed || inst.m2_instance_id == 0u ||
@@ -3371,6 +3384,8 @@ std::size_t ObjectRenderer::UpdateModelAttachments(RenderInstance &inst,
     const auto streamed = m2_system_.QueryModelAsync(binding.stream_ticket);
     if (streamed.state == m2::M2StreamState::kFailed) {
       binding.request_failed = true;
+      log_failure("load", std::string(m2::M2ResultReasonName(streamed.reason)) +
+                              " detail=" + streamed.detail);
       continue;
     }
     if (streamed.state != m2::M2StreamState::kReady || streamed.model_id == 0u) {
@@ -3380,6 +3395,10 @@ std::size_t ObjectRenderer::UpdateModelAttachments(RenderInstance &inst,
     const auto created = m2_system_.CreateInstanceAsync(binding.stream_ticket);
     if (created.status != m2::M2ResultStatus::kReady || created.instance_id == 0u) {
       binding.request_failed = m2::IsTerminalM2ResultStatus(created.status);
+      if (binding.request_failed) {
+        log_failure("create", std::string(m2::M2ResultReasonName(created.reason)) +
+                                  " detail=" + created.detail);
+      }
       continue;
     }
 
@@ -3408,6 +3427,9 @@ std::size_t ObjectRenderer::UpdateModelAttachments(RenderInstance &inst,
     if (status != m2::M2ResultStatus::kReady) {
       static_cast<void>(system.DestroyInstance(replacement_instance_id));
       binding.request_failed = m2::IsTerminalM2ResultStatus(status);
+      if (binding.request_failed) {
+        log_failure("bind", m2::M2ResultStatusName(status));
+      }
       continue;
     }
 
