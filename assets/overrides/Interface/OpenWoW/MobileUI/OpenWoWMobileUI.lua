@@ -39,11 +39,6 @@ if locale == "zhCN" then
         graphics = "画质",
         renderScale = "世界分辨率",
         renderScaleHint = "即时生效，界面清晰度不变",
-        primary = "点击",
-        secondary = "右键",
-        dismiss = "关闭",
-        inspectHint = "查看不会执行操作",
-        dragHint = "长按后移动可拖动",
     }
 else
     L = {
@@ -73,11 +68,6 @@ else
         graphics = "Graphics",
         renderScale = "World resolution",
         renderScaleHint = "Applies immediately. UI stays sharp.",
-        primary = "Click",
-        secondary = "Right click",
-        dismiss = "Close",
-        inspectHint = "Inspect without activating",
-        dragHint = "Hold, then move to drag",
     }
 end
 
@@ -507,74 +497,6 @@ local function PlaceToggle()
     top = math.max(bounds.bottom + size, math.min(bounds.top, top))
     toggleButton:ClearAllPoints()
     toggleButton:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", right, top)
-end
-
--- Inspection is independent of the combat HUD's visibility. The native input
--- router owns the inspected target and validates it again before dispatch.
-local touchContext = CreateFrame("Frame", "OpenWoWMobileTouchContext", UIParent)
-touchContext:SetFrameStrata("DIALOG")
-touchContext:EnableMouse(true)
-touchContext:SetClampedToScreen(true)
-AddPanelBackground(touchContext, 0.95)
-touchContext:Hide()
-local contextHint = touchContext:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-contextHint:SetPoint("TOP", touchContext, "TOP", 0, -8)
-local contextAction
-local contextButtons = {}
-for index, definition in ipairs({
-    {L.primary, 1, "Interface\\Icons\\INV_Misc_Hand_01"},
-    {L.secondary, 4, "Interface\\Icons\\INV_Misc_Gear_01"},
-    {L.dismiss, 0, "Interface\\Buttons\\UI-StopButton"},
-}) do
-    local action = definition[2]
-    contextButtons[index] = CreateLabeledButton(
-        "OpenWoWMobileTouchContext" .. index, touchContext,
-        definition[1], definition[3], function()
-            if not contextAction then error("Mobile touch context has expired") end
-            contextAction(action)
-        end)
-end
-
-function OpenWoWMobile_HideTouchContext()
-    contextAction = nil
-    touchContext:Hide()
-end
-
-function OpenWoWMobile_ShowTouchContext(x, y, secondary, draggable, callback)
-    local u = state.unitsPerPoint
-    local unitsPerPixel = GetScreenHeight() / state.drawableHeight
-    local originX = x * unitsPerPixel - UIParent:GetLeft()
-    local originY = (state.drawableHeight - y) * unitsPerPixel - UIParent:GetBottom()
-    local width, height = 240 * u, 96 * u
-    local left = math.max(8 * u, math.min(UIParent:GetWidth() - width - 8 * u,
-                                         originX - width * 0.5))
-    local bottom = originY + 20 * u
-    if bottom + height > UIParent:GetHeight() - 8 * u then
-        bottom = originY - height - 20 * u
-    end
-    bottom = math.max(8 * u, bottom)
-    touchContext:SetSize(width, height)
-    touchContext:ClearAllPoints()
-    touchContext:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", left, bottom)
-    local widths = {72, 80, 56}
-    local offset = 8
-    for index, button in ipairs(contextButtons) do
-        SizeButton(button, 64, u)
-        button:SetWidth(widths[index] * u)
-        button.label:SetWidth((widths[index] - 8) * u)
-        button:ClearAllPoints()
-        button:SetPoint("BOTTOMLEFT", touchContext, "BOTTOMLEFT", offset * u, 8 * u)
-        offset = offset + widths[index] + 8
-    end
-    local font, _, flags = contextHint:GetFont()
-    contextHint:SetFont(font, 11 * u, flags)
-    contextHint:ClearAllPoints()
-    contextHint:SetPoint("TOP", touchContext, "TOP", 0, -8 * u)
-    contextHint:SetText(draggable and L.dragHint or L.inspectHint)
-    if secondary then contextButtons[2]:Enable() else contextButtons[2]:Disable() end
-    contextAction = callback
-    touchContext:Show()
-    return touchContext:GetName()
 end
 
 -- Centers in physical points from the lower-right safe-area margin. The

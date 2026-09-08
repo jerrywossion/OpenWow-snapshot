@@ -437,10 +437,9 @@ void FrameInputRouter::Reset() noexcept {
   edit_box_drag_select_frame_.clear();
   touch_capture_active_ = false;
   touch_gesture_.reset();
-  touch_context_.reset();
+  touch_inspection_.reset();
   pending_touch_tap_.reset();
   world_touch_tap_.reset();
-  pending_touch_context_action_.reset();
   touch_pointer_active_ = false;
   running_macro_input_button_provider_ = {};
 }
@@ -455,8 +454,7 @@ void FrameInputRouter::MarkMouseFocusDirty() noexcept {
 
 void FrameInputRouter::ReplayMouseFocusIfDirty() {
   if (lua_ == nullptr || !mouse_focus_dirty_) return;
-  if (touch_gesture_ && touch_gesture_->phase != TouchPhase::kInspect &&
-      !touch_context_) return;
+  if (touch_gesture_ && touch_gesture_->phase != TouchPhase::kInspect) return;
   if (!have_last_mouse_position_) {
     const auto [mouse_x, mouse_y] =
         openwow::input::InputManager::Get().GetMousePosition();
@@ -672,7 +670,7 @@ bool FrameInputRouter::HandleMouseButtonDownByFlag(float x, float y, std::uint32
   if (touch_capture_active_ && button_flag == 1u) {
     return true;
   }
-  if (pending_touch_tap_ || world_touch_tap_) CancelTouch();
+  if (pending_touch_tap_ || world_touch_tap_ || touch_inspection_) CancelTouch();
   return HandlePointerDownByFlag(x, y, button_flag, false);
 }
 
@@ -688,28 +686,12 @@ bool FrameInputRouter::HandleTouchDown(float x, float y, std::uint32_t timestamp
       capture != nullptr && capture->active) {
     return true;
   }
+  // End the previous hover before hit testing: OnLeave can change the UI.
+  // A new contact starts its own gesture, including after inspection.
+  ClearTouchHover();
   layout_.SolveIfDirty();
   RebuildTraversalIfDirty();
   std::string hit = traversal_.HitTarget(x, y, viewport_height());
-  const bool context_control = touch_context_ &&
-      traversal_.Contains(touch_context_->presentation_frame, x, y, viewport_height()) &&
-      FramesShareInputHierarchy(hit, touch_context_->presentation_frame);
-  const bool dismiss_context = touch_context_.has_value() && !context_control;
-  if (!context_control) {
-    ClearTouchContext();
-    ClearTouchHover();
-    // OnLeave / context dismissal may change the hit target.
-    layout_.SolveIfDirty();
-    RebuildTraversalIfDirty();
-    hit = traversal_.HitTarget(x, y, viewport_height());
-  }
-  if (dismiss_context) {
-    // Like a touch context menu, its outside-dismiss gesture is consumed. It
-    // must not equip an item or become world movement through the closed menu.
-    touch_gesture_ = TouchGesture{.phase = TouchPhase::kCancelled};
-    touch_capture_active_ = true;
-    return true;
-  }
   const auto* hyperlink = ResolveHyperlinkAt(hit, x, y);
   if (hyperlink != nullptr) hit = hyperlink->frame_name;
   const auto ref = frames_.FindLuaRef(hit);
@@ -744,7 +726,7 @@ bool FrameInputRouter::HandleTouchDown(float x, float y, std::uint32_t timestamp
   const bool direct_surface = frame->runtime_kind == Kind::Model ||
       frame->runtime_kind == Kind::PlayerModel || frame->runtime_kind == Kind::DressUpModel ||
       frame->runtime_kind == Kind::TabardModel || frame->runtime_kind == Kind::ColorSelect;
-  const bool direct = context_control || direct_surface || IsSliderFrame(*frame) ||
+  const bool direct = direct_surface || IsSliderFrame(*frame) ||
       FrameIsEditBox(*frame) || TitleRegionContainsPoint(lua_, *ref, hit, layout_, x, y);
   gesture.can_secondary = !direct && TouchTargetAcceptsSecondary(gesture.target);
   const auto match = ResolvePendingTouchTap(gesture.target, gesture.can_secondary, timestamp);
@@ -760,13 +742,11 @@ bool FrameInputRouter::HandleTouchDown(float x, float y, std::uint32_t timestamp
   touch_gesture_ = std::move(gesture);
   touch_capture_active_ = true;
   if (direct) {
-    if (!context_control) {
-      const auto target = touch_gesture_->target;
-      PublishTouchHover(x, y);
-      if (!touch_gesture_ || !TouchTargetIsCurrent(target)) {
-        CancelTouch();
-        return true;
-      }
+    const auto target = touch_gesture_->target;
+    PublishTouchHover(x, y);
+    if (!touch_gesture_ || !TouchTargetIsCurrent(target)) {
+      CancelTouch();
+      return true;
     }
     (void)HandlePointerDownByFlag(x, y, kLeftButtonFlag, true);
   } else if (const auto* current = frames_.FindFrame(hit);
@@ -793,9 +773,10 @@ bool FrameInputRouter::HitTestTouchTarget(const float x, const float y) {
 
 FrameInputRouter::TouchMovementStart FrameInputRouter::BeginTouchMovement(
     const float x, const float y, std::function<void()> cancel) {
-  if (lua_ == nullptr || !application_active_ || touch_context_) {
+  if (lua_ == nullptr || !application_active_) {
     return TouchMovementStart::kNotControl;
   }
+  if (touch_inspection_) ClearTouchHover();
   layout_.SolveIfDirty();
   RebuildTraversalIfDirty();
   const std::string hit = traversal_.HitTarget(x, y, viewport_height());
@@ -1038,9 +1019,7 @@ bool FrameInputRouter::HandleMouseButtonUpByFlag(float x, float y, std::uint32_t
   if (touch_capture_active_ && button_flag == 1u) {
     return true;
   }
-  const bool handled = HandlePointerUpByFlag(x, y, button_flag, false);
-  DispatchTouchContextAction();
-  return handled;
+  return HandlePointerUpByFlag(x, y, button_flag, false);
 }
 
 bool FrameInputRouter::HandleTouchUp(float x, float y, std::uint32_t timestamp) {
@@ -1054,8 +1033,9 @@ bool FrameInputRouter::HandleTouchUp(float x, float y, std::uint32_t timestamp) 
   if (!gesture) return true;
   if (gesture->phase == TouchPhase::kInspect) {
     if (TouchTargetIsCurrent(gesture->target)) {
-      touch_context_ = TouchContext{.target = std::move(gesture->target)};
-      PresentTouchContext();
+      // Keep only the hover after release. Inspection cannot store an action
+      // or turn the next physical tap into a dismissal-only contact.
+      touch_inspection_ = std::move(gesture->target);
     } else {
       ClearTouchHover();
     }
@@ -1069,31 +1049,25 @@ bool FrameInputRouter::HandleTouchUp(float x, float y, std::uint32_t timestamp) 
     }
   }
   if (gesture->phase == TouchPhase::kPending) {
-    const TouchContext context{.target = gesture->target};
+    const TouchAction action{.target = gesture->target};
     if (gesture->double_tap) {
       if (timestamp - gesture->started_at_ms <=
           kTouchDoubleTapMilliseconds) {
-        (void)DispatchTouchAction(context, 4u, "double-tap");
+        (void)DispatchTouchAction(action, 4u, "double-tap");
       }
     } else if (gesture->can_secondary && TouchTargetIsCurrent(gesture->target)) {
       pending_touch_tap_ = PendingTouchTap{
-          .context = context, .released_at_ms = timestamp,
+          .action = action, .released_at_ms = timestamp,
           .pixels_per_point_x = gesture->pixels_per_point_x,
           .pixels_per_point_y = gesture->pixels_per_point_y};
     } else {
-      (void)DispatchTouchAction(context, 1u, "single-tap");
+      (void)DispatchTouchAction(action, 1u, "single-tap");
     }
   }
   if (const auto* capture = FindCapture(1u); capture != nullptr && capture->active) {
     (void)HandlePointerUpByFlag(x, y, 1u, true);
   }
-  if (pending_touch_context_action_) {
-    DispatchTouchContextAction();
-  } else if (!touch_context_) {
-    ClearTouchHover();
-  } else {
-    PublishTouchHover(touch_context_->target.x, touch_context_->target.y);
-  }
+  ClearTouchHover();
   return true;
 }
 
@@ -1251,9 +1225,7 @@ bool FrameInputRouter::HandleTouchMove(float x, float y, std::uint32_t timestamp
   gesture.current_x = x;
   gesture.current_y = y;
   if (gesture.phase == TouchPhase::kDirect || gesture.phase == TouchPhase::kDrag) {
-    if (!touch_context_) {
-      SetTouchCursorPosition(x, y);
-    }
+    SetTouchCursorPosition(x, y);
     SecureExecution::SecureScope hardware_input_scope(lua_);
     SecureExecution::HardwareActionGrantScope hardware_action_grant;
     return HandlePointerMove(x, y, true);
@@ -1340,7 +1312,7 @@ FrameInputRouter::TouchTapMatch FrameInputRouter::ResolvePendingTouchTap(
     const TouchTarget& next, bool can_double, std::uint32_t timestamp) {
   if (!pending_touch_tap_) return TouchTapMatch::kSingle;
   const auto pending = *pending_touch_tap_;
-  const auto& previous = pending.context.target;
+  const auto& previous = pending.action.target;
   const float dx = (next.x - previous.x) / pending.pixels_per_point_x;
   const float dy = (next.y - previous.y) / pending.pixels_per_point_y;
   const bool matches = can_double &&
@@ -1367,7 +1339,7 @@ void FrameInputRouter::CommitPendingTouchTap(const char* source) {
   if (!pending) return;
   // This grant belongs to a completed physical tap waiting for recognition.
   // Remove it before Lua callbacks; UI updates cannot replay or mint taps.
-  (void)DispatchTouchAction(pending->context, 1u, source);
+  (void)DispatchTouchAction(pending->action, 1u, source);
 }
 
 void FrameInputRouter::SetTouchCursorPosition(const float x, const float y) {
@@ -1388,6 +1360,7 @@ void FrameInputRouter::PublishTouchHover(const float x, const float y) {
 }
 
 void FrameInputRouter::ClearTouchHover() {
+  touch_inspection_.reset();
   if (!touch_pointer_active_ || lua_ == nullptr) return;
   touch_pointer_active_ = false;
   last_mouse_x_ = -1.0F;
@@ -1418,13 +1391,8 @@ void FrameInputRouter::UpdateTouchGestures(std::uint32_t timestamp) {
           kTouchDoubleTapMilliseconds) {
     CommitPendingTouchTap("single-tap-timeout");
   }
-  if (touch_context_ && !touch_context_->presentation_frame.empty() &&
-      !traversal_.IsEffectivelyVisible(touch_context_->presentation_frame)) {
-    CancelTouch();
-    return;
-  }
   const TouchTarget* target = touch_gesture_ ? &touch_gesture_->target :
-      (touch_context_ ? &touch_context_->target : nullptr);
+      (touch_inspection_ ? &*touch_inspection_ : nullptr);
   if (target != nullptr && !target->frame_name.empty() &&
       (frames_.FindLuaRef(target->frame_name) != target->lua_ref ||
        !traversal_.IsEffectivelyVisible(target->frame_name))) {
@@ -1485,113 +1453,40 @@ bool FrameInputRouter::BeginTouchDrag() {
   return HandlePointerMove(gesture.current_x, gesture.current_y, true);
 }
 
-void FrameInputRouter::ClearTouchContext() {
-  pending_touch_context_action_.reset();
-  const auto context = std::exchange(touch_context_, std::nullopt);
-  if (!context || lua_ == nullptr) return;
-  const int top = lua_gettop(lua_);
-  lua_getglobal(lua_, "OpenWoWMobile_HideTouchContext");
-  if (!lua_isfunction(lua_, -1) || ProfiledPCall(lua_, 0, 0, 0) != LUA_OK) {
-    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-        "Touch context dismissal failed: source=MobileUI reason=" +
-        std::string(lua_tostring(lua_, -1) ? lua_tostring(lua_, -1) : "missing presentation callback"));
-  }
-  lua_settop(lua_, top);
-}
-
-void FrameInputRouter::PresentTouchContext() {
-  if (!touch_context_ || lua_ == nullptr) return;
-  const auto target = touch_context_->target;
-  const bool world = static_cast<bool>(touch_context_->world_action);
-  bool secondary = world;
-  bool draggable = false;
-  if (!world) {
-    secondary = TouchTargetAcceptsSecondary(target);
-    draggable = FrameAcceptsTouchDrag(lua_, target.lua_ref);
-  }
-  const int top = lua_gettop(lua_);
-  lua_getglobal(lua_, "OpenWoWMobile_ShowTouchContext");
-  bool shown = false;
-  if (lua_isfunction(lua_, -1)) {
-    lua_pushnumber(lua_, target.x);
-    lua_pushnumber(lua_, target.y);
-    lua_pushboolean(lua_, secondary);
-    lua_pushboolean(lua_, draggable);
-    lua_pushlightuserdata(lua_, this);
-    lua_pushcclosure(lua_, [](lua_State* state) -> int {
-      const auto button = luaL_checkinteger(state, 1);
-      if (button != 0 && button != 1 && button != 4) {
-        return luaL_error(state, "Touch context: invalid button");
-      }
-      if (!GameUI_CanPerformHardwareEventAction()) {
-        return luaL_error(state, "Touch context requires a hardware action");
-      }
-      auto* input = static_cast<FrameInputRouter*>(lua_touserdata(state, lua_upvalueindex(1)));
-      if (!input->touch_context_) return luaL_error(state, "Touch context has expired");
-      // Dispatch after the toolbar's own pointer-up has released its capture.
-      input->pending_touch_context_action_ = static_cast<std::uint32_t>(button);
-      return 0;
-    }, 1);
-    if (ProfiledPCall(lua_, 5, 1, 0) == LUA_OK && lua_isstring(lua_, -1) && touch_context_) {
-      const std::string name = lua_tostring(lua_, -1);
-      if (frames_.FindLuaRef(name)) {
-        touch_context_->presentation_frame = name;
-        shown = true;
-      }
-    }
-  }
-  if (!shown) {
-    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-        "Touch context presentation failed: frame=" + target.frame_name +
-        " source=MobileUI reason=" +
-        std::string(lua_tostring(lua_, -1) ? lua_tostring(lua_, -1) : "missing or invalid presentation"));
-  }
-  lua_settop(lua_, top);
-  if (!shown) CancelTouch();
-}
-
-void FrameInputRouter::DispatchTouchContextAction() {
-  const auto button = std::exchange(pending_touch_context_action_, std::nullopt);
-  if (!button || !touch_context_) return;
-  const auto context = *touch_context_;
-  ClearTouchContext();
-  (void)DispatchTouchAction(context, *button, "context-toolbar");
-}
-
-bool FrameInputRouter::DispatchTouchAction(const TouchContext& context,
+bool FrameInputRouter::DispatchTouchAction(const TouchAction& action,
                                            const std::uint32_t button,
                                            const char* source) {
   if (button == 0u) {
     ClearTouchHover();
     return false;
   }
-  if (!TouchTargetIsCurrent(context.target)) {
+  if (!TouchTargetIsCurrent(action.target)) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-        "Touch action cancelled: frame=" + context.target.frame_name +
+        "Touch action cancelled: frame=" + action.target.frame_name +
         " button=" + std::to_string(button) + " source=" + source +
         " reason=target-hidden-replaced-or-covered");
     ClearTouchHover();
     return false;
   }
-  PublishTouchHover(context.target.x, context.target.y);
+  PublishTouchHover(action.target.x, action.target.y);
   // OnEnter can replace or cover the target, including for world interactions.
-  if (!TouchTargetIsCurrent(context.target)) {
+  if (!TouchTargetIsCurrent(action.target)) {
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
-        "Touch action cancelled: frame=" + context.target.frame_name +
+        "Touch action cancelled: frame=" + action.target.frame_name +
         " button=" + std::to_string(button) + " source=" + source +
         " reason=target-changed-during-hover");
     ClearTouchHover();
     return false;
   }
   bool handled = true;
-  if (context.world_action) {
+  if (action.world_action) {
     SecureExecution::SecureScope hardware_input_scope(lua_);
     SecureExecution::HardwareActionGrantScope hardware_action_grant;
-    context.world_action(button);
+    action.world_action(button);
   } else {
-    handled = HandlePointerDownByFlag(context.target.x, context.target.y, button, true);
+    handled = HandlePointerDownByFlag(action.target.x, action.target.y, button, true);
     if (const auto* capture = FindCapture(button); capture != nullptr && capture->active) {
-      (void)HandlePointerUpByFlag(context.target.x, context.target.y, button, true);
+      (void)HandlePointerUpByFlag(action.target.x, action.target.y, button, true);
     }
   }
   ClearTouchHover();
@@ -1601,6 +1496,7 @@ bool FrameInputRouter::DispatchTouchAction(const TouchContext& context,
 FrameInputRouter::TouchTapMatch FrameInputRouter::BeginWorldTouchTap(
     float x, float y, std::uint32_t timestamp) {
   if (touch_capture_active_) return TouchTapMatch::kSingle;
+  if (touch_inspection_) ClearTouchHover();
   const TouchTarget target{.x = x, .y = y};
   const auto match = ResolvePendingTouchTap(target, true, timestamp);
   if (match == TouchTapMatch::kCancelled || !TouchTargetIsCurrent(target)) {
@@ -1621,7 +1517,6 @@ void FrameInputRouter::DismissWorldTouch() {
   world_touch_tap_.reset();
   if (touch_capture_active_) return;
   pending_touch_tap_.reset();
-  ClearTouchContext();
   ClearTouchHover();
 }
 
@@ -1637,26 +1532,27 @@ void FrameInputRouter::EndWorldTouchTap(float x, float y, std::uint32_t timestam
   // A separate UI contact may have completed while this world finger was down.
   // Finish that tap before accepting another one into the single pending slot.
   CommitPendingTouchTap("other-touch-release");
-  ClearTouchContext();
+  touch_inspection_.reset();
   TouchTarget target{.x = x, .y = y};
   if (!TouchTargetIsCurrent(gesture->target) || !TouchTargetIsCurrent(target)) {
     ClearTouchHover();
     return;
   }
-  TouchContext context{.target = target, .world_action = std::move(action)};
   if (held_ms >= kTouchInspectMilliseconds) {
-    touch_context_ = std::move(context);
+    touch_inspection_ = target;
     PublishTouchHover(x, y);
-    if (touch_context_) PresentTouchContext();
-  } else if (gesture->double_tap) {
+    return;
+  }
+  TouchAction touch_action{.target = target, .world_action = std::move(action)};
+  if (gesture->double_tap) {
     if (held_ms <= kTouchDoubleTapMilliseconds) {
-      (void)DispatchTouchAction(context, 4u, "double-tap");
+      (void)DispatchTouchAction(touch_action, 4u, "double-tap");
     } else {
       ClearTouchHover();
     }
   } else {
     pending_touch_tap_ = PendingTouchTap{
-        .context = std::move(context),
+        .action = std::move(touch_action),
         .released_at_ms = timestamp,
         .pixels_per_point_x = std::max(1.0F, pixels_per_point_x),
         .pixels_per_point_y = std::max(1.0F, pixels_per_point_y)};
@@ -1791,7 +1687,6 @@ void FrameInputRouter::CancelTouch() {
     }
   }
   if (had_contact) CancelPointerCapture(1u);
-  ClearTouchContext();
   ClearTouchHover();
 }
 
@@ -1799,7 +1694,7 @@ bool FrameInputRouter::HandleMouseWheel(float x, float y, float delta) {
   if (lua_ == nullptr) {
     return false;
   }
-  if (pending_touch_tap_ || world_touch_tap_) CancelTouch();
+  if (pending_touch_tap_ || world_touch_tap_ || touch_inspection_) CancelTouch();
   layout_.SolveIfDirty();
   RebuildTraversalIfDirty();
   const lua_Integer normalized_delta = delta >= 0.0F ? 1 : -1;
@@ -2192,8 +2087,8 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
   }
   if ((touch_gesture_ && unavailable(touch_gesture_->target,
                                     touch_gesture_->phase != TouchPhase::kScroll)) ||
-      (touch_context_ && unavailable(touch_context_->target, true)) ||
-      (pending_touch_tap_ && unavailable(pending_touch_tap_->context.target, true))) {
+      (touch_inspection_ && unavailable(*touch_inspection_, true)) ||
+      (pending_touch_tap_ && unavailable(pending_touch_tap_->action.target, true))) {
     CancelTouch();
   }
   for (auto &capture : mouse_button_captures_) {
@@ -2227,8 +2122,8 @@ void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
     CancelTouchMovement("control-released");
   }
   if ((touch_gesture_ && touch_gesture_->target.lua_ref == lua_ref) ||
-      (touch_context_ && touch_context_->target.lua_ref == lua_ref) ||
-      (pending_touch_tap_ && pending_touch_tap_->context.target.lua_ref == lua_ref)) {
+      (touch_inspection_ && touch_inspection_->lua_ref == lua_ref) ||
+      (pending_touch_tap_ && pending_touch_tap_->action.target.lua_ref == lua_ref)) {
     CancelTouch();
   }
   pending_edit_box_update_refs_.erase(lua_ref);

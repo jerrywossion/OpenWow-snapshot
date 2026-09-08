@@ -12,7 +12,7 @@ desktop client.
 | --- | --- | --- |
 | FrameXML button or hyperlink | Short tap | Original left-button down/up; wait 260 ms after release only when a secondary action is supported |
 | FrameXML button or hyperlink supporting right click | One-finger double tap on the same target | One right-button down/up on the second release; no preceding left click |
-| FrameXML button or hyperlink | Hold for 475 ms without moving | Hover/tooltip only; release leaves a small Click / Right click / Close toolbar |
+| FrameXML button or hyperlink | Hold for 475 ms without moving | Hover/tooltip only; release keeps the tooltip until the next contact or cancellation |
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
 | UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
@@ -20,7 +20,7 @@ desktop client.
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action after the 260 ms double-tap window |
 | World exposed outside UI controls | One-finger double tap in the same location | Direct right-click interaction on the second release |
-| World exposed outside UI controls | Hold for 475 ms, then release | Keep the world hover and show the same explicit-action toolbar |
+| World exposed outside UI controls | Hold for 475 ms, then release | Keep the world hover/tooltip until the next contact or cancellation, without interacting |
 | Utility drawer | Tap Zoom in / Zoom out | Adjust camera distance; simultaneous world touches do not zoom |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
 | Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and movement control; hiding releases held movement |
@@ -106,18 +106,16 @@ cancels the tap or scrolls an eligible UI; it does not rearrange action bars acc
 Continuous native controls (sliders, edit boxes, title regions, model views
 and color pickers) keep their immediate pointer path.
 
-After a hold is released, the contextual toolbar still offers explicit primary
-and secondary clicks as a one-finger alternative. Right click is disabled when
-the frame has neither a registered right-click phase nor an applicable
-pointer/hyperlink handler. It does not guess labels such as Equip, Sell or Cast
-from the current page: those actions continue to be decided by the original scripts. Clicking outside the
-toolbar dismisses it and consumes that contact; Close also leaves without
-executing an action. The toolbar works with the combat HUD hidden and stays
-inside the shared safe area. Mobile action icons now supply normal action
-tooltips too.
+After a hold is released, the tooltip remains visible without an action panel.
+Inspection retains only the hovered target, with no pending click or world
+action. The next contact clears that hover and begins its own normal gesture;
+it is not consumed solely to dismiss the tooltip. A short tap performs the
+primary action and a double tap performs the supported secondary action.
+Inspection works with the combat HUD hidden. Mobile action icons supply their
+normal action tooltips too.
 
-For a drag, keep the inspecting finger down and move it; do not release into
-the toolbar first. Only frames with a registered left drag and an
+For a drag, keep the inspecting finger down and move it before releasing.
+Only frames with a registered left drag and an
 `OnDragStart` handler enter this path. The router publishes actual drawable
 cursor coordinates and the left-button input context before invoking the
 existing drag handlers. Original action-bar locking, pickup restrictions,
@@ -127,14 +125,12 @@ drag without delivering `OnReceiveDrag` to an accidental destination.
 
 The input router owns the pending gesture and inspected target. UI update and
 incoming touch events advance gesture recognition; draw publication does not
-advance a gesture. Hover itself supplies no protected-action grant. Toolbar
-activation finishes its own pointer-up capture before dispatching a separate click to the
-inspected target, avoiding reentrant capture replacement. Frame identity,
+advance a gesture. Hover itself supplies no protected-action grant. Frame identity,
 visibility, hit ownership and hyperlink identity are checked again before
 dispatch, so an expired or covered UI target is not replaced by whatever is
 now underneath it. World inspection follows the live pointer position, as
 desktop world hover does. Focus loss, rotation and UI teardown clear inspection
-and the toolbar; an actual mouse movement takes over from touch inspection.
+and its tooltip; an actual mouse movement takes over from touch inspection.
 
 ## Mobile HUD
 
@@ -370,11 +366,11 @@ not establish device visual, interaction or comfort acceptance.
    or ground-target confirmation. Pinching must never produce a right click.
    Reload/background between taps and during the second touch: releasing the
    old contact must not trigger an action in the resumed/reloaded UI.
-   Hold an interactable in any exposed world area, then release: no action
-   should occur until Right click/右键 is tapped in the toolbar. Verify the
-   normal NPC/object interaction, then repeat with Close/关闭 and outside
-   dismissal. Camera drag must not open that toolbar; an ignored extra finger must not
-   produce a second action.
+   Hold an interactable in any exposed world area, then release: its normal
+   tooltip should remain without an action panel or interaction. Double tap
+   the object afterwards to verify normal NPC/object interaction. A new
+   contact in the movement area must immediately relocate the stick and clear
+   the tooltip. An ignored extra finger must not produce a second action.
    Find a quest gathering object that cannot become the selected target. Stand
    within use range, clear the target and double tap the object itself; expect
    its normal use/loot/cast response and the corresponding quest progress after
@@ -416,10 +412,14 @@ not establish device visual, interaction or comfort acceptance.
    Repeat the drag/reload check with a custom UI scale enabled.
    On iPad, confirm that zero side insets do not create artificial side gaps.
 10. Hold an inventory item, a spell/action button, a unit frame and a chat
-    hyperlink. Inspect their normal tooltip without activating them; after
-    release, check explicit left/right actions and both dismissal paths.
-    Include a button registered for `LeftButtonDown`: only a short tap or an
-    explicit toolbar click may trigger it. Repeat with the combat HUD hidden.
+    hyperlink. Inspect their normal tooltip without activating them; release
+    must keep the tooltip with no Click / Right click panel. The first new
+    tap must act normally, including on a different control, without requiring
+    an extra dismissal tap. Include a button registered for `LeftButtonDown`:
+    only a short tap may trigger its left action. Repeat with the combat HUD hidden.
+    At a quest reward choice, hold a reward icon/name, release, then tap a
+    choice: the tooltip should close and the selection highlight should update
+    on that first tap. Release after inspection alone must never select a reward.
     Double tap the same targets and check their original right-click behavior
     exactly once, never a preliminary `LeftButtonDown`. Single tap and wait:
     expect one left click, with no repeat on later updates. Tap neighboring
@@ -441,9 +441,9 @@ not establish device visual, interaction or comfort acceptance.
 12. Swipe a scrollable list/chat view; drag a slider, text selection, title
     region and model control. Check hit/cursor alignment at device scale,
     including during simultaneous movement with the other finger. Hide or
-    replace the inspected frame before toolbar activation: it must cancel
-    rather than click the newly exposed control. Reload/background while a
-    tooltip or toolbar is pinned and verify it is cleared.
+    replace the inspected frame: inspection must end without activating a
+    newly exposed control. Reload/background while a tooltip is pinned and
+    verify it is cleared.
 13. In the original video settings, enable UI scaling and exercise 0.64, 0.80
     and 1.00 before trying 1.20 and 1.50. Apply each value, reopen the settings,
     then change it and Cancel: the previous applied scale must return, including
@@ -497,10 +497,10 @@ For scaling failures, also report `GetCVar("useUiScale")` and
 plus whether the issue occurred in login or world settings. Include the first
 FrameXML/Lua error and `HUD viewport safe insets` entries from that interval.
 For double-tap/inspection/drag failures also include `Touch action`,
-`source=double-tap`, `source=single-tap-timeout`, `Touch context`, `Touch drag`,
+`source=double-tap`, `source=single-tap-timeout`, `Touch drag`,
 `Touch scroll`, and the first originating FrameXML/Lua error. Record whether
 the failure occurred on the first/second tap or release, at the single-tap
-timeout, before the hold, during inspection, on toolbar activation, at drag
+timeout, before the hold, during inspection, on the next contact, at drag
 start, on drop or on cancellation.
 Device overlap, finger comfort, multi-touch timing and reload/resume behavior
 remain user acceptance items until confirmed on this build.

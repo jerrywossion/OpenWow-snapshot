@@ -163,14 +163,13 @@ private:
     std::optional<TouchTarget> scroll_target;
   };
 
-  struct TouchContext {
+  struct TouchAction {
     TouchTarget target;
-    std::string presentation_frame;
     std::function<void(std::uint32_t)> world_action;
   };
 
   struct PendingTouchTap {
-    TouchContext context;
+    TouchAction action;
     std::uint32_t released_at_ms{};
     float pixels_per_point_x{1.0F};
     float pixels_per_point_y{1.0F};
@@ -195,10 +194,7 @@ private:
   void SetTouchCursorPosition(float x, float y);
   void PublishTouchHover(float x, float y);
   void ClearTouchHover();
-  void ClearTouchContext();
-  void PresentTouchContext();
-  void DispatchTouchContextAction();
-  bool DispatchTouchAction(const TouchContext& context, std::uint32_t button,
+  bool DispatchTouchAction(const TouchAction& action, std::uint32_t button,
                            const char* source);
   bool BeginTouchDrag();
 
@@ -259,11 +255,10 @@ private:
   bool application_active_{true};
   bool touch_capture_active_{false};
   std::optional<TouchGesture> touch_gesture_;
-  std::optional<TouchContext> touch_context_;
+  std::optional<TouchTarget> touch_inspection_;
   std::optional<PendingTouchTap> pending_touch_tap_;
   std::optional<WorldTouchTap> world_touch_tap_;
   std::optional<TouchMovementCapture> touch_movement_;
-  std::optional<std::uint32_t> pending_touch_context_action_;
   bool touch_pointer_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;
 };
