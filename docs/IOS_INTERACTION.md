@@ -297,6 +297,14 @@ preserves it across UI reloads and client restarts. Invalid, non-finite and
 out-of-range inputs are rejected with a console message and a diagnostic;
 invalid saved values are reconciled to the platform default at registration.
 
+Entering the background also snapshots account and character CVars into their
+existing `config-cache.wtf` files before suspension, without requiring logout
+or a live server connection. This includes `autoLootDefault`, whose account
+scope excludes it from the device's `Config.wtf`. The existing account-data
+sync metadata preserves the normal upload and restore path. Background-save
+failures are logged as `Runtime configuration` with the phase and reason;
+device CVars are still saved independently when an account-cache write fails.
+
 Use Menu / 功能 → Graphics / 画质 on the mobile HUD, or enter
 `/console renderScale 0.75` in chat. Values from `0.5` through `1.0` are accepted;
 `/run print(GetCVar("renderScale"))` reads the setting. Only world scene targets
@@ -448,6 +456,15 @@ not establish device visual, interaction or comfort acceptance.
     mobile controls must keep their device-point size. Repeat the 0.64–1
     checks on desktop, whose slider remains unchanged. Scaling, panel fit and
     apply/cancel behavior remain device acceptance items until confirmed.
+
+For configuration persistence, enable auto-loot in the stock interface options,
+apply the change and enter the background without logging out. Terminate the
+backgrounded app, launch the updated build and enter the same character: the
+checkbox and actual auto-loot behavior must remain enabled. Repeat with it
+disabled, with a changed world render scale, and with the connection unavailable
+before backgrounding. Include both sessions and the interval containing
+`Application entered background`, `Runtime configuration`, `AccountData` and
+`CVarSystem` when reporting a reset or save failure.
 
 The log records `iOS internal mobile interaction layer loaded` after the
 internal TOC succeeds. A missing or invalid mobile layer is a world-UI startup

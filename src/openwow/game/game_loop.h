@@ -110,6 +110,8 @@ class GameLoop : private openwow::render::api::RendererDeviceLifecycleObserver {
 
   void Shutdown();
 
+  [[nodiscard]] bool PersistRuntimeConfiguration();
+
   void EnterWorld(std::uint32_t map_id, float x, float y, float z,
                   float orientation, const std::string& map_name = {});
   void PrepareWorldEntry(std::uint32_t map_id, float x, float y, float z,

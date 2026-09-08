@@ -2400,6 +2400,31 @@ void GameLoop::PrepareWorldUiForPlayerLogout(const openwow::ui::game::WorldUiSto
   }
 }
 
+bool GameLoop::PersistRuntimeConfiguration() {
+  if (!IsInWorld() || !game_ui_.is_initialized()) {
+    return true;
+  }
+  auto &account_data = AccountData::Get();
+  if (!account_data.HasBoundPersistenceIdentity()) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+        "Runtime configuration: stage=background-save source=application-lifecycle "
+        "reason=active-world-persistence-identity-unavailable");
+    return false;
+  }
+
+  // Suspension does not run logout. Snapshot both CVar scopes through their
+  // normal account-data owner; local persistence must not wait for a socket.
+  SyncRuntimeConfigAccountData(&world_scene_.camera());
+  const bool saved = account_data.FlushBoundPersistence();
+  openwow::diagnostics::Log(
+      saved ? openwow::diagnostics::LogLevel::kInfo : openwow::diagnostics::LogLevel::kError,
+      saved ? "Runtime configuration: stage=background-save source=application-lifecycle "
+              "scopes=account,character result=committed"
+            : "Runtime configuration: stage=background-save source=application-lifecycle "
+              "scopes=account,character reason=local-commit-failed");
+  return saved;
+}
+
 void GameLoop::PersistWorldUiState(const openwow::ui::game::WorldUiStopReason reason) {
   QuestLog::Get().SaveTrackedQuestsToCVar();
   if (game_ui_.is_initialized()) {

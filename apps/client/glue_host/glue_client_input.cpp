@@ -297,6 +297,7 @@ void GlueClient::ApplyApplicationActiveChange(const bool active) {
       openwow::diagnostics::LogLevel::kInfo,
       active ? "Application entered foreground" : "Application entered background");
   if (!active) {
+    (void)game_loop_.PersistRuntimeConfiguration();
     (void)openwow::core::ida::CVar_FlushToFile();
 #if defined(OPENWOW_PLATFORM_IOS)
     texture_manager_.ClearCache();
