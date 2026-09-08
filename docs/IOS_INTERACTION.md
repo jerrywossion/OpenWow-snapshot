@@ -341,7 +341,9 @@ not establish device visual, interaction or comfort acceptance.
    or drag controls; no duplicate click should occur.
 2. With the HUD visible, touch several exposed locations in the left movement
    area: the stick must move to the touch and remain idle until dragged away
-   from its new center. Drag diagonally, reverse and return to center; release
+   from its new center. Release a stationary touch and wait several frames;
+   the stick must stay at that position until another touch or a viewport change.
+   Drag diagonally, reverse and return to center; release
    inside/outside the stick must stop movement without a world click. Cover
    the activation area with a UI window and verify that UI receives input.
    A second movement finger must not steal the stick. Hide the HUD and verify
@@ -350,6 +352,8 @@ not establish device visual, interaction or comfort acceptance.
    arrival orders. Pinch two world fingers: camera distance must remain fixed.
    Open the utility drawer and tap Zoom in / Zoom out repeatedly; only those
    buttons change camera distance, and the drawer remains open.
+   Check the smaller combat buttons and tighter utility grid for readable
+   labels and distinct touch targets, including the graphics drawer.
 4. Tap a world unit and confirm a ground-target spell with a short world tap.
    Double tap an NPC/object, including lower-left world with the HUD hidden: expect right-click
    interaction on the second release, with no toolbar or preliminary left-click

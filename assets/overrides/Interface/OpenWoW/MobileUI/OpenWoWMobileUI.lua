@@ -595,6 +595,17 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
             logicalHeight <= 0 or drawableWidth <= 0 or drawableHeight <= 0 then
         error("OpenWoWMobile_ApplyMetrics: invalid drawable or logical viewport")
     end
+    local u = GetScreenHeight() / logicalHeight
+    local rootWidth, rootHeight = UIParent:GetWidth(), UIParent:GetHeight()
+    -- The host republishes metrics every frame. Only a viewport or UI-scale
+    -- change may rebuild the layout and reset the floating stick's origin.
+    if state.drawableWidth == drawableWidth and state.drawableHeight == drawableHeight and
+            state.logicalWidth == logicalWidth and state.logicalHeight == logicalHeight and
+            state.unitsPerPoint == u and state.safeBounds and
+            state.safeBounds.right == rootWidth - 14 * u and
+            state.safeBounds.top == rootHeight - 14 * u then
+        return
+    end
     state.drawableWidth = drawableWidth
     state.drawableHeight = drawableHeight
     state.logicalWidth = logicalWidth
@@ -602,24 +613,25 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
 
     -- UIParent is already inset by the native layout viewport. Size controls
     -- in device points using the full screen, then anchor inside that root.
-    local u = GetScreenHeight() / logicalHeight
     state.unitsPerPoint = u
     state.safeBounds = {
         left = 14 * u,
-        right = UIParent:GetWidth() - 14 * u,
+        right = rootWidth - 14 * u,
         bottom = 14 * u,
-        top = UIParent:GetHeight() - 14 * u,
+        top = rootHeight - 14 * u,
     }
 
+    local controlScale = 0.85
     actionCluster:ClearAllPoints()
-    actionCluster:SetSize(316 * u, 236 * u)
+    actionCluster:SetSize(316 * controlScale * u, 236 * controlScale * u)
     actionCluster:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT",
                            -14 * u, 14 * u)
 
     local function PlaceControl(button, x, y, size)
-        SizeButton(button, size, u)
+        SizeButton(button, size * controlScale, u)
         button:ClearAllPoints()
-        button:SetPoint("CENTER", actionCluster, "BOTTOMRIGHT", -x * u, y * u)
+        button:SetPoint("CENTER", actionCluster, "BOTTOMRIGHT",
+                        -x * controlScale * u, y * controlScale * u)
     end
     for index, position in ipairs(actionLayout) do
         PlaceControl(state.actionButtons[index], unpack(position))
@@ -632,8 +644,8 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     PlaceControl(drawerButton, 290, 72, 52)
 
     -- The drawer replaces the combat fan instead of adding another overlay.
-    local utilitySize = 64 * u
-    local utilityGap = 8 * u
+    local utilitySize = 54 * u
+    local utilityGap = 6 * u
     utilityPanel:ClearAllPoints()
     local utilityRows = math.ceil(#utilityButtons / 3)
     utilityPanel:SetSize(3 * utilitySize + 4 * utilityGap,
@@ -642,7 +654,7 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     for index, button in ipairs(utilityButtons) do
         local column = math.mod(index - 1, 3)
         local row = math.floor((index - 1) / 3)
-        SizeButton(button, 64, u)
+        SizeButton(button, 54, u)
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", utilityPanel, "TOPLEFT",
                         utilityGap + column * (utilitySize + utilityGap),
@@ -656,23 +668,23 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
         text:SetFont(font, size * u, flags)
         text:ClearAllPoints()
         text:SetPoint("TOP", graphicsPanel, "TOP", 0, -y * u)
-        text:SetWidth(200 * u)
+        text:SetWidth(170 * u)
     end
     PlaceGraphicsText(renderScaleTitle, 12, 14)
     PlaceGraphicsText(renderScaleValue, 42, 12)
     PlaceGraphicsText(renderScaleHint, 130, 11)
     renderScaleSlider:ClearAllPoints()
-    renderScaleSlider:SetSize(192 * u, 48 * u)
+    renderScaleSlider:SetSize(162 * u, 48 * u)
     renderScaleSlider:SetPoint("TOP", graphicsPanel, "TOP", 0, -70 * u)
     renderScaleSlider:GetThumbTexture():SetSize(32 * u, 48 * u)
     renderScaleTrack:ClearAllPoints()
     renderScaleTrack:SetPoint("CENTER", renderScaleSlider, "CENTER", 0, 0)
-    renderScaleTrack:SetSize(192 * u, 6 * u)
+    renderScaleTrack:SetSize(162 * u, 6 * u)
     for index, button in ipairs(renderScalePresets) do
-        SizeButton(button, 56, u)
+        SizeButton(button, 48, u)
         button:ClearAllPoints()
         button:SetPoint("BOTTOMLEFT", graphicsPanel, "BOTTOMLEFT",
-                        (16 + (index - 1) * 68) * u, 10 * u)
+                        (12 + (index - 1) * 57) * u, 10 * u)
         button.label:ClearAllPoints()
         button.label:SetPoint("CENTER", button, "CENTER", 0, 0)
     end
