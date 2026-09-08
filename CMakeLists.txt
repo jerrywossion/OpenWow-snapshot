@@ -11,6 +11,9 @@ project(OpenWoW VERSION 0.1.2 LANGUAGES C CXX)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
   enable_language(OBJCXX)
+  # Archive only the application; its static-library dependencies stay linked
+  # into the bundle rather than becoming additional top-level products.
+  set(CMAKE_XCODE_ATTRIBUTE_SKIP_INSTALL "YES")
 endif()
 
 add_custom_target(openwow-compatibility-audit

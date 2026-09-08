@@ -199,9 +199,58 @@ The initial iOS configure cross-builds the dependency graph and can take as
 long as the first desktop configure. The self-contained standard build copies
 roughly the full size of the original `Data/` directory into the `.app`; use it
 for standalone packaging and the signed development preset for daily work.
-Because the content uses user-supplied original game assets and is very large,
-this workflow targets personal/development deployment, not App Store
-distribution.
+The self-contained build includes the user's original game assets. For
+TestFlight program updates, use `ios-device-development`, which leaves that
+large Data tree in the existing application data container.
+
+**Archive for Internal TestFlight**
+
+Regenerate the signed device project before archiving:
+
+```sh
+cmake --preset ios-device-development
+```
+
+If multiple Xcode versions are installed, set `DEVELOPER_DIR` to the intended
+Xcode's `Contents/Developer` directory before both configuration and archiving.
+Use the same version as the Xcode GUI. A listed iPhoneOS SDK alone does not
+guarantee that version has the platform components required to select an
+archive destination.
+
+Open `build/ios-device-development/OpenWoW.xcodeproj` in Xcode, select the
+`openwow-client` scheme and the **Any iOS Device (arm64)** destination, then
+choose **Product → Archive**. Select the newly created archive in Organizer
+and choose **Distribute App → TestFlight Internal Only**. Xcode handles the
+distribution signing and upload using the selected development team's App
+Store Connect account. A local `.ipa` export is not required for this route.
+App Store Connect must have an app record for the bundle identifier, and each
+uploaded build needs a new build number; Xcode's distribution flow can manage
+that number. Uploading is a separate action from creating the archive.
+
+The equivalent local archive command, without uploading or installing, is:
+
+```sh
+xcodebuild -project build/ios-device-development/OpenWoW.xcodeproj \
+  -scheme openwow-client -configuration Release \
+  -destination 'generic/platform=iOS' -jobs 4 \
+  -archivePath "$PWD/build/ios-device-development/OpenWoW.xcarchive" archive
+```
+
+The archive must contain `Products/Applications/OpenWoW.app` and its top-level
+`Info.plist` must contain `ApplicationProperties` with an `ApplicationPath`
+of `Applications/OpenWoW.app`. The app target uses `SKIP_INSTALL=NO` and
+`INSTALL_PATH=$(LOCAL_APPS_DIR)`; dependencies use `SKIP_INSTALL=YES`. An empty
+installation path can leave the app in Xcode's `UninstalledProducts` directory
+and produce a generic archive without **Distribute App**. Re-archive after
+regenerating the project; old generic archives are not repaired automatically.
+See Apple's [generic archive troubleshooting](https://developer.apple.com/documentation/technotes/tn3110-resolving-generic-xcode-archive-issue)
+and [distribution workflow](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases).
+
+Keep the same bundle identifier and signing team when updating the existing
+phone installation, and install the TestFlight update over the app without
+uninstalling it first. The signed development preset does not embed or clear
+`Library/Application Support/OpenWoW/GameRoot/Data`; a fresh installation on a
+different device still needs its own Data import.
 
 Keyboard, mouse/trackpad and existing controller input paths remain available
 on iOS alongside native multi-touch world controls and the safe-area-aware
