@@ -9,6 +9,7 @@
 
 #include "openwow/foundation/text/ascii.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/game/actions/bindings/adapters/lua/binding_script_executor.h"
 #include "openwow/input/input_manager.h"
 #include "openwow/runtime/time/game_clock.h"
@@ -338,6 +339,29 @@ bool InvokeButtonClick(lua_State *state, int frame_ref, const char *button_name,
   if (lua_isfunction(state, -1) == 0) {
     lua_settop(state, top);
     return false;
+  }
+  if (openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+    const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(state);
+    const int frame_index = top + 1;
+    lua_pushliteral(state, "__ow_name");
+    lua_rawget(state, frame_index);
+    const std::string frame_name = lua_type(state, -1) == LUA_TSTRING
+                                       ? lua_tostring(state, -1) : "<anonymous>";
+    lua_pop(state, 1);
+    lua_pushliteral(state, "__ow_click_in_progress");
+    lua_rawget(state, frame_index);
+    const bool reentrant = lua_toboolean(state, -1) != 0;
+    lua_pop(state, 1);
+    lua_pushliteral(state, "__ow_script_OnClick");
+    lua_rawget(state, frame_index);
+    const std::string click_handler_type = lua_typename(state, lua_type(state, -1));
+    lua_pop(state, 1);
+    openwow::diagnostics::LogPerformanceEvent(
+        "ui.pointer_click", "frame=" + frame_name + " button=" + button_name +
+            " phase=" + (is_down ? "down" : "up") +
+            " modifiers=" + std::to_string(static_cast<unsigned>(SDL_GetModState())) +
+            " reentrant=" + (reentrant ? "1" : "0") +
+            " stored_handler=" + click_handler_type);
   }
   lua_pushvalue(state, -2);
   lua_pushstring(state, button_name);
@@ -1043,6 +1067,23 @@ bool FrameInputRouter::HandleTouchUp(float x, float y, std::uint32_t timestamp) 
   touch_capture_active_ = false;
   auto gesture = std::exchange(touch_gesture_, std::nullopt);
   if (!gesture) return true;
+  if (openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+    const char* phase = "cancelled";
+    switch (gesture->phase) {
+    case TouchPhase::kPending: phase = "pending"; break;
+    case TouchPhase::kDirect: phase = "direct"; break;
+    case TouchPhase::kInspect: phase = "inspect"; break;
+    case TouchPhase::kScroll: phase = "scroll"; break;
+    case TouchPhase::kDrag: phase = "drag"; break;
+    case TouchPhase::kCancelled: break;
+    }
+    openwow::diagnostics::LogPerformanceEvent(
+        "ui.touch_release", "frame=" + gesture->target.frame_name +
+            " phase=" + phase +
+            " duration_ms=" + std::to_string(timestamp - gesture->started_at_ms) +
+            " secondary=" + (gesture->can_secondary ? "1" : "0") +
+            " double_tap=" + (gesture->double_tap ? "1" : "0"));
+  }
   if (gesture->phase == TouchPhase::kInspect) {
     if (TouchTargetIsCurrent(gesture->target)) {
       // Keep only the hover after release. Inspection cannot store an action

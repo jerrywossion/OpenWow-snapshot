@@ -5,6 +5,7 @@
 #include "openwow/data/formats/dbc/dbc_structures.h"
 #include "openwow/debug/diagnostics/debug_console.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/game/gossip_manager.h"
 #include "openwow/game/actions/held_cursor/adapters/platform/cursor_surface.h"
 #include "openwow/game/group_system.h"
@@ -567,6 +568,10 @@ GetOrRequestQuestItemTemplate(::openwow::game::WorldSession *session,
             if (for_quest_log) {
               ScriptEventDispatch::Get().QueueGlobalEvent(events::QUEST_LOG_UPDATE);
             } else {
+              if (openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+                openwow::diagnostics::LogPerformanceEvent(
+                    "ui.quest_item_refresh", "item=" + std::to_string(item_id));
+              }
               ScriptEventDispatch::Get().FireEvent(events::QUEST_ITEM_UPDATE);
             }
           }});
@@ -2196,6 +2201,16 @@ int LuaGetQuestReward(lua_State *L) {
   auto *session = GetWorldSession(L);
   if (!session || !session->quests().has_active_reward() ||
       session->quests().is_dialog_action_pending() || !HasQuestFrameActivePlayer(*session)) {
+    const char* reason = !session ? "session-unavailable"
+        : !session->quests().has_active_reward() ? "reward-dialog-unavailable"
+        : session->quests().is_dialog_action_pending() ? "dialog-action-pending"
+        : "active-player-unavailable";
+    openwow::diagnostics::Log(
+        openwow::diagnostics::LogLevel::kInfo,
+        "quest reward selection stage=request-skipped quest=" +
+            std::to_string(session && session->quests().has_active_reward()
+                               ? session->quests().active_reward().quest_id : 0u) +
+            " reason=" + reason);
     return 0;
   }
 
@@ -2213,6 +2228,11 @@ int LuaGetQuestReward(lua_State *L) {
   const auto &r = session->quests().active_reward();
   const std::uint32_t reward_index =
       choice_index <= 0 ? 0u : static_cast<std::uint32_t>(choice_index);
+  openwow::diagnostics::Log(
+      openwow::diagnostics::LogLevel::kInfo,
+      "quest reward selection stage=request quest=" + std::to_string(r.quest_id) +
+          " choice=" + std::to_string(choice_count > 0 ? reward_index + 1u : 0u) +
+          " choices=" + std::to_string(choice_count));
   session->quests().RecordPendingRewardSelection(r.quest_id, reward_index);
   TriggerQuestFrameProgressTutorial();
   session->interaction().SendQuestGiverChooseReward(r.npc_guid.GetRawValue(), r.quest_id,
@@ -3119,7 +3139,39 @@ int LuaIsUnitOnQuest(lua_State *L) {
 }
 
 int LuaQuestChooseRewardError(lua_State *L) {
-  (void)L;
+  auto* session = GetWorldSession(L);
+  std::string context = "quest reward selection stage=ui-rejected reason=no-choice quest=" +
+      std::to_string(session && session->quests().has_active_reward()
+                         ? session->quests().active_reward().quest_id : 0u);
+  {
+    // Retained fields only: diagnosing a rejection must not resolve layout,
+    // invoke getters or change the caller's Lua execution provenance.
+    const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(L);
+    const int top = lua_gettop(L);
+    lua_pushliteral(L, "QuestInfoFrame");
+    lua_rawget(L, LUA_GLOBALSINDEX);
+    if (lua_istable(L, -1)) {
+      for (const char* field : {"itemChoice", "chooseItems", "questLog"}) {
+        lua_pushstring(L, field);
+        lua_rawget(L, -2);
+        context += " ";
+        context += field;
+        context += "=";
+        if (lua_type(L, -1) == LUA_TNUMBER) {
+          context += std::to_string(lua_tonumber(L, -1));
+        } else if (lua_isboolean(L, -1)) {
+          context += lua_toboolean(L, -1) ? "true" : "false";
+        } else {
+          context += lua_typename(L, lua_type(L, -1));
+        }
+        lua_pop(L, 1);
+      }
+    } else {
+      context += " frame=missing";
+    }
+    lua_settop(L, top);
+  }
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn, context);
   DisplaySystemMessage(165);
   return 0;
 }

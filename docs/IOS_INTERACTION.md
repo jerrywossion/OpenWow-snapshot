@@ -509,6 +509,19 @@ the character class/level, quest name and item name or ID when reporting reward
 selection or tint failures; preserve the login-to-failure log span so the
 original proficiency updates remain available. These are permanent diagnostics.
 
+For an unresponsive reward choice, preserve the failure before running
+`/reload`: tap a reward, then tap Complete Quest once. With the existing iOS
+performance logging enabled, `ui.touch_release` records the recognized gesture
+and target, and `ui.pointer_click` records entry into the button's `Click`
+method, including the modifier mask and recursion guard. Neither entry alone
+proves that the Lua `OnClick` handler changed the selection. A subsequent
+`ui.quest_item_refresh` identifies a query-driven reward refresh, which the
+stock UI uses to clear its selection. `quest reward selection` records the
+missing-choice error's retained `itemChoice`/`chooseItems`/`questLog` fields or
+the accepted one-based choice at the outgoing-request boundary; a request is
+not server confirmation. These diagnostics do not invoke Lua getters, force
+layout or change reward behavior, and remain part of the maintained logging.
+
 For a failed device check, return `logs/openwow-client.log` from the resolved
 iOS user-data root, covering the latest `log-start`/`Client startup` through the
 failure, together with the device, orientation, HUD visibility/layer and steps.
