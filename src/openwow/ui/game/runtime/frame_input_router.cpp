@@ -206,6 +206,16 @@ bool FrameIsWorldFrame(const openwow::ui::framexml::UiFrame &frame) {
   return openwow::text::EqualsIgnoreCaseAscii(frame.kind, "WorldFrame");
 }
 
+void LogInputMethodFailure(lua_State *state, int frame_index, const char *method_name) {
+  const char *error = lua_tostring(state, -1);
+  const std::string reason = error != nullptr ? error : "non-string Lua error";
+  const char *frame = frame_api::GetFrameRuntimeKeyOrName(state, frame_index);
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+      "Frame input method failed source=pointer frame=" +
+          std::string(frame != nullptr ? frame : "<unnamed>") +
+          " method=" + method_name + " reason=" + reason);
+}
+
 bool InvokeNumberMethod(lua_State *state, int frame_ref, const char *method_name,
                         double argument) {
   const int top = lua_gettop(state);
@@ -223,10 +233,11 @@ bool InvokeNumberMethod(lua_State *state, int frame_ref, const char *method_name
   lua_pushnumber(state, argument);
   const int status = ProfiledPCall(state, 2, 0, 0);
   if (status != LUA_OK) {
+    LogInputMethodFailure(state, top + 1, method_name);
     lua_pop(state, 1);
   }
   lua_settop(state, top);
-  return true;
+  return status == LUA_OK;
 }
 
 struct ButtonVisualState {
@@ -334,10 +345,11 @@ bool InvokeButtonClick(lua_State *state, int frame_ref, const char *button_name,
 
   const int status = ProfiledPCall(state, 3, 0, 0);
   if (status != LUA_OK) {
+    LogInputMethodFailure(state, top + 1, "Click");
     lua_pop(state, 1);
   }
   lua_settop(state, top);
-  return true;
+  return status == LUA_OK;
 }
 
 void ToggleCheckButton(lua_State *state, int frame_ref) {

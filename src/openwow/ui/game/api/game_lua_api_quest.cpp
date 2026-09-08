@@ -537,9 +537,10 @@ GetQuestPreviewItem(const openwow::game::WorldSession *session, std::string_view
   return slot.item;
 }
 
-const ::openwow::game::ItemTemplate *
-GetOrRequestQuestPreviewItemTemplate(::openwow::game::WorldSession *session,
-                                     const std::uint32_t item_id) {
+static const ::openwow::game::ItemTemplate *
+GetOrRequestQuestItemTemplate(::openwow::game::WorldSession *session,
+                              const std::uint32_t item_id,
+                              const bool for_quest_log) {
   if (session == nullptr || item_id == 0) {
     return nullptr;
   }
@@ -549,16 +550,32 @@ GetOrRequestQuestPreviewItemTemplate(::openwow::game::WorldSession *session,
       item_id,
       ::openwow::game::QueryCache::QueryRequestOptions{
           .dedupe_callbacks = false,
-          .callback = [owner, session, item_id](const bool success) {
+          .callback = [owner, session, item_id, for_quest_log](const bool success) {
             if (owner.expired()) {
               return;
             }
             if (!success || session->query_cache().GetItemTemplate(item_id) == nullptr) {
+              openwow::diagnostics::Log(
+                  openwow::diagnostics::LogLevel::kWarn,
+                  "quest item display query failed source=" +
+                      std::string(for_quest_log ? "quest-log" : "quest-dialog") +
+                      " item=" + std::to_string(item_id) +
+                      " reason=" + (success ? "resolved-record-missing" : "query-failed"));
               return;
             }
 
-            ScriptEventDispatch::Get().FireEvent(events::QUEST_ITEM_UPDATE);
+            if (for_quest_log) {
+              ScriptEventDispatch::Get().QueueGlobalEvent(events::QUEST_LOG_UPDATE);
+            } else {
+              ScriptEventDispatch::Get().FireEvent(events::QUEST_ITEM_UPDATE);
+            }
           }});
+}
+
+const ::openwow::game::ItemTemplate *
+GetOrRequestQuestPreviewItemTemplate(::openwow::game::WorldSession *session,
+                                     const std::uint32_t item_id) {
+  return GetOrRequestQuestItemTemplate(session, item_id, false);
 }
 
 static std::string BuildQuestItemLink(openwow::game::WorldSession &session, std::uint32_t item_id) {
@@ -2753,8 +2770,8 @@ static int PushQuestLogItemInfoFromTemplate(lua_State *L,
     return PushEmptyQuestLogRewardInfo(L);
   }
 
-  const auto *item_template = session->query_cache().GetOrRequestItemTemplate(reward.item_id);
-  if (item_template == nullptr || item_template->name.empty()) {
+  const auto *item_template = GetOrRequestQuestItemTemplate(session, reward.item_id, true);
+  if (item_template == nullptr) {
     return PushEmptyQuestLogRewardInfo(L);
   }
 
@@ -2763,8 +2780,9 @@ static int PushQuestLogItemInfoFromTemplate(lua_State *L,
   lua_pushstring(L, texture_path.c_str());
   lua_pushnumber(L, static_cast<lua_Number>(reward.count));
   lua_pushnumber(
-      L, static_cast<lua_Number>(
-             static_cast<std::uint8_t>(item_template->quality)));
+      L, item_template->inventory_type != ::openwow::game::InventoryType::NonEquip
+             ? static_cast<lua_Number>(item_template->quality)
+             : -1.0);
   lua_pushwowbool(L, LocalPlayerCanUseQuestLogItem(*session, *item_template));
   return 5;
 }

@@ -487,6 +487,28 @@ present, identify outgoing object requests. For a gathering failure include
 the quest/object name, any use/range/skill error, whether loot or casting began,
 and whether the quest counter changed.
 
+For quest reward display checks, use the signed Release build containing the
+current source changes, build-12340 `zhCN` Data and the configured compatible
+realm. Compare a usable reward with one whose armor/weapon type the character
+cannot equip, in both the quest log and the NPC reward dialog. Wait for item
+queries to finish without reloading. The unusable icon/name background should
+turn red; inspecting it should mark the unsupported type or specific unmet
+requirement red, while keeping unrelated tooltip lines in their normal colors.
+Release inspection and tap a choice: its selection highlight should appear.
+Repeat after closing/reopening the panel and after UI reload, recording which
+transition changes the result. These checks require device confirmation.
+
+Quest-log item query completion queues `QUEST_LOG_UPDATE` after the record is
+readable. `quest item display query failed` identifies the item and log/dialog
+source when completion fails. `item proficiency updated` records each accepted
+server class/subclass mask replacement; `item proficiency update rejected`
+identifies malformed packets. Zero masks retain the normal no-gate semantics.
+`Frame input method failed` records failed pointer-driven `Click`/`SetValue`
+calls independently of the Lua error popup setting. Include these entries and
+the character class/level, quest name and item name or ID when reporting reward
+selection or tint failures; preserve the login-to-failure log span so the
+original proficiency updates remain available. These are permanent diagnostics.
+
 For a failed device check, return `logs/openwow-client.log` from the resolved
 iOS user-data root, covering the latest `log-start`/`Client startup` through the
 failure, together with the device, orientation, HUD visibility/layer and steps.
