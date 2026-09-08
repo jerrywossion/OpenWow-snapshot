@@ -203,6 +203,15 @@ The self-contained build includes the user's original game assets. For
 TestFlight program updates, use `ios-device-development`, which leaves that
 large Data tree in the existing application data container.
 
+The iOS app icon is compiled from `packaging/ios/Assets.xcassets`, with
+`AppIcon` selected as the app icon source. Xcode generates the device PNGs,
+the compiled `Assets.car` (including the App Store icon), and the icon entries
+merged into the final Info.plist, including `CFBundleIconName`. Keep those
+entries owned by the asset compiler rather than maintaining a separate manual
+icon list in `Info.plist.in`. The existing source image is 1024×1024 with no
+alpha channel; Xcode derives the required device sizes from it. See Apple's
+[asset catalog icon configuration](https://developer.apple.com/documentation/xcode/configuring-your-app-icon).
+
 **Archive for Internal TestFlight**
 
 Regenerate the signed device project before archiving:
