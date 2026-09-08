@@ -37,6 +37,7 @@ constexpr std::size_t kNpcInteractionCloseSoundSlot = 1;
 constexpr std::size_t kNpcInteractionGreetingSoundSlot = 0;
 constexpr std::uint32_t kNpcFlagTabardVendor = 0x00080000u;
 constexpr std::uint32_t kUnitFlagCannotInteract = 0x02000000u;
+constexpr std::uint32_t kUnitDynamicFlagDead = 0x00000020u;
 
 constexpr std::uint32_t kUnitFlag2AllowEnemyInteract = 0x00004000u;
 constexpr std::uint32_t kNpcFlagGossip = 0x00000001u;
@@ -72,26 +73,17 @@ void CloseMail(game::WorldSession& session) {
   }
 }
 
-const openwow::data::dbc::NPCSoundsEntry* ResolveNpcInteractionSounds(
-    const game::WorldSession& session, const game::CGUnit_C& unit) {
-  const auto* dbc = session.GetDbcLoader();
-  if (dbc == nullptr) {
-    return nullptr;
-  }
-
-  const auto* display =
-      dbc->creature_display_info().LookupEntry(unit.Presentation().CurrentDisplayId());
-  if (display == nullptr || display->sound_id == 0) {
-    return nullptr;
-  }
-
-  return dbc->npc_sounds().LookupEntry(display->sound_id);
-}
-
 void PlayNpcInteractionSound(game::WorldSession& session,
                              const game::CGUnit_C& unit,
                              const std::size_t sound_slot) {
-  const auto* sounds = ResolveNpcInteractionSounds(session, unit);
+  session.sound_runtime().ResetNpcVoiceSelection();
+  const auto* player = session.objects().GetActivePlayer();
+  if (player == nullptr || player->State().IsDead() || unit.State().IsDead() ||
+      (unit.State().GetDynamicFlags() & kUnitDynamicFlagDead) != 0u ||
+      unit.Sound().IsNpcVoicePlaying(unit)) {
+    return;
+  }
+  const auto* sounds = unit.Sound().ResolveNpcSounds(unit, "interaction");
   if (sounds == nullptr || sound_slot >= sounds->sound.size()) {
     return;
   }
@@ -101,10 +93,9 @@ void PlayNpcInteractionSound(game::WorldSession& session,
     return;
   }
 
-  const auto position = unit.GetPosition();
-  const float sound_position[3] = {position.x, position.y, position.z};
-  (void)session.sound_runtime().PlaySoundKit(
-      sound_kit_id, sound_position);
+  (void)unit.Sound().PlayNpcVoice(
+      unit, *sounds, sound_kit_id,
+      sound_slot == kNpcInteractionGreetingSoundSlot ? "greeting" : "farewell");
 }
 
 void ResetNpcInteractionAnimation(game::WorldSession& session,

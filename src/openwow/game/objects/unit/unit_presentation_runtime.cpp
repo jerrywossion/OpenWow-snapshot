@@ -1358,8 +1358,8 @@ void UnitPresentationRuntime::RefreshActiveDisplayRuntimeState() {
   owner_.Sound().SetActiveCreatureSoundDataId(
       rows.display == nullptr
           ? 0u
-          : rows.display->npc_sound_id != 0u
-                ? rows.display->npc_sound_id
+          : rows.display->sound_id != 0u
+                ? rows.display->sound_id
                 : (rows.model != nullptr ? rows.model->sound_id : 0u));
   collision_height_ = rows.model != nullptr ? rows.model->collision_height : 0.0f;
 

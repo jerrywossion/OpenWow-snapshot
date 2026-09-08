@@ -150,8 +150,9 @@ openwow_require_token_count("state-replacement/object-validation-replay"
 openwow_require_ordered_tokens("state-replacement/gossip"
   "src/openwow/game/gossip_manager.cpp"
   "GossipDialogData d"
+  "before_publish d npc_guid"
   "gossip_ std move d"
-  "interaction_guid_ gossip_ npc_guid")
+  "gossip_guid_ gossip_ npc_guid")
 openwow_require_ordered_tokens("state-replacement/loot"
   "src/openwow/game/session/loot_session.cpp"
   "DecodeLootResponse pkt payload data pkt payload size"
