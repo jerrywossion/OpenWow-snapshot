@@ -11,6 +11,7 @@
 #include "openwow/game/packet_reader.h"
 #include "openwow/game/quest_dialog_text.h"
 #include "openwow/game/quest_log.h"
+#include "openwow/game/localization.h"
 #include "openwow/game/quest_turnin_state.h"
 #include "openwow/game/world_session.h"
 #include "openwow/game/reputation_info.h"
@@ -882,6 +883,11 @@ bool QuestManager::HandleQuestGiverQuestDetails(const std::uint8_t *data, std::s
     return false;
   }
 
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+      "Quest text stage=dialog source=SMSG_QUESTGIVER_QUEST_DETAILS quest=" +
+          std::to_string(d.quest_id) + " locale=" + Localization::Get().GetLocaleName() +
+          " title=" + d.title);
+
   BeginDialogResponse();
   SetQuestFrameInteractionState(d.npc_guid, d.sharer_guid, d.quest_id);
   dialog_text_.title_text = NormalizeQuestFrameTitle(d.title);
@@ -948,6 +954,11 @@ bool QuestManager::HandleQuestGiverRequestItems(const std::uint8_t *data, std::s
   if (r.Remaining() != 0) {
     return false;
   }
+
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+      "Quest text stage=dialog source=SMSG_QUESTGIVER_REQUEST_ITEMS quest=" +
+          std::to_string(d.quest_id) + " locale=" + Localization::Get().GetLocaleName() +
+          " title=" + d.title);
 
   BeginDialogResponse();
   SetQuestFrameInteractionState(d.npc_guid, ObjectGuid(), d.quest_id);
@@ -1058,6 +1069,11 @@ bool QuestManager::HandleQuestGiverOfferReward(const std::uint8_t *data, std::si
   if (r.Remaining() != 0) {
     return false;
   }
+
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+      "Quest text stage=dialog source=SMSG_QUESTGIVER_OFFER_REWARD quest=" +
+          std::to_string(d.quest_id) + " locale=" + Localization::Get().GetLocaleName() +
+          " title=" + d.title);
 
   BeginDialogResponse();
   SetQuestFrameInteractionState(d.npc_guid, ObjectGuid(), d.quest_id);
