@@ -236,6 +236,13 @@ App Store Connect must have an app record for the bundle identifier, and each
 uploaded build needs a new build number; Xcode's distribution flow can manage
 that number. Uploading is a separate action from creating the archive.
 
+The iOS plist declares `ITSAppUsesNonExemptEncryption = false` for the
+client's authentication and game protocol encryption. This declares exempt
+encryption, rather than the absence of cryptography, and avoids repeating the
+export questionnaire for each build. See Apple's [plist key documentation](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption)
+and BIS's [authentication and entertainment exclusions](https://media.bis.gov/learn-support/encryption-controls/cryptography-for-data-confidentiality).
+Reassess this declaration if encryption beyond these uses is introduced.
+
 The equivalent local archive command, without uploading or installing, is:
 
 ```sh

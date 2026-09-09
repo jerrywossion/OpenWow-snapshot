@@ -24,6 +24,8 @@
   <true/>
   <key>LSRequiresIPhoneOS</key>
   <true/>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
   <key>NSLocalNetworkUsageDescription</key>
   <string>OpenWoW uses the local network to connect to a user-selected World of Warcraft server.</string>
   <key>UIApplicationSupportsIndirectInputEvents</key>
