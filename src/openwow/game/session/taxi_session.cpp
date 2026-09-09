@@ -289,16 +289,6 @@ void WorldSession::HandleTaxiNodeStatus(const net::wotlk::WorldPacket &pkt) {
 
   unit->SetOverlayModelIndexOverride(status.status == 0 ? kOverlayModelIndexTaxiEnable : 0);
   unit->UpdateOverlayModel();
-  openwow::diagnostics::Log(
-      openwow::diagnostics::LogLevel::kInfo,
-      "Taxi node status stage=server-state source=SMSG_TAXINODE_STATUS guid=" +
-          std::to_string(status.npc_guid) + " entry=" + std::to_string(unit->GetEntry()) +
-          " display=" + std::to_string(unit->Presentation().CurrentDisplayId()) +
-          " status=" + std::to_string(status.status) +
-          " quest_status=" +
-          std::to_string(static_cast<std::uint32_t>(unit->GetOverlayDisplayType())) +
-          " overlay=" + std::to_string(unit->GetActiveOverlayModelIndex()) +
-          " attached=" + std::to_string(unit->IsOverlayBoneAttached()));
 }
 
 }
