@@ -562,6 +562,14 @@ std::uint32_t InputManager::GetLastMessageTimestamp() const {
     return last_message_timestamp_ms_;
 }
 
+void InputManager::ProcessTouchInput() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!input_enabled_) return;
+    // Touch has its own routing and capture, but scripted camera commands
+    // consume the same game-clock timestamp as keyboard and mouse commands.
+    last_message_timestamp_ms_ = GetCurrentMessageTimestamp();
+}
+
 uint32_t InputManager::RegisterKeyCallback(uint32_t keyCode,
                                            std::function<void(bool down)> callback) {
     std::lock_guard<std::mutex> lock(mutex_);

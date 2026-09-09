@@ -940,6 +940,7 @@ void GlueClient::EndMobileCamera() {
 
 void GlueClient::HandleMobileFingerEvent(const SDL_TouchFingerEvent& event) {
   using mobile::TouchOwner;
+  openwow::input::InputManager::Get().ProcessTouchInput();
 
   if (event.type == SDL_FINGERDOWN) {
     auto* const contact = mobile_input_.BeginContact(event);

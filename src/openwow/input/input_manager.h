@@ -155,6 +155,7 @@ public:
     void ProcessMouseMove(int x, int y, int dx, int dy);
     void ProcessMouseWheel(float delta);
     void ProcessTextInput(char32_t ch);
+    void ProcessTouchInput();
 
     [[nodiscard]] std::pair<int, int> GetMousePosition() const;
     [[nodiscard]] uint32_t GetModifierBitmask() const;
