@@ -9,6 +9,7 @@
 #include "openwow/ui/game/script_event_dispatch.h"
 #include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/input/input_manager.h"
+#include "openwow/platform/window/window_manager.h"
 
 #include <algorithm>
 #include <array>
@@ -743,6 +744,9 @@ std::pair<int, int> CursorSurface::CursorTypeToHotspot(CursorType ) {
 }
 
 bool CursorSurface::WantsHardwareCursor() const {
+  if (openwow::platform::WindowManager::Get().HasVirtualCursorPosition()) {
+    return false;
+  }
   const auto& cvars = openwow::ui::game::CVarSystem::Instance();
   if (!cvars.Exists("gxCursor") || cvars.GetCVarBool("gxCursor")) {
     return true;
@@ -793,8 +797,18 @@ void CursorSurface::RenderOverlay(std::uint8_t view_id, float screen_w, float sc
     return;
   }
 
-  const auto [mouse_x, mouse_y] =
-      openwow::input::InputManager::Get().GetMousePosition();
+  auto position = openwow::input::InputManager::Get().GetMousePosition();
+  auto& window_manager = openwow::platform::WindowManager::Get();
+  if (window_manager.HasVirtualCursorPosition()) {
+    const auto virtual_position = window_manager.ResolveLogicalCursorPositionInDrawablePixels();
+    if (!virtual_position) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+          "Cursor rendering failed: source=virtual-mouse reason=position-unavailable");
+      return;
+    }
+    position = *virtual_position;
+  }
+  const auto [mouse_x, mouse_y] = position;
   if (mouse_x < 0 || mouse_y < 0 || static_cast<float>(mouse_x) >= screen_w ||
       static_cast<float>(mouse_y) >= screen_h) {
     return;

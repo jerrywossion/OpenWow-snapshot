@@ -16,7 +16,7 @@ desktop client.
 | Registered draggable frame | Hold for 475 ms, then move | Original left-button `OnDragStart`; release delivers `OnDragStop` and `OnReceiveDrag` |
 | Slider, edit box, title region, model or color picker | Touch and drag | Immediate native pointer interaction, including text selection and slider updates |
 | UI with a mouse-wheel owner | Vertical swipe before the hold threshold | Scroll through the original wheel handler |
-| Visible HUD, exposed left movement area | Touch to reposition the stick, then drag from that point | Forward/backward plus horizontal strafe, with a 20% axis dead zone; retains capture outside the control until release |
+| Visible stick, exposed left movement area | Touch to reposition the stick, then drag from that point | Forward/backward plus horizontal strafe, with a 20% axis dead zone; retains capture outside the control until release |
 | Empty world | Drag | Camera freelook |
 | Empty world | Tap | Select or confirm the current ground-target action after the 260 ms double-tap window |
 | World exposed outside UI controls | One-finger double tap in the same location | Direct right-click interaction on the second release |
@@ -24,16 +24,22 @@ desktop client.
 | Utility drawer | Tap Zoom in / Zoom out | Adjust camera distance; simultaneous world touches do not zoom |
 | Utility drawer | Tap Logs / 导出日志 | Prepare a copy of the client log and open the iOS system share sheet |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
-| Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and movement control; hiding releases held movement |
+| Touch launcher beside the minimap | Tap | Hides or restores the combat HUD and utility drawer; the stick and virtual mouse stay independent |
+| Utility drawer | Tap Hide stick / Show stick | Toggle the movement area and stick, saving the choice for subsequent launches |
+| Utility drawer | Tap Mouse / 虚拟鼠标 | Show the virtual mouse control; tap Mouse off / 关闭鼠标 to close it |
+| Virtual mouse lower pad | Drag | Move the PC cursor without pressing a mouse button |
+| Virtual mouse upper left/right button | Press, optionally drag, then release | Immediate PC left/right down, motion and up at the cursor, including window resizing and addon drag handlers |
 
-With the HUD visible, the left 40% of its safe area activates a floating stick.
+With the stick enabled, the left 40% of its safe area activates a floating stick.
 The HUD authors a background frame marked `__ow_touch_movement`, with
 `__ow_touch_movement_control` naming the visible stick whose resolved size
 sets the movement radius. The ordinary topmost hit preserves occluding UI,
 clipping and safe-area ownership. A touch relocates the stick center to its
 starting point; dragging beyond the 20% axis dead zone starts movement.
-The left activation area and stick disappear and release capture with the HUD.
-Hide the HUD when selecting or interacting with world objects in that area.
+The left activation area and stick stay active when the combat HUD is collapsed.
+Use Menu → Hide stick when selecting or interacting with world objects in that
+area. This separate switch releases held movement immediately and is persisted
+as `OpenWoWMobileMovementShown`; the default is visible.
 
 The movement capture is separate from the UI pointer, so skills, panels and
 camera gestures can use another finger in either arrival order. A second finger
@@ -42,11 +48,32 @@ world/camera role even if it subsequently crosses the stick. A movement finger
 keeps its role outside the stick until release; it never turns into a world click.
 Hiding the control or an ancestor, disabling its mouse input or releasing its
 Lua binding cancels movement immediately through the frame input lifecycle.
-Restoring the HUD does not recapture a finger still down from before hiding.
+Restoring the stick does not recapture a finger still down from before hiding.
 Application deactivation, focus loss, UI-mode changes and touch cancellation
 all release movement, camera and UI capture explicitly.
 
 ## Right click, inspect and drag
+
+For precise resizing or addons that start dragging directly in `OnMouseDown`,
+enable **Menu / 功能 → Mouse / 虚拟鼠标**. A 144-by-104-point rounded control sits
+below the cursor: left and right mouse buttons occupy the upper half, and the
+lower half moves the cursor. Dragging either upper button moves the cursor
+while holding that button; releasing ends the operation. Lift and touch the
+lower pad again to continue positioning over a long distance. The cursor uses
+the existing desktop cursor selection and textures, including item cursors.
+The panel stays inside the safe area and flips above the cursor near the bottom.
+It survives collapsing the combat HUD and fullscreen panels hiding `UIParent`.
+
+The virtual mouse starts off on login and `/reload`. One finger owns its pad or
+button until release; another can still use the movement stick. Other direct
+UI/world fingers are ignored during that indirect contact so they cannot steal
+the drag. Outside a virtual mouse contact, the existing direct gestures remain
+available. A physical mouse takes over and closes the virtual control.
+Control removal, backgrounding, focus loss, viewport changes and UI teardown
+cancel held buttons without a synthetic click or drop. The next press begins a
+new operation. `GetCursorPosition` and `IsMouseButtonDown` share the actual input
+state throughout a drag, including between motion events. No touch hold timer
+or double-tap recognition delays these explicit mouse buttons.
 
 One-finger double tapping is the direct secondary action for UI and world
 targets. Tap and release, then touch the same target again within 260 ms and
@@ -148,7 +175,7 @@ not load it.
 - Jump and interact sit near the right edge; enemy and friendly targeting sit
   along the outer edge of the fan. All four remain one tap away.
 - Character, spellbook, talents, quests, map, bags, chat and system panels live
-  in a lower-right utility drawer with 64-point targets. Opening it replaces
+  in a lower-right utility drawer with targets up to 54 points. Opening it replaces
   the combat fan, and the same menu button becomes Back. Selecting a panel
   closes the drawer. Its background absorbs touches between menu buttons.
 - Menu / 功能 → Graphics / 画质 opens the world-resolution control in the same
@@ -168,11 +195,10 @@ not load it.
   the combat fan. `OpenWoWMobileHUDShown` uses the normal account saved-variable
   lifecycle, including logout and UI reload.
 - A visible 118-point movement stick rests at the lower left, 32 points inside
-  the safe root. Its 54-point knob returns to center on release. Hiding the HUD
-  releases and disables this control; its former position becomes ordinary
-  UI/world input. Native FrameXML, camera, pinch and world taps remain available,
-  and an existing camera contact continues. Showing the HUD requires a fresh
-  press on the stick before movement can resume.
+  the safe root. Its 54-point knob returns to center on release. The separate
+  Hide stick menu switch releases and disables this control; its former position
+  becomes ordinary UI/world input. Collapsing the combat HUD preserves movement.
+  Re-enabling the stick requires a fresh press before movement can resume.
 - Interactive targets are at least 48 points, labels are 11 points, and action
   counts are 12 points. Layout and text scale from device points, including the
   current safe-area insets, in both landscape orientations. Chinese labels are
@@ -402,7 +428,7 @@ not establish device visual, interaction or comfort acceptance.
    Drag diagonally, reverse and return to center; release
    inside/outside the stick must stop movement without a world click. Cover
    the activation area with a UI window and verify that UI receives input.
-   A second movement finger must not steal the stick. Hide the HUD and verify
+   A second movement finger must not steal the stick. Use Menu → Hide stick and verify
    the same left-side locations select/interact with world objects again.
 3. Hold movement while dragging the camera and activating an action, in both
    arrival orders. Pinch two world fingers: camera distance must remain fixed.
@@ -437,16 +463,24 @@ not establish device visual, interaction or comfort acceptance.
    primary action to jump, the layer switch and the surrounding skills without
    triggering an adjacent button. Enemy/friendly targeting stays one tap away.
 6. Tap the minimap's Hide/收起 launcher while the combat fan is shown, then
-   repeat with the utility drawer open. All mobile visuals must disappear;
+   repeat with the utility drawer open. The combat fan and drawer must disappear;
    operate the exposed original action bars, bags and panels. Touch/触控 must
    restore the fan with current icons and cooldowns, with the drawer closed.
-   Repeat while another finger holds movement: hiding must stop it immediately;
-   showing again while that finger stays down must not restart movement or
-   make its release click the world. Drag over the former stick position while
-   hidden: expect camera motion, with no invisible movement zone. Repeat during
+   Repeat while another finger holds movement: collapsing the HUD must preserve
+   movement. Use Menu → Hide stick: movement must stop immediately; showing the
+   stick again while that finger stays down must not restart movement or make
+   its release click the world. Drag over the former stick position while
+   disabled: expect camera motion, with no invisible movement zone. Repeat during
    camera drag: that camera contact must continue. Reload while holding the
    stick: the old finger must stop and stay inactive through its release.
-   Log out/re-enter and reload UI to check the saved visibility choice.
+   Log out/re-enter, reload UI and restart the app to check both saved visibility choices.
+   Enable Mouse in the menu, hover an item, and press/drag/release each upper
+   button on a window or addon resize handle. The window must follow the cursor
+   and stop on release. Check all screen edges, a fullscreen map, and a second
+   finger on the stick. Background/resume and reload during a drag: no stuck
+   button, extra click or drop is expected. Report the addon name, gesture and
+   any `Touch mouse`, `Cursor rendering failed` or preceding Lua errors in an
+   exported log covering startup through reproduction.
    Hide/show the minimap and check the launcher remains
    reachable inside the safe area, without covering the journal launcher.
 7. Open every utility panel. The drawer must replace the fan; tapping its gaps

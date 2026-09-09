@@ -199,6 +199,11 @@ class GlueClient {
   void HandleMobileFingerEvent(const SDL_TouchFingerEvent& event);
   void CancelMobileInput();
   void RefreshMobileInputViewport();
+  void RefreshMobileMouse();
+  void PublishMobileMouse();
+  void MoveMobileMouse(const mobile::TouchContact& contact);
+  void SendMobileMouseButton(std::uint8_t button, bool down);
+  void CancelMobileMouse();
   void UpdateMobileMovement(const mobile::TouchContact& contact);
   void ReleaseMobileMovement();
   void BeginMobileCamera();
@@ -337,6 +342,9 @@ class GlueClient {
   bool mobile_strafe_left_{false};
   bool mobile_strafe_right_{false};
   bool mobile_camera_active_{false};
+  std::uint8_t mobile_mouse_button_{0};
+  float mobile_mouse_remainder_x_{0.0F};
+  float mobile_mouse_remainder_y_{0.0F};
 #endif
 
   openwow::net::NetworkRecvThread recv_thread_;

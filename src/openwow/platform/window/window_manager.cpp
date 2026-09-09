@@ -107,6 +107,7 @@ bool WindowManager::Initialize(const WindowConfig& config) {
     title_       = config.title;
     initialized_ = true;
     owns_window_ = true;
+    virtual_cursor_position_.reset();
     title_was_set_explicitly_ = true;
     mouse_button_capture_mask_ = 0;
     EndRelativeCursorMode();
@@ -125,6 +126,7 @@ void WindowManager::AdoptExternalWindow(void* sdl_window) {
     initialized_ = sdl_window != nullptr;
     mouse_button_capture_mask_ = 0;
     cursor_anchor_.reset();
+    virtual_cursor_position_.reset();
     EndRelativeCursorMode();
     pending_windowed_size_.reset();
     pending_windowed_retried_ = false;
@@ -187,6 +189,7 @@ void WindowManager::Shutdown() {
     close_cb_    = nullptr;
     mouse_button_capture_mask_ = 0;
     cursor_anchor_.reset();
+    virtual_cursor_position_.reset();
     pending_windowed_size_.reset();
     pending_windowed_retried_ = false;
 }
@@ -443,6 +446,10 @@ void WindowManager::SaveCursorAnchorIfUnlocked(const int x, const int y) {
 
 void WindowManager::SetCursorPosition(int x, int y) {
     SaveCursorAnchorIfUnlocked(x, y);
+    if (virtual_cursor_position_) {
+        virtual_cursor_position_ = std::pair<int, int>{x, y};
+        return;
+    }
     if (cursor_position_override_.has_value()) {
         cursor_position_override_ = std::pair<int, int>{x, y};
     }
@@ -452,6 +459,11 @@ void WindowManager::SetCursorPosition(int x, int y) {
 }
 
 std::optional<std::pair<int, int>> WindowManager::GetCursorPositionInWindow() {
+    if (virtual_cursor_position_) {
+        SaveCursorAnchorIfUnlocked(virtual_cursor_position_->first,
+                                   virtual_cursor_position_->second);
+        return virtual_cursor_position_;
+    }
     if (cursor_position_override_.has_value()) {
         SaveCursorAnchorIfUnlocked(cursor_position_override_->first,
                                    cursor_position_override_->second);
@@ -473,6 +485,19 @@ std::optional<std::pair<int, int>> WindowManager::ResolveLogicalCursorPosition()
         return cursor_anchor_;
     }
     return GetCursorPositionInWindow();
+}
+
+void WindowManager::SetVirtualCursorPosition(const int x, const int y) {
+    virtual_cursor_position_ = std::pair<int, int>{x, y};
+    SaveCursorAnchorIfUnlocked(x, y);
+}
+
+void WindowManager::ClearVirtualCursorPosition() {
+    virtual_cursor_position_.reset();
+}
+
+bool WindowManager::HasVirtualCursorPosition() const {
+    return virtual_cursor_position_.has_value();
 }
 
 std::optional<std::pair<int, int>>
@@ -781,6 +806,7 @@ void WindowManager::Reset() {
     Shutdown();
     cursor_position_override_.reset();
     cursor_anchor_.reset();
+    virtual_cursor_position_.reset();
 }
 
 }

@@ -53,6 +53,15 @@ public:
   [[nodiscard]] std::optional<std::array<float, 2>> ResolveTouchMovement(float x, float y);
   void EndTouchMovement();
   void CancelTouchMovement(const char* reason);
+  // Indirect mouse controls capture a finger independently of the mouse target.
+  enum class TouchMouseControl { kNotControl, kConsumed, kMove, kLeft, kRight };
+  TouchMouseControl BeginTouchMouseControl(float x, float y,
+                                           std::function<void()> cancel);
+  void EndTouchMouseControl();
+  void CancelTouchMouseControl(const char* reason);
+  [[nodiscard]] bool IsFrameEffectivelyVisible(std::string_view name) const;
+  // Release without OnClick/OnReceiveDrag, including a pending move/resize.
+  void CancelPointerCapture(std::uint32_t button_flag);
   void CancelTouch();
   void UpdateTouchGestures(std::uint32_t timestamp);
   enum class TouchTapMatch { kSingle, kDouble, kCancelled };
@@ -186,6 +195,11 @@ private:
     std::function<void()> cancel;
   };
 
+  struct TouchMouseCapture {
+    TouchTarget target;
+    std::function<void()> cancel;
+  };
+
   [[nodiscard]] bool TouchTargetIsCurrent(const TouchTarget& target);
   [[nodiscard]] bool TouchTargetAcceptsSecondary(const TouchTarget& target);
   TouchTapMatch ResolvePendingTouchTap(const TouchTarget& next, bool can_double,
@@ -205,7 +219,6 @@ private:
   bool HandlePointerUpByFlag(float x, float y,
                              std::uint32_t button_flag, bool touch);
   bool HandlePointerMove(float x, float y, bool touch);
-  void CancelPointerCapture(std::uint32_t button_flag);
   void TransitionKeyboardFocus(const std::string &new_frame_name);
   void QueueEditBoxCaretRefresh(const std::string &frame_name);
   [[nodiscard]] EditBoxRegionPorts BuildEditBoxRegionPorts(
@@ -259,6 +272,7 @@ private:
   std::optional<PendingTouchTap> pending_touch_tap_;
   std::optional<WorldTouchTap> world_touch_tap_;
   std::optional<TouchMovementCapture> touch_movement_;
+  std::optional<TouchMouseCapture> touch_mouse_control_;
   bool touch_pointer_active_{false};
   RunningMacroInputButtonProvider running_macro_input_button_provider_;
 };

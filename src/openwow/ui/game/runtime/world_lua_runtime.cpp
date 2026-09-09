@@ -262,6 +262,7 @@ void WorldLuaRuntime::CompleteFrameXmlLoad() {
 void WorldLuaRuntime::Destroy() {
   // Release command ownership while the binding scripts and frame references
   // are still valid. Bulk unbinding does not send per-frame release callbacks.
+  owner_.frame_input_router_.CancelTouchMouseControl("ui-teardown");
   owner_.frame_input_router_.CancelTouchMovement("ui-teardown");
   ClearSavedVariableRegistrations();
   if (lua_ == nullptr) {

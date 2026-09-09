@@ -452,6 +452,7 @@ void FrameInputRouter::BindLuaState(lua_State *state) noexcept {
 }
 
 void FrameInputRouter::Reset() noexcept {
+  CancelTouchMouseControl("ui-reset");
   CancelTouchMovement("ui-reset");
   lua_ = nullptr;
   focused_frame_.clear();
@@ -807,6 +808,61 @@ bool FrameInputRouter::HitTestTouchTarget(const float x, const float y) {
   return frame == nullptr || !FrameIsWorldFrame(*frame);
 }
 
+bool FrameInputRouter::IsFrameEffectivelyVisible(const std::string_view name) const {
+  return traversal_.IsEffectivelyVisible(name);
+}
+
+FrameInputRouter::TouchMouseControl FrameInputRouter::BeginTouchMouseControl(
+    const float x, const float y, std::function<void()> cancel) {
+  if (lua_ == nullptr || !application_active_) return TouchMouseControl::kNotControl;
+  layout_.SolveIfDirty();
+  RebuildTraversalIfDirty();
+  const std::string hit = traversal_.HitTarget(x, y, viewport_height());
+  const auto ref = frames_.FindLuaRef(hit);
+  if (!ref) return TouchMouseControl::kNotControl;
+  lua_rawgeti(lua_, LUA_REGISTRYINDEX, *ref);
+  const auto role = lua_istable(lua_, -1)
+      ? GetStringField(lua_, -1, "__ow_touch_mouse") : std::nullopt;
+  lua_pop(lua_, 1);
+  if (!role) return TouchMouseControl::kNotControl;
+  TouchMouseControl result;
+  if (*role == "move") result = TouchMouseControl::kMove;
+  else if (*role == "left") result = TouchMouseControl::kLeft;
+  else if (*role == "right") result = TouchMouseControl::kRight;
+  else {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kError,
+        "Touch mouse failed: frame=" + hit + " source=finger-down reason=invalid-role role=" + *role);
+    return TouchMouseControl::kConsumed;
+  }
+  if (touch_mouse_control_ || touch_capture_active_ || world_touch_tap_) {
+    return TouchMouseControl::kConsumed;
+  }
+  const TouchTarget target{.frame_name = hit, .lua_ref = *ref, .x = x, .y = y};
+  CommitPendingTouchTap("mouse-control");
+  CancelTouch();
+  if (!TouchTargetIsCurrent(target)) {
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+        "Touch mouse cancelled: frame=" + hit +
+        " source=finger-down reason=target-hidden-replaced-or-covered");
+    return TouchMouseControl::kConsumed;
+  }
+  touch_mouse_control_ = TouchMouseCapture{target, std::move(cancel)};
+  return result;
+}
+
+void FrameInputRouter::EndTouchMouseControl() {
+  touch_mouse_control_.reset();
+}
+
+void FrameInputRouter::CancelTouchMouseControl(const char* reason) {
+  const auto control = std::exchange(touch_mouse_control_, std::nullopt);
+  if (!control) return;
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
+      "Touch mouse cancelled: frame=" + control->target.frame_name +
+      " source=frame-input reason=" + reason);
+  control->cancel();
+}
+
 FrameInputRouter::TouchMovementStart FrameInputRouter::BeginTouchMovement(
     const float x, const float y, std::function<void()> cancel) {
   if (lua_ == nullptr || !application_active_) {
@@ -1024,6 +1080,9 @@ bool FrameInputRouter::HandlePointerDownByFlag(float x, float y,
   const detail::ScopedCurrentMouseButtonMaskOverride mask_override(
       lua_, LiveButtonMask(button_flag, true));
   (void)FireButton(lua_, *ref, "OnMouseDown", button_name);
+  // A native control cancellation or a frame mutation can release the capture
+  // from inside the handler. Do not republish PUSHED or start slider input.
+  if (!capture->active || frames_.FindLuaRef(hit) != ref) return true;
   const auto *frame = frames_.FindFrame(hit);
   if (frame != nullptr && IsSliderFrame(*frame) &&
       openwow::text::EqualsIgnoreCaseAscii(button_name, "LeftButton")) {
@@ -1702,27 +1761,27 @@ void FrameInputRouter::CancelPointerCapture(const std::uint32_t button_flag) {
     return;
   }
 
-  const std::string capture_name = capture->frame_name;
+  const auto released = std::exchange(*capture, MouseButtonCaptureState{});
+  const std::string& capture_name = released.frame_name;
   const char* const button_name =
       openwow::ui::widgets::MouseButtonName(button_flag);
   if (const auto ref = frames_.FindLuaRef(capture_name); ref.has_value()) {
     const lua_adapter::ScopedMouseButtonOverride button_override(lua_, button_name);
     const detail::ScopedCurrentMouseButtonMaskOverride mask_override(
         lua_, LiveButtonMask(button_flag, false));
-    if (capture->drag_started) {
+    if (released.drag_started) {
       (void)FireNoArg(lua_, *ref, "OnDragStop");
     } else {
       (void)FireButton(lua_, *ref, "OnMouseUp", button_name);
     }
     if (const auto* frame = frames_.FindFrame(capture_name);
-        frame != nullptr && IsButtonFrame(*frame)) {
+        frame != nullptr && IsButtonFrame(*frame) && frames_.FindLuaRef(capture_name) == ref) {
       const auto visual = ReadButtonVisualState(lua_, *ref);
       if (!visual.disabled && !visual.locked) {
         SetButtonVisualState(lua_, *ref, "NORMAL");
       }
     }
   }
-  *capture = {};
 }
 
 void FrameInputRouter::CancelTouch() {
@@ -2058,6 +2117,7 @@ void FrameInputRouter::SetApplicationActive(const bool active) {
   application_active_ = active;
   if (!application_active_) {
     keyboard_captures_.clear();
+    CancelTouchMouseControl("application-inactive");
     CancelTouchMovement("application-inactive");
     CancelTouch();
   }
@@ -2138,6 +2198,9 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
                           unavailable(touch_movement_->control, true))) {
     CancelTouchMovement("control-hidden-or-mouse-disabled");
   }
+  if (touch_mouse_control_ && unavailable(touch_mouse_control_->target, true)) {
+    CancelTouchMouseControl("control-hidden-or-mouse-disabled");
+  }
   if ((touch_gesture_ && unavailable(touch_gesture_->target,
                                     touch_gesture_->phase != TouchPhase::kScroll)) ||
       (touch_inspection_ && unavailable(*touch_inspection_, true)) ||
@@ -2169,6 +2232,9 @@ void FrameInputRouter::ReconcileFrameInputMutation(std::string_view frame_name,
 void FrameInputRouter::BeforeFrameBindingRelease(int lua_ref) {
   if (lua_ref == LUA_NOREF || lua_ref == LUA_REFNIL) {
     return;
+  }
+  if (touch_mouse_control_ && touch_mouse_control_->target.lua_ref == lua_ref) {
+    CancelTouchMouseControl("control-released");
   }
   if (touch_movement_ && (touch_movement_->target.lua_ref == lua_ref ||
                           touch_movement_->control.lua_ref == lua_ref)) {

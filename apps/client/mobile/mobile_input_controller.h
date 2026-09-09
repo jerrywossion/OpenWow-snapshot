@@ -17,6 +17,7 @@ enum class TouchOwner : std::uint8_t {
   kIgnored,
   kGlueUi,
   kWorldUi,
+  kVirtualMouse,
   kMovement,
   kWorldCamera,
   kWorldTap,

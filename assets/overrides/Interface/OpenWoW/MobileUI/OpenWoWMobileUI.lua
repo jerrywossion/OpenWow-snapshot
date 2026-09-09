@@ -28,6 +28,12 @@ if locale == "zhCN" then
         gestureHint = "摇杆独立显示，可在功能菜单中单独开关。",
         hideMovement = "隐藏摇杆",
         showMovement = "显示摇杆",
+        mouse = "虚拟鼠标",
+        hideMouse = "关闭鼠标",
+        leftMouse = "左键",
+        rightMouse = "右键",
+        moveMouse = "移动光标",
+        mouseHint = "下半部拖动可移动光标；按住上半部左键或右键拖动，可拖拽、调整窗口大小。",
         move = "移动",
         zoomIn = "拉近",
         zoomOut = "拉远",
@@ -61,6 +67,12 @@ else
         gestureHint = "The stick stays visible. Toggle it separately in the menu.",
         hideMovement = "Hide stick",
         showMovement = "Show stick",
+        mouse = "Mouse",
+        hideMouse = "Mouse off",
+        leftMouse = "Left",
+        rightMouse = "Right",
+        moveMouse = "Move cursor",
+        mouseHint = "Drag the lower pad to move the cursor. Hold and drag either upper button to drag or resize windows.",
         move = "Move",
         zoomIn = "Zoom in",
         zoomOut = "Zoom out",
@@ -360,6 +372,108 @@ function OpenWoWMobile_ApplyMovementVisibility()
     end
 end
 
+-- This panel is independent of the combat HUD. The native router captures the
+-- control finger, then sends ordinary mouse events at the separate cursor.
+local mousePanel = CreateFrame("Frame", "OpenWoWMobileMousePanel")
+mousePanel:SetFrameStrata("FULLSCREEN_DIALOG")
+mousePanel:SetFrameLevel(100)
+mousePanel:EnableMouse(true)
+mousePanel.__ow_touch_mouse = "move"
+mousePanel:Hide()
+mousePanel:SetBackdrop({
+    bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 16, edgeSize = 16,
+    insets = {left = 4, right = 4, top = 4, bottom = 4},
+})
+mousePanel:SetBackdropColor(0.025, 0.035, 0.055, 0.94)
+mousePanel:SetBackdropBorderColor(0.55, 0.65, 0.78, 1)
+
+local mouseControls = {}
+for index, definition in ipairs({
+        {"left", L.leftMouse}, {"right", L.rightMouse}, {"move", L.moveMouse}}) do
+    local control = CreateFrame("Frame", "OpenWoWMobileMouse" .. index, mousePanel)
+    control:EnableMouse(true)
+    control.__ow_touch_mouse = definition[1]
+    AddPanelBackground(control, 0.7)
+    control.label = control:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    control.label:SetPoint("CENTER", control, "CENTER", 0, 0)
+    control.label:SetText(definition[2])
+    mouseControls[index] = control
+end
+
+local mouseToggle = CreateLabeledButton(
+    "OpenWoWMobileMouseToggle", utilityPanel, L.mouse,
+    "Interface\\Icons\\INV_Misc_EngGizmos_19",
+    function()
+        OpenWoWMobile_SetMouseShown(not mousePanel:IsShown())
+        SetDrawerShown(false)
+        GameTooltip:Hide()
+    end)
+mouseToggle:Disable()
+mouseToggle:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText(L.mouse)
+    GameTooltip:AddLine(L.mouseHint, 1, 1, 1, true)
+    GameTooltip:Show()
+end)
+mouseToggle:SetScript("OnLeave", function() GameTooltip:Hide() end)
+utilityButtons[#utilityButtons + 1] = mouseToggle
+
+function OpenWoWMobile_SetMouseShown(shown)
+    if shown then
+        mousePanel:Show()
+        mouseToggle.label:SetText(L.hideMouse)
+        OpenWoWMobile_UpdateMouse(state.drawableWidth * 0.5,
+                                  state.drawableHeight * 0.5, 0)
+    else
+        mousePanel:Hide()
+        mouseToggle.label:SetText(L.mouse)
+    end
+end
+
+function OpenWoWMobile_UpdateMouse(x, y, button)
+    local u = state.unitsPerPoint or 1
+    local scale = UIParent:GetEffectiveScale()
+    local unitsPerPixel = GetScreenHeight() / state.drawableHeight
+    local cursorX = x * unitsPerPixel - UIParent:GetLeft()
+    local cursorY = (state.drawableHeight - y) * unitsPerPixel - UIParent:GetBottom()
+    local width, height = 144 * u, 104 * u
+    local left = math.max(4 * u, math.min(cursorX - width * 0.5,
+                                         UIParent:GetWidth() - width - 4 * u))
+    local top = cursorY - 24 * u
+    if top - height < 4 * u then top = cursorY + height + 24 * u end
+    top = math.max(height + 4 * u, math.min(top, UIParent:GetHeight() - 4 * u))
+    if state.mouseLeft ~= left or state.mouseTop ~= top or state.mouseUnits ~= u or
+            state.mouseScale ~= scale then
+        state.mouseLeft, state.mouseTop, state.mouseUnits = left, top, u
+        state.mouseScale = scale
+        -- The parentless control survives fullscreen panels hiding UIParent,
+        -- while its size and safe-area anchor still match the mobile HUD.
+        mousePanel:SetScale(scale)
+        mousePanel:SetSize(width, height)
+        mousePanel:ClearAllPoints()
+        mousePanel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        for index, control in ipairs(mouseControls) do
+            control:ClearAllPoints()
+            control:SetSize((index == 3 and 128 or 62) * u, 42 * u)
+            control:SetPoint("TOPLEFT", mousePanel, "TOPLEFT",
+                             (index == 2 and 74 or 8) * u,
+                             -(index == 3 and 54 or 8) * u)
+            local font, _, flags = control.label:GetFont()
+            control.label:SetFont(font, 12 * u, flags)
+        end
+    end
+    if state.mouseButton ~= button then
+        state.mouseButton = button
+        for index, control in ipairs(mouseControls) do
+            local pressed = (index == 1 and button == 1) or (index == 2 and button == 3)
+            if pressed then control.background:SetTexture(0.32, 0.24, 0.08, 0.94)
+            else control.background:SetTexture(0.04, 0.055, 0.075, 0.7) end
+        end
+    end
+end
+
 local layerButton = CreateLabeledButton(
     "OpenWoWMobileLayerButton", actionCluster, "1–6",
     "Interface\\Icons\\INV_Misc_Rune_01",
@@ -564,7 +678,16 @@ local actionLayout = {
 }
 
 function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
-                                    logicalWidth, logicalHeight, logExportAvailable)
+                                    logicalWidth, logicalHeight, logExportAvailable,
+                                    virtualMouseAvailable)
+    if state.virtualMouseAvailable ~= (virtualMouseAvailable == true) then
+        state.virtualMouseAvailable = virtualMouseAvailable == true
+        if state.virtualMouseAvailable then mouseToggle:Enable()
+        else
+            mouseToggle:Disable()
+            OpenWoWMobile_SetMouseShown(false)
+        end
+    end
     if state.logExportAvailable ~= (logExportAvailable == true) then
         state.logExportAvailable = logExportAvailable == true
         if state.logExportAvailable then exportLogsButton:Enable()
@@ -623,17 +746,18 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
     PlaceControl(drawerButton, 290, 72, 52)
 
     -- The drawer replaces the combat fan instead of adding another overlay.
-    local utilitySize = 54 * u
     local utilityGap = 6 * u
     utilityPanel:ClearAllPoints()
     local utilityRows = math.ceil(#utilityButtons / 3)
+    local utilitySize = math.min(54 * u,
+        (rootHeight - 28 * u - (utilityRows + 1) * utilityGap) / utilityRows)
     utilityPanel:SetSize(3 * utilitySize + 4 * utilityGap,
                          utilityRows * utilitySize + (utilityRows + 1) * utilityGap)
     utilityPanel:SetPoint("BOTTOMRIGHT", actionCluster, "BOTTOMRIGHT", 0, 0)
     for index, button in ipairs(utilityButtons) do
         local column = math.mod(index - 1, 3)
         local row = math.floor((index - 1) / 3)
-        SizeButton(button, 54, u)
+        SizeButton(button, utilitySize / u, u)
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", utilityPanel, "TOPLEFT",
                         utilityGap + column * (utilitySize + utilityGap),
