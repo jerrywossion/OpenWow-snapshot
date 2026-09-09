@@ -29,22 +29,27 @@ struct ViewportInsets {
   bool operator==(const ViewportInsets&) const = default;
 };
 
+// ui_scale converts unscaled script units to pixels; ui_parent_scale applies
+// only to UIParent and descendants that inherit from it.
 openwow::ui::TransparentStringMap<FrameRect> ResolveLayout(const std::vector<UiFrame>& frames,
                                                          int viewport_width,
                                                          int viewport_height,
                                                          float ui_scale = 1.0f,
-                                                         ViewportInsets insets = {});
+                                                         ViewportInsets insets = {},
+                                                         float ui_parent_scale = 1.0f);
 
 openwow::ui::TransparentStringMap<FrameRect>
 ResolveExpandedLayout(std::span<const UiFrame *const> frames,
                       int viewport_width, int viewport_height,
-                      float ui_scale = 1.0f, ViewportInsets insets = {});
+                      float ui_scale = 1.0f, ViewportInsets insets = {},
+                      float ui_parent_scale = 1.0f);
 
 void ResolveExpandedLayoutInto(std::span<const UiFrame *const> frames,
                                int viewport_width, int viewport_height,
                                float ui_scale,
                                std::vector<std::optional<FrameRect>> *out_rects,
-                               ViewportInsets insets = {});
+                               ViewportInsets insets = {},
+                               float ui_parent_scale = 1.0f);
 
 std::vector<UiFrame> SortByRenderOrder(const std::vector<UiFrame>& frames);
 

@@ -550,7 +550,7 @@ void SolveExpandedLayout(
     const int viewport_height, const float ui_scale,
     ResolvedRectMap *const ddc_out,
     std::vector<std::optional<FrameRect>> *const positional_rects,
-    const ViewportInsets insets) {
+    const ViewportInsets insets, const float ui_parent_scale) {
   if (positional_rects != nullptr) {
     positional_rects->assign(frames.size(), std::nullopt);
   }
@@ -589,7 +589,7 @@ void SolveExpandedLayout(
       if (frame == nullptr) {
         break;
       }
-      eff *= frame->scale;
+      eff *= ResolveLocalFrameScale(frame->name, frame->scale, ui_parent_scale);
       current = frame->parent;
     }
     return eff;
@@ -626,6 +626,7 @@ void SolveExpandedLayout(
     scale_states[index] = ScaleResolveState::Visiting;
     const UiFrame& frame = *frames[index];
     float parent_scale = ui_scale;
+    if (frame.parent == "UIParent") parent_scale *= ui_parent_scale;
     if (!frame.parent.empty()) {
       if (const auto parent = index_by_name.find(frame.parent);
           parent != index_by_name.end()) {
@@ -638,7 +639,8 @@ void SolveExpandedLayout(
         parent_scale = effective_scales[parent->second];
       }
     }
-    effective_scales[index] = parent_scale * frame.scale;
+    effective_scales[index] = parent_scale *
+        ResolveLocalFrameScale(frame.name, frame.scale, ui_parent_scale);
     scale_states[index] = ScaleResolveState::Complete;
     return true;
   };
@@ -727,22 +729,23 @@ void ResolveExpandedLayoutInto(
     const std::span<const UiFrame *const> frames, const int viewport_width,
     const int viewport_height, const float ui_scale,
     std::vector<std::optional<FrameRect>> *const out_rects,
-    const ViewportInsets insets) {
+    const ViewportInsets insets, const float ui_parent_scale) {
   if (out_rects == nullptr) {
     return;
   }
   ResolvedRectMap ddc;
   SolveExpandedLayout(frames, viewport_width, viewport_height, ui_scale, &ddc,
-                      out_rects, insets);
+                      out_rects, insets, ui_parent_scale);
 }
 
 openwow::ui::TransparentStringMap<FrameRect>
 ResolveExpandedLayout(const std::span<const UiFrame *const> frames,
                       const int viewport_width, const int viewport_height,
-                      const float ui_scale, const ViewportInsets insets) {
+                      const float ui_scale, const ViewportInsets insets,
+                      const float ui_parent_scale) {
   ResolvedRectMap ddc;
   SolveExpandedLayout(frames, viewport_width, viewport_height, ui_scale, &ddc,
-                      nullptr, insets);
+                      nullptr, insets, ui_parent_scale);
 
   openwow::ui::TransparentStringMap<FrameRect> out;
   out.reserve(frames.size() + 1);
@@ -758,7 +761,8 @@ ResolveExpandedLayout(const std::span<const UiFrame *const> frames,
 
 openwow::ui::TransparentStringMap<FrameRect> ResolveLayout(
     const std::vector<UiFrame> &frames, const int viewport_width,
-    const int viewport_height, const float ui_scale, const ViewportInsets insets) {
+    const int viewport_height, const float ui_scale, const ViewportInsets insets,
+    const float ui_parent_scale) {
 
   auto expanded = frames;
   ResolveInheritance(&expanded);
@@ -768,7 +772,7 @@ openwow::ui::TransparentStringMap<FrameRect> ResolveLayout(
     expanded_frames.push_back(&frame);
   }
   return ResolveExpandedLayout(expanded_frames, viewport_width,
-                               viewport_height, ui_scale, insets);
+                               viewport_height, ui_scale, insets, ui_parent_scale);
 }
 
 std::vector<UiFrame> SortByRenderOrder(const std::vector<UiFrame> &frames) {

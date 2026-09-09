@@ -21,6 +21,13 @@ struct XMLNode;
 
 namespace openwow::ui::framexml {
 
+// The configured HUD scale belongs to UIParent. Parentless frames inherit
+// neither it nor any other UIParent property.
+inline float ResolveLocalFrameScale(std::string_view name, float scale,
+                                   float ui_parent_scale) noexcept {
+  return name == "UIParent" ? scale * ui_parent_scale : scale;
+}
+
 enum class TextureSlice : std::uint8_t {
   kNone = 0,
 

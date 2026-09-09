@@ -253,8 +253,24 @@ or console CVar writes. Values manually entered outside 0.64–1.50 or between
 the slider's steps are not exactly representable by this control. The mobile
 joystick, skill fan and launcher keep their device-point sizes as the original
 UI grows; touch hit testing uses the same resolved geometry as rendering.
-Larger original panels have less room on a phone, so check their edges and
-reachable buttons on the intended device before settling on a scale.
+The configured scale belongs to `UIParent` and is inherited by its children.
+Parentless fullscreen frames use their own scale in layout, rendering, geometry
+queries, hit testing and saved placement. `SetupFullscreenScale` also fits the
+standard fullscreen guide inside the viewport's safe bounds. Opening the world
+map therefore keeps its close and size controls reachable at larger HUD scales;
+the original map's Lua/XML and its fullscreen HUD visibility behavior remain in
+charge of the page.
+
+For map acceptance, use the current iOS Release with build-12340 `zhCN` Data and
+the existing realm. Open the map from the mobile utility drawer at default UI
+scale and at 1.50, close it using the map's close button, then repeat after
+switching between windowed/fullscreen map modes and after `/reload`. Check both
+landscape directions on a device with safe insets. The expected result is a map
+that fits the safe area, reachable controls and restored HUD after closing.
+Return the exported log from startup through the attempt, especially
+`HUD viewport safe insets`, `ui.fullscreen_scale` (the native scale request),
+`ui.touch_release` and `ui.pointer_click`. Actual device layout and touch delivery
+require user confirmation.
 
 ## Iterate the HUD on macOS
 

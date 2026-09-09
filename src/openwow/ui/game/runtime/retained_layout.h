@@ -83,6 +83,7 @@ class RetainedLayout final {
 
   [[nodiscard]] float viewport_width() const noexcept;
   [[nodiscard]] float viewport_height() const noexcept;
+  [[nodiscard]] openwow::ui::framexml::ViewportInsets viewport_insets() const noexcept;
   [[nodiscard]] float root_scale() const noexcept;
   [[nodiscard]] std::int32_t mode() const noexcept;
   [[nodiscard]] bool dirty() const noexcept;

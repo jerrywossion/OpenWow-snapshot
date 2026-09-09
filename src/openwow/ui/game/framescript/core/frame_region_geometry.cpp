@@ -300,36 +300,22 @@ static LuaRegionKind ReadLuaRegionKind(lua_State *L, const int index,
   lua_pop(L, 1);
   return kind;
 }
-static constexpr const char kRootFrameName[] = "UIParent";
-
 lua_Number ReadStoredFrameScaleField(lua_State* L, int frame_index) {
   const auto scale = ReadLuaTableNumberField(L, frame_index, "__ow_scale");
   return scale.has_value() ? static_cast<lua_Number>(*scale) : 1.0;
 }
 
-static bool IsRootScriptFrame(lua_State* L, int frame_index) {
-  if (lua_istable(L, frame_index) == 0) {
-    return false;
-  }
-  const char* const key = GetFrameRuntimeKeyOrName(L, frame_index);
-  return key != nullptr && std::strcmp(key, kRootFrameName) == 0;
-}
-
 lua_Number ReadFrameScaleFieldOrDefault(lua_State* L, int frame_index) {
-  const lua_Number stored = ReadStoredFrameScaleField(L, frame_index);
-  if (!IsRootScriptFrame(L, frame_index)) {
-    return stored;
-  }
-
+  const auto stored = static_cast<float>(ReadStoredFrameScaleField(L, frame_index));
+  const char* const key = GetFrameRuntimeKeyOrName(L, frame_index);
   const auto* manager = runtime::WorldUiRuntimeContext::FromLua(L);
-  return manager != nullptr ? stored * manager->root_scale() : stored;
+  return openwow::ui::framexml::ResolveLocalFrameScale(
+      key != nullptr ? key : "", stored,
+      manager != nullptr ? manager->root_scale() : 1.0F);
 }
 
 lua_Number ComputeFrameEffectiveScale(lua_State* L, int frame_index) {
   lua_Number effective = 1.0;
-  if (const auto* manager = runtime::WorldUiRuntimeContext::FromLua(L); manager != nullptr) {
-    effective = manager->root_scale();
-  }
 
   lua_pushvalue(L, lua_absindex(L, frame_index));
   constexpr int kMaxDepth = 64;
@@ -338,7 +324,7 @@ lua_Number ComputeFrameEffectiveScale(lua_State* L, int frame_index) {
       break;
     }
 
-    effective *= ReadStoredFrameScaleField(L, -1);
+    effective *= ReadFrameScaleFieldOrDefault(L, -1);
 
     runtime::GetInternedLuaField(L, -1, "__ow_parent");
     lua_remove(L, -2);

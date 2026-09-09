@@ -353,10 +353,11 @@ bool ApplyAnchorDelta(lua_State* lua, int frame_index, float dx, float dy,
 float EffectiveScale(const openwow::ui::framexml::UiFrame& frame,
                      const FrameStore& frames, float screen_height,
                      float root_scale) {
-  float scale = (screen_height > 0.0F ? screen_height / kUiVirtualHeight : 1.0F) * root_scale;
+  float scale = screen_height > 0.0F ? screen_height / kUiVirtualHeight : 1.0F;
   const auto* current = &frame;
   for (int depth = 0; current != nullptr && depth < 64; ++depth) {
-    scale *= current->scale > 0.0F ? current->scale : 1.0F;
+    scale *= openwow::ui::framexml::ResolveLocalFrameScale(
+        current->name, current->scale > 0.0F ? current->scale : 1.0F, root_scale);
     current = current->parent.empty() ? nullptr : frames.FindFrame(current->parent);
   }
   return scale > 0.0F ? scale : 1.0F;
@@ -982,7 +983,7 @@ struct RetainedLayout::Impl {
     metrics.last_on_demand_frames = solve_frames.size();
     auto solved = openwow::ui::framexml::ResolveExpandedLayout(
         solve_frames, static_cast<int>(width), static_cast<int>(height),
-        height / kUiVirtualHeight * root_scale, insets);
+        height / kUiVirtualHeight, insets, root_scale);
     std::vector<SizeCommit> size_commits;
     bool rects_changed = false;
     for (const auto* frame : solve_frames) {
@@ -1076,6 +1077,9 @@ void RetainedLayout::Clear() {
 float RetainedLayout::viewport_width() const noexcept { return impl_->width; }
 float RetainedLayout::viewport_height() const noexcept { return impl_->height; }
 float RetainedLayout::root_scale() const noexcept { return impl_->root_scale; }
+openwow::ui::framexml::ViewportInsets RetainedLayout::viewport_insets() const noexcept {
+  return impl_->insets;
+}
 std::int32_t RetainedLayout::mode() const noexcept { return impl_->mode; }
 bool RetainedLayout::dirty() const noexcept { return impl_->dirty; }
 const RetainedLayout::Metrics& RetainedLayout::metrics() const noexcept { return impl_->metrics; }
@@ -1203,7 +1207,7 @@ void RetainedLayout::SolveIfDirty() {
                   affected_frames.size() * 3U <
                       std::max<std::size_t>(x.frames.size() * 2U, 1U);
   }
-  const float scale = x.height / kUiVirtualHeight * x.root_scale;
+  const float scale = x.height / kUiVirtualHeight;
   if (incremental) {
 
     const std::size_t affected_count = affected_frames.size();
@@ -1222,7 +1226,7 @@ void RetainedLayout::SolveIfDirty() {
     x.solved_scratch.clear();
     openwow::ui::framexml::ResolveExpandedLayoutInto(
         solve_frames, static_cast<int>(x.width), static_cast<int>(x.height),
-        scale, &x.solved_scratch, x.insets);
+        scale, &x.solved_scratch, x.insets, x.root_scale);
 
     std::vector<Impl::SizeCommit> size_commits;
     bool rects_changed = false;
@@ -1260,7 +1264,8 @@ void RetainedLayout::SolveIfDirty() {
     const auto frames = x.frames.CollectFramePointersInRegistrationOrder();
 
     auto resolved = openwow::ui::framexml::ResolveExpandedLayout(
-        frames, static_cast<int>(x.width), static_cast<int>(x.height), scale, x.insets);
+        frames, static_cast<int>(x.width), static_cast<int>(x.height), scale, x.insets,
+        x.root_scale);
     std::vector<Impl::SizeCommit> size_commits;
     size_commits.reserve(frames.size());
     for (const auto* frame : frames) {
@@ -1628,7 +1633,7 @@ std::optional<openwow::ui::framexml::FrameRect> RetainedLayout::ResolveAnonymous
         RectDdc{static_cast<float>(parent.x), max_y - parent.height,
                 static_cast<float>(parent.x + parent.width), max_y});
   }
-  float scale = impl_->height / kUiVirtualHeight * impl_->root_scale;
+  float scale = impl_->height / kUiVirtualHeight;
   if (const auto* parent = impl_->frames.FindFrame(parent_name))
     scale = EffectiveScale(*parent, impl_->frames, impl_->height, impl_->root_scale);
   const auto resolved = ResolveRegionDdc(region, rects, scale);
