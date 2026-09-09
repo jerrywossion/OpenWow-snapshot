@@ -1425,9 +1425,11 @@ void WorldSession::HandleBinderConfirm(const net::wotlk::WorldPacket &pkt) {
 
   std::string inn_name;
   if (const auto *dbc = GetDbcLoader(); dbc != nullptr) {
-    const auto area_id = misc_.bind_point().area_id;
-    if (const auto *area = dbc->area_table().LookupEntry(area_id);
-        area != nullptr) {
+    const auto *area = dbc->area_table().LookupEntry(objects().GetAreaId());
+    if (area == nullptr) {
+      area = dbc->area_table().LookupEntry(objects().GetZoneId());
+    }
+    if (area != nullptr) {
       inn_name = area->name;
     }
   }
