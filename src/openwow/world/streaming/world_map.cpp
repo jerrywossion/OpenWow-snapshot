@@ -1974,6 +1974,9 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     return rhs[0] <= lhs[3] && lhs[0] < rhs[3] &&
            rhs[1] <= lhs[4] && lhs[1] < rhs[4];
   };
+  // Portal admission uses the active group's ceiling after transforming the
+  // world query into local space. Tile admission remains horizontal only.
+  query_bounds[5] = loaded_group_bounds(active_group)[5];
   const auto portal_intersects = [&cached, &query_bounds](
                                      const data::wmo::WmoPortalRef& ref) {
     if (ref.portalIndex >= cached.root.portals.size()) {
@@ -2013,13 +2016,19 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
           ? data::wmo::kMogpExterior
           : (cached.root.groupInfos[active_group].flags &
              data::wmo::kMogpExteriorLit);
+  const bool use_root_minimap =
+      active_area_rows.root != nullptr &&
+      (active_area_rows.root->flags & 0x18u) != 0u &&
+      (cached.root.groupInfos[active_group].flags &
+       (data::wmo::kMogpExterior | data::wmo::kMogpExteriorLit)) != 0u;
   std::size_t pending_group_count = 0u;
   const std::size_t candidate_group_count = std::min(
       {cached.root.groupInfos.size(), cached.group_residency.size(),
        instance.group_world_bounds.size()});
   for (std::size_t group_index = 0u; group_index < candidate_group_count;
        ++group_index) {
-    if (!horizontal_bounds_intersect(root_group_bounds(group_index),
+    if (use_root_minimap ||
+        !horizontal_bounds_intersect(root_group_bounds(group_index),
                                      query_bounds) ||
         cached.group_residency[group_index] == WmoGroupResidency::kResident) {
       continue;
@@ -2041,8 +2050,8 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
         std::max(1.0f, std::ceil(extent / kWmoMinimapUnitsPerPixel)));
     return std::clamp(std::bit_ceil(required_pixels), 32u, 256u);
   };
-  const auto emit_group = [&](const std::size_t group_index) {
-    const Bounds bounds = loaded_group_bounds(group_index);
+  const auto emit_tiles = [&](const std::size_t texture_group_index,
+                              const Bounds& bounds) {
     const float extent_x = bounds[3] - bounds[0];
     const float extent_y = bounds[4] - bounds[1];
     if (extent_x <= 0.0f || extent_y <= 0.0f) {
@@ -2083,7 +2092,7 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
         }
         if (horizontal_bounds_intersect(tile_bounds, query_bounds)) {
           source.tiles.push_back({
-              .group_index = static_cast<std::uint32_t>(group_index),
+              .group_index = static_cast<std::uint32_t>(texture_group_index),
               .tile_x = tile_x,
               .tile_y = tile_y,
               .local_bounds = tile_bounds,
@@ -2117,7 +2126,7 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
                                      query_bounds)) {
       return;
     }
-    emit_group(group_index);
+    emit_tiles(group_index, loaded_group_bounds(group_index));
     const ResolvedWmoAreaRows rows = ResolveWmoAreaRowsForGroup(
         WmoAreaGroupRef{active_ref.placement,
                         static_cast<std::uint32_t>(group_index)});
@@ -2156,13 +2165,13 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     }
   };
 
-  const bool active_group_only =
-      active_area_rows.root != nullptr &&
-      (active_area_rows.root->flags & 0x18u) != 0u &&
-      (cached.root.groupInfos[active_group].flags &
-       (data::wmo::kMogpExterior | data::wmo::kMogpExteriorLit)) != 0u;
-  if (active_group_only) {
-    emit_group(active_group);
+  if (use_root_minimap) {
+    // The combined map has a synthetic texture group numbered after the last
+    // authored group. Its geometry covers the root bounds, not the active room.
+    const auto& header = cached.root.header;
+    emit_tiles(header.nGroups, Bounds{
+        header.boundingBox1[0], header.boundingBox1[1], header.boundingBox1[2],
+        header.boundingBox2[0], header.boundingBox2[1], header.boundingBox2[2]});
   } else {
     visit_group(visit_group, active_group, active_group);
   }

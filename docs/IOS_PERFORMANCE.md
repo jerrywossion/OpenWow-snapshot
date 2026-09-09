@@ -146,6 +146,24 @@ remain device acceptance items. Missing slow-span records do not prove that a
 stage is free: sub-threshold work, suppression, and time spent waiting for
 external state must be considered alongside summaries and gate snapshots.
 
+## Minimap source diagnostics
+
+WMO minimaps can use either room textures or a combined map covering the whole
+WMO root. The combined source uses the root bounds and a synthetic texture group
+equal to the authored group count; it does not request a nonexistent group file.
+Only the ordinary portal traversal needs intersecting room groups to be resident.
+Its portal query uses the active room's ceiling after the world-to-local transform.
+
+For the Stormwind black-minimap check, use the current iOS Release with the
+existing build-12340 `zhCN` Data and realm. Enter the same character in Stormwind,
+wait for world entry, and walk between the city streets and a nearby interior.
+The minimap should display the surrounding map and keep the player marker aligned
+while the source changes. Export the startup-to-reproduction log using the mobile
+HUD. Include `MinimapIntegration: WMO minimap`, its `root`, `group`, `tile_groups`,
+`mapped`, `submitted`, `unresolved` fields and any texture loading errors. Pending
+replacement textures keep the previous published source until ready. Compilation
+and static resource checks do not establish device rendering or marker alignment.
+
 ## Layout and font optimization follow-up
 
 Texture ownership changes now queue the changed texture and update its entry
