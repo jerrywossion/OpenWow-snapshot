@@ -8,6 +8,7 @@ local state = {
 }
 
 RegisterForSave("OpenWoWMobileHUDShown")
+RegisterForSave("OpenWoWMobileMovementShown")
 
 local locale = GetLocale and GetLocale() or "enUS"
 local L
@@ -24,7 +25,9 @@ if locale == "zhCN" then
         show = "触控",
         hideHint = "隐藏触控 HUD，露出原生界面",
         showHint = "显示触控 HUD",
-        gestureHint = "隐藏时摇杆停止并停用；镜头与世界点击手势仍可使用。",
+        gestureHint = "摇杆独立显示，可在功能菜单中单独开关。",
+        hideMovement = "隐藏摇杆",
+        showMovement = "显示摇杆",
         move = "移动",
         zoomIn = "拉近",
         zoomOut = "拉远",
@@ -55,7 +58,9 @@ else
         show = "Touch",
         hideHint = "Hide the touch HUD to access the original UI",
         showHint = "Show the touch HUD",
-        gestureHint = "Hiding stops and disables the stick. Camera and world-tap gestures remain available.",
+        gestureHint = "The stick stays visible. Toggle it separately in the menu.",
+        hideMovement = "Hide stick",
+        showMovement = "Show stick",
         move = "Move",
         zoomIn = "Zoom in",
         zoomOut = "Zoom out",
@@ -78,6 +83,10 @@ end
 local root = CreateFrame("Frame", "OpenWoWMobileRoot", UIParent)
 root:SetAllPoints(UIParent)
 root:SetFrameStrata("MEDIUM")
+
+local movementRoot = CreateFrame("Frame", "OpenWoWMobileMovementRoot", UIParent)
+movementRoot:SetAllPoints(UIParent)
+movementRoot:SetFrameStrata("MEDIUM")
 
 local actionCluster = CreateFrame("Frame", "OpenWoWMobileActionCluster", root)
 
@@ -332,6 +341,25 @@ end)
 exportLogsButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 utilityButtons[#utilityButtons + 1] = exportLogsButton
 
+local movementToggle = CreateLabeledButton(
+    "OpenWoWMobileMovementToggle", utilityPanel, L.hideMovement,
+    "Interface\\Icons\\Ability_Rogue_Sprint",
+    function()
+        OpenWoWMobileMovementShown = not movementRoot:IsShown()
+        OpenWoWMobile_ApplyMovementVisibility()
+    end)
+utilityButtons[#utilityButtons + 1] = movementToggle
+
+function OpenWoWMobile_ApplyMovementVisibility()
+    if OpenWoWMobileMovementShown == false then
+        movementRoot:Hide()
+        movementToggle.label:SetText(L.showMovement)
+    else
+        movementRoot:Show()
+        movementToggle.label:SetText(L.hideMovement)
+    end
+end
+
 local layerButton = CreateLabeledButton(
     "OpenWoWMobileLayerButton", actionCluster, "1–6",
     "Interface\\Icons\\INV_Misc_Rune_01",
@@ -375,13 +403,13 @@ function OpenWoWMobile_ApplyVisibility()
     end
 end
 
-local movementArea = CreateFrame("Frame", "OpenWoWMobileMovementArea", root)
+local movementArea = CreateFrame("Frame", "OpenWoWMobileMovementArea", movementRoot)
 movementArea:SetFrameStrata("BACKGROUND")
 movementArea:SetFrameLevel(0)
 movementArea:EnableMouse(true)
 movementArea.__ow_touch_movement = true
 movementArea.__ow_touch_movement_control = "OpenWoWMobileJoystick"
-local joystick = CreateFrame("Frame", "OpenWoWMobileJoystick", root)
+local joystick = CreateFrame("Frame", "OpenWoWMobileJoystick", movementRoot)
 -- Explicit opt-in consumed by the native touch router. The normal frame hit
 -- determines ownership, including visibility, layout and occluding panels.
 joystick.__ow_touch_movement = true
@@ -649,7 +677,7 @@ function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
                           state.safeBounds.top - state.safeBounds.bottom)
     joystick:SetSize(118 * u, 118 * u)
     joystick:ClearAllPoints()
-    joystick:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 32 * u, 32 * u)
+    joystick:SetPoint("BOTTOMLEFT", movementRoot, "BOTTOMLEFT", 32 * u, 32 * u)
     joystickKnob:SetSize(54 * u, 54 * u)
     local font, _, flags = joystickLabel:GetFont()
     joystickLabel:SetFont(font, 11 * u, flags)
@@ -686,6 +714,7 @@ root:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_ENTERING_WORLD" then
         -- Account saved variables are restored after this internal TOC loads.
         OpenWoWMobile_ApplyVisibility()
+        OpenWoWMobile_ApplyMovementVisibility()
         PlaceToggle()
     else
         OpenWoWMobile_RefreshActions()
