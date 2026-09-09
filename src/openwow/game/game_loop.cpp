@@ -3474,7 +3474,10 @@ void GameLoop::FinalizeWorldEntryRuntime() {
                             << " ghost=" << timer_ctx.is_ghost
                             << " timer=" << timer_ctx.has_release_timer
                             << " no_window=" << timer_ctx.no_release_window
-                            << " oob=" << timer_ctx.is_out_of_bounds;
+                            << " oob=" << timer_ctx.is_out_of_bounds
+                            << " release_seconds="
+                            << death_manager_.GetReleaseTimeRemainingSeconds(
+                                   core::GameClock::GetTickCount32());
                 openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
                                           death_state.str());
 
