@@ -64,6 +64,13 @@ float MinimapSystem::GetZoom() const {
   return static_cast<float>(GetZoomLevel());
 }
 
+void MinimapSystem::SetZoomLevels(const std::uint32_t outdoor,
+                                 const std::uint32_t indoor) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  outdoor_zoom_level_ = std::min(outdoor, kMaxZoomLevel);
+  indoor_zoom_level_ = std::min(indoor, kMaxZoomLevel);
+}
+
 std::uint32_t MinimapSystem::GetZoomLevel() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return indoor_minimap_active_ ? indoor_zoom_level_ : outdoor_zoom_level_;

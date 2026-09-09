@@ -60,6 +60,7 @@ class MinimapSystem {
 
   void SetZoom(float zoom);
   void SetZoomLevel(std::uint32_t level);
+  void SetZoomLevels(std::uint32_t outdoor, std::uint32_t indoor);
   [[nodiscard]] float GetZoom() const;
   [[nodiscard]] std::uint32_t GetZoomLevel() const;
   [[nodiscard]] std::uint32_t GetOutdoorZoomLevel() const;
