@@ -1,12 +1,16 @@
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/log_snapshot.h"
 #include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include <chrono>
+#include <algorithm>
+#include <array>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
@@ -22,6 +26,7 @@ std::atomic<bool> g_performance_logging_enabled{false};
 struct LogEntry {
   LogLevel level{LogLevel::kInfo};
   std::string json_line;
+  std::shared_ptr<std::promise<LogSnapshotResult>> snapshot_boundary;
 };
 
 struct LoggerState {
@@ -141,6 +146,23 @@ void WorkerLoop() {
       state.queue.pop_front();
 
       lock.unlock();
+      if (entry.snapshot_boundary) {
+        LogSnapshotResult boundary{.source = state.log_file};
+        if (!state.out.is_open()) {
+          boundary.error = "flush: log-file-unavailable";
+        } else {
+          state.out.flush();
+          const auto position = state.out.tellp();
+          if (!state.out || position < 0) {
+            boundary.error = "flush: log-write-failed";
+          } else {
+            boundary.bytes = static_cast<std::uintmax_t>(position);
+          }
+        }
+        entry.snapshot_boundary->set_value(std::move(boundary));
+        lock.lock();
+        continue;
+      }
       if (state.out.is_open()) {
         state.out << entry.json_line << '\n';
       }
@@ -276,6 +298,66 @@ std::filesystem::path CurrentLogFile() {
   auto& state = State();
   std::lock_guard<std::mutex> lock(state.mutex);
   return state.log_file;
+}
+
+LogSnapshotResult CopyCurrentLogSnapshot(const std::filesystem::path& destination) {
+  auto& state = State();
+  auto completion = std::make_shared<std::promise<LogSnapshotResult>>();
+  auto ready = completion->get_future();
+  {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (!state.initialized || state.stop_requested) {
+      return {.error = "flush: logger-not-running"};
+    }
+    state.queue.push_back({.snapshot_boundary = std::move(completion)});
+    state.cv.notify_one();
+  }
+  auto result = ready.get();
+  if (!result.error.empty()) return result;
+
+  std::error_code ec;
+  const bool exists = std::filesystem::exists(destination, ec);
+  if (ec || exists) {
+    result.error = ec ? "copy: destination-status-failed: " + ec.message()
+                      : "copy: destination-already-exists";
+    return result;
+  }
+  std::ifstream input(result.source, std::ios::binary);
+  if (!input) {
+    result.error = "copy: source-open-failed";
+    return result;
+  }
+  std::ofstream output(destination, std::ios::binary);
+  if (!output) {
+    result.error = "copy: destination-open-failed";
+    std::filesystem::remove(destination, ec);
+    if (ec) result.error += "; cleanup: " + ec.message();
+    return result;
+  }
+  std::array<char, 64 * 1024> buffer;
+  std::uintmax_t remaining = result.bytes;
+  while (remaining != 0) {
+    const auto count = static_cast<std::streamsize>(
+        std::min<std::uintmax_t>(remaining, buffer.size()));
+    input.read(buffer.data(), count);
+    if (input.gcount() != count || input.bad()) {
+      result.error = "copy: source-read-failed";
+      break;
+    }
+    output.write(buffer.data(), count);
+    if (!output) {
+      result.error = "copy: destination-write-failed";
+      break;
+    }
+    remaining -= static_cast<std::uintmax_t>(count);
+  }
+  output.close();
+  if (!output && result.error.empty()) result.error = "copy: destination-close-failed";
+  if (!result.error.empty()) {
+    std::filesystem::remove(destination, ec);
+    if (ec) result.error += "; cleanup: " + ec.message();
+  }
+  return result;
 }
 
 void SetPerformanceLoggingEnabled(const bool enabled) {

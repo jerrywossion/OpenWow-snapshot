@@ -1,8 +1,8 @@
 # iOS Interaction
 
 OpenWoW's iOS input is a native multi-touch path, not SDL's synthetic mouse
-stream. UIKit is restricted to querying the device safe area and producing
-haptic feedback. The game HUD remains FrameXML/Lua rendered by OpenWoW, so it
+stream. UIKit supplies the device safe area, haptic feedback and the system
+log-sharing sheet. The game HUD remains FrameXML/Lua rendered by OpenWoW, so it
 shares action, cooldown, target, secure-execution and panel behavior with the
 desktop client.
 
@@ -22,6 +22,7 @@ desktop client.
 | World exposed outside UI controls | One-finger double tap in the same location | Direct right-click interaction on the second release |
 | World exposed outside UI controls | Hold for 475 ms, then release | Keep the world hover/tooltip until the next contact or cancellation, without interacting |
 | Utility drawer | Tap Zoom in / Zoom out | Adjust camera distance; simultaneous world touches do not zoom |
+| Utility drawer | Tap Logs / 导出日志 | Prepare a copy of the client log and open the iOS system share sheet |
 | Mobile action button | Tap | Runs the corresponding action on the current action-bar page |
 | Touch launcher beside the minimap | Tap | Hides or restores the entire mobile HUD, including the utility drawer and movement control; hiding releases held movement |
 
@@ -195,6 +196,41 @@ same root and hit testing consumes its resolved drawable rectangle.
 External keyboard, mouse/trackpad and controller routes stay active. Virtual
 movement uses independent source ownership, so releasing one input device does
 not cancel the same command still held by another.
+
+## Export logs on iOS
+
+Open the mobile HUD's **Menu / 功能 → Logs / 导出日志**. If the HUD is hidden,
+restore it using the **Touch / 触控** launcher first. The native share sheet
+offers Save to Files and the sharing apps installed on the device; save or send
+the file yourself, then provide the exported `.log` file for diagnosis. This
+works with development and TestFlight signing and needs no connected Mac or
+debugger. `/console exportlogs` invokes the same flow. The export button is
+disabled in macOS HUD preview, where the native sharing service is unavailable.
+
+The exporter copies the entire current `openwow-client.log`, including earlier
+app sessions and UI reloads. It queues a flush boundary behind existing log
+entries and copies that exact byte prefix in 64 KiB chunks on a background
+worker. Live logging continues. The file is named
+`OpenWoW-iOS-<UTC timestamp>-<identifier>.log`; a preparation entry records the
+app version/build. No Data archives, account configuration or other files are
+included. Preparation and sharing failures have `Log export` diagnostics and
+a visible error when the presenting screen remains available.
+
+Export preparation and sharing allow only one operation at a time. Opening
+the native UI releases held game input; it does not retain the current Lua
+runtime. Temporary copies remain available until sharing completes or is
+cancelled, then are removed. A later export removes copies left by a terminated
+process. Selecting Save to Files creates a separate copy at the chosen location.
+The iPad share sheet is anchored to the active game view's bounds.
+
+For device acceptance, use an iOS Release build containing this change with the
+normal build-12340 `zhCN` Data and compatible realm. Reproduce the reward issue,
+tap a reward and Complete Quest once, then export before `/reload`. Verify that
+the received file contains the preceding startup, `ui.touch_release`,
+`ui.pointer_click` and `quest reward selection` entries. Also cancel sharing and
+export again, and verify Files export on both iPhone and iPad. Keep the original
+log through acceptance; native presentation, cancellation and delivery require
+device confirmation.
 
 ## UI scale
 

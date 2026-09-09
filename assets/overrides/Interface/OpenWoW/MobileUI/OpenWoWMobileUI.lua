@@ -37,6 +37,8 @@ if locale == "zhCN" then
         chat = "聊天",
         system = "系统",
         graphics = "画质",
+        exportLogs = "导出日志",
+        exportLogsHint = "保存日志到文件，或通过系统分享菜单发送。",
         renderScale = "世界分辨率",
         renderScaleHint = "即时生效，界面清晰度不变",
     }
@@ -66,6 +68,8 @@ else
         chat = "Chat",
         system = "System",
         graphics = "Graphics",
+        exportLogs = "Logs",
+        exportLogsHint = "Save the log to Files or send it using the system share sheet.",
         renderScale = "World resolution",
         renderScaleHint = "Applies immediately. UI stays sharp.",
     }
@@ -308,6 +312,26 @@ utilityButtons[#utilityButtons + 1] = CreateLabeledButton(
         graphicsPanel:Show()
     end)
 
+local exportLogsButton = CreateLabeledButton(
+    "OpenWoWMobileExportLogs", utilityPanel, L.exportLogs,
+    "Interface\\Icons\\INV_Misc_Note_01",
+    function()
+        if state.logExportAvailable then
+            SetDrawerShown(false)
+            ConsoleExec("exportlogs")
+        end
+    end)
+state.logExportAvailable = false
+exportLogsButton:Disable()
+exportLogsButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText(L.exportLogs)
+    GameTooltip:AddLine(L.exportLogsHint, 1, 1, 1, true)
+    GameTooltip:Show()
+end)
+exportLogsButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+utilityButtons[#utilityButtons + 1] = exportLogsButton
+
 local layerButton = CreateLabeledButton(
     "OpenWoWMobileLayerButton", actionCluster, "1–6",
     "Interface\\Icons\\INV_Misc_Rune_01",
@@ -512,7 +536,12 @@ local actionLayout = {
 }
 
 function OpenWoWMobile_ApplyMetrics(drawableWidth, drawableHeight,
-                                    logicalWidth, logicalHeight)
+                                    logicalWidth, logicalHeight, logExportAvailable)
+    if state.logExportAvailable ~= (logExportAvailable == true) then
+        state.logExportAvailable = logExportAvailable == true
+        if state.logExportAvailable then exportLogsButton:Enable()
+        else exportLogsButton:Disable() end
+    end
     if not logicalWidth or not logicalHeight or logicalWidth <= 0 or
             logicalHeight <= 0 or drawableWidth <= 0 or drawableHeight <= 0 then
         error("OpenWoWMobile_ApplyMetrics: invalid drawable or logical viewport")

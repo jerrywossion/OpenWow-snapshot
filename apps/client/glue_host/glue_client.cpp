@@ -1,6 +1,7 @@
 #include "glue_client.h"
 #if defined(OPENWOW_PLATFORM_IOS)
 #include "mobile/mobile_ios_platform.h"
+#include "openwow/debug/diagnostics/debug_console.h"
 #endif
 #include "glue_host/presentation_settings.h"
 #include "glue_host/settings_capability_policy.h"
@@ -684,6 +685,8 @@ GlueClient::GlueClient(Options opts)
 
 GlueClient::~GlueClient() {
 #if defined(OPENWOW_PLATFORM_IOS)
+  (void)openwow::debug::DebugConsole::Get().UnregisterCommandIfCurrent(
+      "exportlogs", mobile_log_export_command_id_);
   game_loop_.game_ui().input_router().CancelTouchMovement("host-destroyed");
 #endif
 
@@ -869,8 +872,11 @@ void GlueClient::UpdateTextInputState() {
                                 game_loop_.game_ui().is_initialized() &&
                                 !game_loop_.game_ui().input_router().focused_frame_name().empty();
   const bool glue_accepts_text = mode_ != UiMode::kLoading && mode_ != UiMode::kInWorld;
-  const bool should_capture =
+  bool should_capture =
       window_focused_ && (in_world_editing || (glue_accepts_text && !FocusedEditbox().empty()));
+#if defined(OPENWOW_PLATFORM_IOS)
+  should_capture = should_capture && !mobile::IsLogExportActive();
+#endif
   bool platform_is_capturing = SDL_IsTextInputActive() == SDL_TRUE;
   if (should_capture && text_input_reactivation_pending_ &&
       platform_is_capturing) {
@@ -3047,6 +3053,15 @@ bool GlueClient::TickScenario(ScenarioRunner::Stage stage, std::uint32_t now_ms)
 
 int GlueClient::Run() {
   running_ = true;
+#if defined(OPENWOW_PLATFORM_IOS)
+  mobile_log_export_command_id_ = openwow::debug::DebugConsole::Get().RegisterCommand(
+      "exportlogs", "Share a copy of the current client log",
+      [this](const std::vector<std::string>& args) -> std::string {
+        if (args.size() != 1) return "Usage: exportlogs";
+        mobile_log_export_requested_.store(true);
+        return {};
+      });
+#endif
   present_pacer_.Reset();
   stock_window_event_state_.Reset();
   auto &clock = openwow::core::GameClock::Instance();
@@ -3081,6 +3096,15 @@ int GlueClient::Run() {
       last_phase_ms = elapsed_ms;
     };
     PumpPendingWindowEvents();
+#if defined(OPENWOW_PLATFORM_IOS)
+    if (running_ && application_active_ && mobile_log_export_requested_.exchange(false)) {
+      // Leave the Lua/input dispatch stack before presenting native UI.
+      CancelMobileInput();
+      if (mode_ == UiMode::kInWorld) ReleaseInWorldInput();
+      mobile::PresentLogExport(openwow::platform::WindowManager::Get().GetNativeHandle());
+      UpdateTextInputState();
+    }
+#endif
     mark_phase(0);
     if (!running_)
       break;

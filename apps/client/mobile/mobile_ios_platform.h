@@ -22,6 +22,11 @@ enum class HapticFeedback {
     void* native_window) noexcept;
 void PerformHapticFeedback(HapticFeedback feedback) noexcept;
 
+// Main-thread UI operations. The export owns its temporary copy until the
+// system share sheet completes; it never retains a game UI or Lua reference.
+void PresentLogExport(void* native_window);
+[[nodiscard]] bool IsLogExportActive() noexcept;
+
 struct ProcessPerformanceMetrics {
   std::int64_t physical_footprint_bytes{-1};
   int memory_query_status{0};

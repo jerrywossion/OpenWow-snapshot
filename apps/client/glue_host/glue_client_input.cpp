@@ -343,6 +343,17 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
   }
 
 #if defined(OPENWOW_PLATFORM_IOS)
+  if (mobile::IsLogExportActive() &&
+      (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERMOTION ||
+       event.type == SDL_FINGERUP || event.type == SDL_MOUSEBUTTONDOWN ||
+       event.type == SDL_MOUSEBUTTONUP || event.type == SDL_MOUSEMOTION ||
+       event.type == SDL_MOUSEWHEEL || event.type == SDL_KEYDOWN ||
+       event.type == SDL_KEYUP || event.type == SDL_TEXTINPUT ||
+       event.type == SDL_TEXTEDITING || event.type == SDL_JOYAXISMOTION ||
+       event.type == SDL_CONTROLLERAXISMOTION ||
+       event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP)) {
+    return;
+  }
   if (event.type == SDL_FINGERDOWN || event.type == SDL_FINGERMOTION ||
       event.type == SDL_FINGERUP) {
     HandleMobileFingerEvent(event.tfinger);
@@ -785,7 +796,7 @@ void GlueClient::RefreshMobileInputViewport() {
       static_cast<double>(viewport.drawable_width),
       static_cast<double>(viewport.drawable_height),
       static_cast<double>(viewport.logical_width),
-      static_cast<double>(viewport.logical_height));
+      static_cast<double>(viewport.logical_height), true);
 }
 
 void GlueClient::UpdateMobileMovement(

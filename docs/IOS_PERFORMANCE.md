@@ -15,6 +15,11 @@ startup stderr line `OpenWoW log: <absolute path>` identifies the actual path.
 Do not collect logs from the game/content root. No additional trace file is
 needed. These are maintained diagnostics, not temporary acceptance probes.
 
+While away from a Mac, use the mobile HUD's **Menu / 功能 → Logs / 导出日志**
+to save or share a copy of this log. It includes the queued entries up to the
+export boundary and all earlier sessions still in the current log file.
+See [the export workflow](IOS_INTERACTION.md#export-logs-on-ios).
+
 For a development-signed device build, connect and unlock the iPhone, then
 copy just the log with Xcode's device tool. Replace `My iPhone` with the
 configured device name or identifier:
@@ -30,7 +35,8 @@ This transfer does not launch the client or attach a debugger, and does not
 download the Data archives. The source path is relative to the iOS app data
 container; a custom `OPENWOW_USER_DATA` setting requires its corresponding
 container-relative path. File sharing is disabled in the app's Info.plist, so
-the log is not exposed through the iPhone Files app.
+the live log is not exposed through the iPhone Files app. The export flow can
+save an independent copy there through the system share sheet.
 
 ## What the records measure
 

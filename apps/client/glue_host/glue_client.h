@@ -327,6 +327,8 @@ class GlueClient {
   bool right_mouse_held_{false};
 #if defined(OPENWOW_PLATFORM_IOS)
   mobile::MobileInputController mobile_input_;
+  std::atomic<bool> mobile_log_export_requested_{false};
+  std::uint64_t mobile_log_export_command_id_{0};
   std::uint32_t last_mobile_glue_tap_ms_{0};
   float last_mobile_glue_tap_x_{0.0F};
   float last_mobile_glue_tap_y_{0.0F};

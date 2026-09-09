@@ -89,7 +89,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     mobile/mobile_input_controller.h
     mobile/mobile_ios_platform.h
     mobile/mobile_ios_platform.mm
+    mobile/mobile_log_export.mm
   )
+  set_source_files_properties(mobile/mobile_log_export.mm PROPERTIES
+    COMPILE_OPTIONS "-fobjc-arc")
 
   function(openwow_add_ios_resource_tree target source_root bundle_root)
     file(GLOB_RECURSE resource_files CONFIGURE_DEPENDS
