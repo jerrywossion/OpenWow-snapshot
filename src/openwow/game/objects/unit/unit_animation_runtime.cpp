@@ -2061,7 +2061,12 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
   const auto weapon = GetVisibleWeaponMetadataForAnimation(owner_, weapon_slot);
 
   if (fourcc == unit_combat::kFourCC_CSS) {
-    if (weapon.has_value() && owner_.dbc_loader() != nullptr) {
+    const auto victim_state = static_cast<unit_combat::AttackResultType>(
+        pending_combat_audio_.victim_state);
+    if (victim_state != unit_combat::AttackResultType::kMiss &&
+        victim_state != unit_combat::AttackResultType::kDodge &&
+        victim_state != unit_combat::AttackResultType::kEvade &&
+        weapon.has_value() && owner_.dbc_loader() != nullptr) {
       const auto *display = owner_.dbc_loader()->item_display_info().LookupEntry(
           weapon->display_id);
       if (display != nullptr) {
@@ -2069,11 +2074,13 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
             owner_.sound_runtime(), display->group_sound_index,
             (pending_combat_audio_.hit_info &
              unit_combat::AttackHitFlags::kCriticalHit) != 0u,
-            sound_position, pending_combat_audio_.overkill != 0u,
+            sound_position,
+            (pending_combat_audio_.hit_info & unit_combat::AttackHitFlags::kMiss) != 0u,
             use_listener_priority);
       }
     }
-    pending_combat_audio_ = {};
+    // Swing audio precedes contact. The contact event still needs this result
+    // for creature attack sounds, weapon impact and the victim reaction.
     return;
   }
 
@@ -2084,7 +2091,7 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
         session, pending_combat_audio_.hit_info);
   }
 
-  if (is_attack_hit_event) {
+  if (is_attack_hit_event && pending_combat_audio_.damage != 0u) {
     const auto *sound_data = owner_.Sound().ResolveActive(owner_);
     if (sound_data != nullptr) {
       const std::array custom_attacks = {
@@ -2112,10 +2119,10 @@ void UnitAnimationRuntime::HandleCombatAudioAnimationEvent(
     case 1u: result_type = unit_combat::AttackResultType::kWound; break;
     case 2u: result_type = unit_combat::AttackResultType::kDodge; break;
     case 3u: result_type = unit_combat::AttackResultType::kParry; break;
-    case 4u: result_type = unit_combat::AttackResultType::kBlock; break;
-    case 5u: result_type = unit_combat::AttackResultType::kEvade; break;
-    case 6u: result_type = unit_combat::AttackResultType::kImmune; break;
-    case 7u:
+    case 4u: result_type = unit_combat::AttackResultType::kInterrupt; break;
+    case 5u: result_type = unit_combat::AttackResultType::kBlock; break;
+    case 6u: result_type = unit_combat::AttackResultType::kEvade; break;
+    case 7u: result_type = unit_combat::AttackResultType::kImmune; break;
     case 8u: result_type = unit_combat::AttackResultType::kDeflect; break;
     default: break;
   }
