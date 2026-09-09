@@ -154,6 +154,20 @@ equal to the authored group count; it does not request a nonexistent group file.
 Only the ordinary portal traversal needs intersecting room groups to be resident.
 Its portal query uses the active room's ceiling after the world-to-local transform.
 
+The indoor zoom radius defines two different bounds. The refresh cell is snapped
+in world space and is one radius wide. The source query expands that cell by one
+radius on every side, including Z, before transforming it into WMO-local space.
+Its horizontal width is therefore three radii; the displayed circle still has a
+diameter of two radii. Using the refresh cell directly for admission drops nearby
+rooms and tiles that belong inside the visible circle. Candidate room loading,
+portal traversal and tile admission must all consume the expanded query.
+
+This coverage preserves the authored room connections and floor-family rules.
+The active room is drawn over other admitted rooms. Source textures are prepared
+together, and a pending replacement keeps the previous published tiles visible.
+Legitimate unconnected rooms, other floor families and transparent map regions
+remain subject to the original source and rendering rules.
+
 For the Stormwind black-minimap check, use the current iOS Release with the
 existing build-12340 `zhCN` Data and realm. Enter the same character in Stormwind,
 wait for world entry, and walk between the city streets and a nearby interior.
@@ -163,6 +177,17 @@ HUD. Include `MinimapIntegration: WMO minimap`, its `root`, `group`, `tile_group
 `mapped`, `submitted`, `unresolved` fields and any texture loading errors. Pending
 replacement textures keep the previous published source until ready. Compilation
 and static resource checks do not establish device rendering or marker alignment.
+
+For indoor coverage acceptance, use the same configuration in Shadowglen's
+Shadowthread Cave. At a fixed minimap zoom, walk from the entrance into the first
+room, pause, then follow a connecting passage and return across the same boundary.
+Nearby connected sections inside the circle should appear without requiring the
+player to enter each section. Repeat at a wider and narrower zoom, with minimap
+rotation enabled and disabled, and check a building with separated floors as a
+cross-check. Export the full startup-to-attempt log, including the reproduction
+time and `MinimapIntegration: WMO minimap` records (`radius`, `group`, `tile_groups`,
+`records`, `mapped`, `submitted`, `unresolved` and pending/failure reasons). Device
+coverage, source transitions and marker alignment remain user acceptance items.
 
 ## Layout and font optimization follow-up
 

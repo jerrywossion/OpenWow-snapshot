@@ -1912,18 +1912,25 @@ WmoMinimapSource WorldMap::PrepareWmoMinimapSource(
     return source;
   }
 
-  const float query_world_min_x =
+  const float cell_world_min_x =
       std::floor(x / visible_radius) * visible_radius;
-  const float query_world_min_y =
+  const float cell_world_min_y =
       std::floor(y / visible_radius) * visible_radius;
-  const Bounds world_query_bounds{
-      query_world_min_x,
-      query_world_min_y,
+  Bounds world_query_bounds{
+      cell_world_min_x,
+      cell_world_min_y,
       z - visible_radius * 0.5f,
-      query_world_min_x + visible_radius,
-      query_world_min_y + visible_radius,
+      cell_world_min_x + visible_radius,
+      cell_world_min_y + visible_radius,
       z,
   };
+  // The snapped cell controls refresh cadence; tile and portal admission use
+  // its bounds expanded by one visible radius on every side. Expand in world
+  // space before transforming so rotated placements use the same coverage.
+  for (std::size_t axis = 0u; axis < 3u; ++axis) {
+    world_query_bounds[axis] -= visible_radius;
+    world_query_bounds[axis + 3u] += visible_radius;
+  }
   Bounds query_bounds{
       std::numeric_limits<float>::infinity(),
       std::numeric_limits<float>::infinity(),

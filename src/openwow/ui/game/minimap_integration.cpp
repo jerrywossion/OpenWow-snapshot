@@ -708,6 +708,7 @@ void MinimapIntegration::UpdateVisibleTerrainTiles(const float player_x,
       report_diagnostic(
           "WMO minimap ready root=" + wmo_source.root_path +
               " group=" + std::to_string(wmo_source.active_group_index) +
+              " radius=" + std::to_string(minimap_state_.GetVisibleRadius()) +
               " tile_groups=[" + group_summary + "]" +
               " records=" + std::to_string(wmo_source.tiles.size()) +
               " mapped=" + std::to_string(visible_paths.size()) +
