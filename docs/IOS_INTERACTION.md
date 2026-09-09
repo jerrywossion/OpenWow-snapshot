@@ -591,3 +591,34 @@ timeout, before the hold, during inspection, on the next contact, at drag
 start, on drop or on cancellation.
 Device overlap, finger comfort, multi-touch timing and reload/resume behavior
 remain user acceptance items until confirmed on this build.
+
+## Gameplay checks after the September 9 fixes
+
+Use the current Release client with build 12340 Data, the `zhCN` locale archive
+chain, the usual server, and sound/effects enabled. These are device acceptance
+checks; compilation does not establish the visual, input or audio result.
+
+| Area | Steps | Expected result |
+| --- | --- | --- |
+| Hearthstone binding | Visit a different inn while still bound to the old one; request a new bind before confirming | Confirmation names the destination area; cancelling preserves the old bind |
+| Camera zoom | After a fresh launch, tap Menu → zoom in/out several times without using a keyboard or mouse | Each tap moves the camera in the requested direction within the configured distance limits |
+| Settings | Change auto loot and outdoor/indoor minimap zoom; background the app, close it, and log in to the same character; also reload the UI | Auto loot and both minimap zoom values are retained; indoor/outdoor transitions select their corresponding zoom |
+| Quest prose | Open quest details, progress, rewards and the quest log with male and female characters | `$G` gender branches and `$T` rank/sex branches show the selected text; player/class/race substitutions use the active character and locale |
+| Release spirit | Die during the current session without reconnecting; tap Release Spirit | The stock death popup appears and release enters ghost form; resurrection clears the popup |
+| Auto attack | Select a living hostile target, approach melee range, then tap Interact or the ordinary attack action once | Ordinary swings continue until stopped or the target becomes invalid; selecting a target alone does not start attacking |
+| Combat audio | Let several creatures attack and exchange ordinary hits, misses and blocked attacks | Swing audio does not suppress subsequent creature/contact/impact sounds; the correct result type selects the feedback |
+| NPC voice | Interact with voiced NPCs and close their dialogs, allowing each line to finish | Greetings and farewell lines play from the NPC's voice set |
+| Flightmaster marker | Approach the Rut'theran Village flightmaster with a character that has not learned that flight point | An unlearned point has a green exclamation mark; report whether the point was already known if the marker is absent |
+
+If a check fails, export the log with Menu → Export Logs after the attempt.
+Include the latest `log-start`/`Client startup` through the failed interaction,
+and identify the character location and action. Useful entries are
+`DeathManager` (including `release_seconds`), `Runtime configuration`,
+`AccountData`, `Minimap zoom`, `Quest text`, `Object text`, `NPC sound`,
+`Taxi node status`, `NPC overlay`, and any preceding Lua, audio or resource error.
+The Rut'theran marker issue still needs a device log to distinguish the server's
+learned-point state from model attachment or rendering failure.
+`Quest text` records the server packet, quest ID,
+active locale and server-authored title, so an English quest can be traced even
+when its name was not recorded separately. Full English quest prose still needs
+a concrete sample to distinguish missing server translation from cached text.
