@@ -1,4 +1,5 @@
 #include "openwow/ui/game/runtime/retained_layout.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/foundation/diagnostics/performance_logging.h"
 
 #include "openwow/ui/animation/animation_coordinate_space.h"
@@ -37,6 +38,14 @@ namespace {
 
 constexpr float kUiVirtualHeight = 768.0F;
 constexpr float kScaleWriteEpsilon = 0.00000023841858F;
+
+void LogMoveSizingFailure(const char* stage, std::string_view name, int mode,
+                           const char* reason) {
+  openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+      std::string("UI move/sizing failed: source=retained-layout stage=") + stage +
+      " frame=" + std::string(name.substr(0, 256)) + " mode=" + std::to_string(mode) +
+      " reason=" + reason);
+}
 
 namespace layout_field {
 
@@ -181,8 +190,9 @@ bool ReadBoolean(lua_State* lua, int index, const char* field) {
 }
 
 void ClearField(lua_State* lua, int index, const char* field) {
+  index = lua_absindex(lua, index);
   lua_pushnil(lua);
-  lua_setfield(lua, lua_absindex(lua, index), field);
+  lua_setfield(lua, index, field);
 }
 
 std::optional<std::string> ReadInternedStringField(lua_State* lua, int index,
@@ -1384,16 +1394,27 @@ void RetainedLayout::ApplyLayoutCache(std::string_view text) {
 
 bool RetainedLayout::BeginMoveSizing(std::string_view name, int mode, float cursor_x,
                                      float cursor_y, MoveSizingSession* session) {
-  if (session == nullptr || session->active) return false;
+  const auto fail = [&](const char* reason) {
+    LogMoveSizingFailure("begin", name, mode, reason);
+    return false;
+  };
+  if (session == nullptr || session->active) return fail("invalid-session");
+  if (impl_->lua == nullptr) return fail("lua-unavailable");
   SolveIfDirty();
   auto* frame = impl_->frames.FindFrame(name);
   const auto ref = impl_->frames.FindLuaRef(name);
   const auto* rect = FindRect(name);
-  if (frame == nullptr || !ref.has_value() || rect == nullptr || impl_->lua == nullptr) return false;
-  *session = {.frame_name = std::string(name), .mode = mode, .cursor_x = cursor_x,
-              .cursor_y = cursor_y, .active = true};
+  if (frame == nullptr) return fail("frame-missing");
+  if (!ref.has_value()) return fail("lua-binding-missing");
+  if (rect == nullptr) return fail("resolved-geometry-missing");
   const int top = lua_gettop(impl_->lua);
   lua_rawgeti(impl_->lua, LUA_REGISTRYINDEX, *ref);
+  if (lua_istable(impl_->lua, -1) == 0) {
+    lua_settop(impl_->lua, top);
+    return fail("lua-binding-invalid");
+  }
+  *session = {.frame_name = std::string(name), .mode = mode, .cursor_x = cursor_x,
+              .cursor_y = cursor_y, .active = true};
   if (lua_istable(impl_->lua, -1) != 0) {
     const int index = lua_absindex(impl_->lua, -1);
     session->relative_name = RelativeName(*frame, ReadAnchors(impl_->lua, index));
@@ -1431,11 +1452,14 @@ bool RetainedLayout::BeginMoveSizing(std::string_view name, int mode, float curs
 }
 
 bool RetainedLayout::UpdateMoveSizing(MoveSizingSession* session, float x, float y) {
-  if (session == nullptr || !session->active || impl_->lua == nullptr) return false;
+  if (session == nullptr || !session->active) return false;
+  if (impl_->lua == nullptr) return AbortMoveSizing(session, "update", "lua-unavailable");
   auto* frame = impl_->frames.FindFrame(session->frame_name);
   const auto ref = impl_->frames.FindLuaRef(session->frame_name);
   const auto* current = FindRect(session->frame_name);
-  if (frame == nullptr || !ref.has_value() || current == nullptr) { *session = {}; return false; }
+  if (frame == nullptr) return AbortMoveSizing(session, "update", "frame-missing");
+  if (!ref.has_value()) return AbortMoveSizing(session, "update", "lua-binding-missing");
+  if (current == nullptr) return AbortMoveSizing(session, "update", "resolved-geometry-missing");
   const float dx = x - session->cursor_x, dy = y - session->cursor_y;
   if (dx == 0.0F && dy == 0.0F) return true;
   float left = current->x, top_edge = current->y;
@@ -1452,6 +1476,10 @@ bool RetainedLayout::UpdateMoveSizing(MoveSizingSession* session, float x, float
   const int top = lua_gettop(impl_->lua);
   lua_rawgeti(impl_->lua, LUA_REGISTRYINDEX, *ref);
   const int index = lua_absindex(impl_->lua, -1);
+  if (lua_istable(impl_->lua, index) == 0) {
+    lua_settop(impl_->lua, top);
+    return AbortMoveSizing(session, "update", "lua-binding-invalid");
+  }
   if (lua_istable(impl_->lua, index) != 0 && session->mode == 4 &&
       ApplyAnchorDelta(impl_->lua, index, dx, dy, scale)) {
     lua_settop(impl_->lua, top);
@@ -1524,15 +1552,20 @@ bool RetainedLayout::UpdateMoveSizing(MoveSizingSession* session, float x, float
 }
 
 bool RetainedLayout::CommitMoveSizing(MoveSizingSession* session) {
-  if (session == nullptr || !session->active || impl_->lua == nullptr) return false;
+  if (session == nullptr || !session->active) return false;
+  if (impl_->lua == nullptr) return AbortMoveSizing(session, "commit", "lua-unavailable");
   const auto ref = impl_->frames.FindLuaRef(session->frame_name);
-  if (!ref.has_value()) return false;
+  if (!ref.has_value()) return AbortMoveSizing(session, "commit", "lua-binding-missing");
   RefreshTrackedLayout();
   const auto* frame = impl_->frames.FindFrame(session->frame_name);
-  if (frame == nullptr) return false;
+  if (frame == nullptr) return AbortMoveSizing(session, "commit", "frame-missing");
   bool committed = false;
   const int top = lua_gettop(impl_->lua);
   lua_rawgeti(impl_->lua, LUA_REGISTRYINDEX, *ref);
+  if (lua_istable(impl_->lua, -1) == 0) {
+    lua_settop(impl_->lua, top);
+    return AbortMoveSizing(session, "commit", "lua-binding-invalid");
+  }
   if (lua_istable(impl_->lua, -1) != 0) {
     const int index = lua_absindex(impl_->lua, -1);
     double left = 0, top_edge = 0, right = 0, bottom = 0;
@@ -1542,6 +1575,9 @@ bool RetainedLayout::CommitMoveSizing(MoveSizingSession* session) {
         !ReadNumber(impl_->lua, index, "__ow_drag_bottom", &bottom)) {
       if (const auto* rect = FindRect(session->frame_name)) {
         left = rect->x; top_edge = rect->y; right = rect->x + rect->width; bottom = rect->y + rect->height;
+      } else {
+        lua_settop(impl_->lua, top);
+        return AbortMoveSizing(session, "commit", "resolved-geometry-missing");
       }
     }
     const std::string relative_name = session->relative_name.empty()
@@ -1564,6 +1600,25 @@ bool RetainedLayout::CommitMoveSizing(MoveSizingSession* session) {
   *session = {};
   if (committed) { QueueLuaMutation(name); SolveIfDirty(); }
   return committed;
+}
+
+bool RetainedLayout::AbortMoveSizing(MoveSizingSession* session, const char* stage,
+                                      const char* reason) {
+  LogMoveSizingFailure(stage, session->frame_name, session->mode, reason);
+  if (impl_->lua != nullptr) {
+    if (const auto ref = impl_->frames.FindLuaRef(session->frame_name)) {
+      const int top = lua_gettop(impl_->lua);
+      lua_rawgeti(impl_->lua, LUA_REGISTRYINDEX, *ref);
+      if (lua_istable(impl_->lua, -1)) {
+        for (const char* field : {"__ow_drag_active", "__ow_drag_mode", "__ow_drag_left",
+                                  "__ow_drag_top", "__ow_drag_right", "__ow_drag_bottom"})
+          ClearField(impl_->lua, -1, field);
+      }
+      lua_settop(impl_->lua, top);
+    }
+  }
+  *session = {};
+  return false;
 }
 
 std::optional<openwow::ui::framexml::FrameRect> RetainedLayout::ResolveAnonymousRegionRect(

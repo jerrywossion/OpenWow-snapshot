@@ -136,6 +136,8 @@ class RetainedLayout final {
   [[nodiscard]] bool CommitMoveSizing(MoveSizingSession* session);
 
  private:
+  bool AbortMoveSizing(MoveSizingSession* session, const char* stage,
+                        const char* reason);
   struct Impl;
   std::unique_ptr<Impl> impl_;
 };

@@ -131,6 +131,7 @@ private:
     float start_y{0.0F};
     bool active{false};
     bool drag_started{false};
+    bool drag_threshold_reported{false};
 
     bool is_slider{false};
     std::string hyperlink_link;
@@ -214,6 +215,10 @@ private:
 
   static std::size_t ButtonCaptureIndex(std::uint32_t button_flag) noexcept;
   MouseButtonCaptureState *FindCapture(std::uint32_t button_flag) noexcept;
+  void TracePointerEvent(const char* phase, std::string_view frame_name,
+                         float x, float y, std::uint32_t button_flag, bool touch);
+  void TraceMoveSizing(const char* phase, std::string_view frame_name,
+                        int mode, const char* result);
   bool HandlePointerDownByFlag(float x, float y,
                                std::uint32_t button_flag, bool touch);
   bool HandlePointerUpByFlag(float x, float y,
@@ -251,6 +256,7 @@ private:
   std::array<MouseButtonCaptureState, 31> mouse_button_captures_{};
   std::unordered_map<std::string, std::uint32_t> button_last_click_time_ms_;
   RetainedLayout::MoveSizingSession active_move_sizing_;
+  bool move_sizing_update_reported_{false};
   float last_mouse_x_{0.0F};
   float last_mouse_y_{0.0F};
   bool have_last_mouse_position_{false};

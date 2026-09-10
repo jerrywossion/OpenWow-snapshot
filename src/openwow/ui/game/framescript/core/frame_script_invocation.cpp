@@ -245,7 +245,7 @@ int InvokeFrameScriptFunction(
 
   openwow::ui::lua_set_execution_taint_state(state, {});
 
-  if (performance_timer.ElapsedMs() >= 20.0) {
+  if (status != LUA_OK || performance_timer.ElapsedMs() >= 20.0) {
     // Inspect retained Lua metadata only; never call GetName or resolve layout.
     lua_Debug source{};
     lua_pushvalue(state, function_index);
@@ -256,11 +256,28 @@ int InvokeFrameScriptFunction(
                    : "inline_or_native";
     context += " line=" + std::to_string(source.linedefined);
     if (self != 0 && lua_istable(state, self)) {
-      lua_pushliteral(state, "__ow_name");
+      lua_pushliteral(state, "__ow_frame_key");
       lua_rawget(state, self);
+      if (lua_type(state, -1) != LUA_TSTRING) {
+        lua_pop(state, 1);
+        lua_pushliteral(state, "__ow_name");
+        lua_rawget(state, self);
+      }
       if (lua_type(state, -1) == LUA_TSTRING) {
         context += " frame=";
-        context += lua_tostring(state, -1);
+        context += std::string_view(lua_tostring(state, -1)).substr(0, 256);
+      }
+      lua_pop(state, 1);
+      lua_pushliteral(state, "__ow_parent");
+      lua_rawget(state, self);
+      if (lua_istable(state, -1)) {
+        lua_pushliteral(state, "__ow_frame_key");
+        lua_rawget(state, -2);
+        if (lua_type(state, -1) == LUA_TSTRING) {
+          context += " parent=";
+          context += std::string_view(lua_tostring(state, -1)).substr(0, 256);
+        }
+        lua_pop(state, 1);
       }
       lua_pop(state, 1);
     }
@@ -270,6 +287,10 @@ int InvokeFrameScriptFunction(
     }
     context += " status=" + std::to_string(status) +
                " lua_kb=" + std::to_string(lua_gc(state, LUA_GCCOUNT, 0));
+    if (status != LUA_OK) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+          "FrameScript failure context: stage=callback " + context);
+    }
     static openwow::diagnostics::PerformanceLogSite performance_site;
     openwow::diagnostics::LogPerformanceDuration(
         performance_site, "ui.script_callback", performance_timer, context);

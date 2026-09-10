@@ -42,6 +42,63 @@ constexpr float kTouchDoubleTapPoints = 24.0F;
 constexpr float kTouchSlopPoints = 9.0F;
 constexpr float kTouchScrollPoints = 24.0F;
 
+std::string DescribeRetainedFrameForDiagnostics(
+    lua_State* lua, const FrameStore& frames, const RetainedLayout& layout,
+    std::string_view name) {
+  std::string context = " frame=" + std::string(name.substr(0, 192));
+  if (const auto* frame = frames.FindFrame(name)) {
+    context += " parent=" + frame->parent.substr(0, 192) +
+               " kind=" + frame->kind + " mouse=" +
+               (frame->runtime_uses_mouse ? "1" : "0") +
+               " level=" + std::to_string(frame->frame_level);
+  }
+  // Published geometry only: diagnostics must not become a layout commit.
+  if (const auto rect = layout.rects().find(name); rect != layout.rects().end()) {
+    context += " rect=" + std::to_string(rect->second.x) + "," +
+               std::to_string(rect->second.y) + "," +
+               std::to_string(rect->second.width) + "," +
+               std::to_string(rect->second.height);
+  }
+  const auto ref = frames.FindLuaRef(name);
+  if (lua == nullptr || !ref) return context;
+  const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(lua);
+  const int top = lua_gettop(lua);
+  lua_rawgeti(lua, LUA_REGISTRYINDEX, *ref);
+  const int frame = lua_gettop(lua);
+  if (lua_istable(lua, frame)) {
+    for (const char* field : {"__ow_movable", "__ow_resizable",
+                              kRegisteredDragButtonMaskField}) {
+      lua_pushstring(lua, field);
+      lua_rawget(lua, frame);
+      context += " " + std::string(field) + "=";
+      if (lua_type(lua, -1) == LUA_TBOOLEAN) {
+        context += lua_toboolean(lua, -1) ? "1" : "0";
+      } else if (lua_type(lua, -1) == LUA_TNUMBER) {
+        context += std::to_string(lua_tointeger(lua, -1));
+      } else {
+        context += "unset";
+      }
+      lua_pop(lua, 1);
+    }
+    for (const char* handler : {"OnMouseDown", "OnDragStart", "OnMouseUp"}) {
+      context += " " + std::string(handler) + "=";
+      if (PushFrameScriptHandler(lua, frame, handler)) {
+        lua_Debug source{};
+        if (lua_getinfo(lua, ">S", &source) && source.source && source.source[0] == '@') {
+          context += std::string(std::string_view(source.source + 1).substr(0, 128)) +
+                     ":" + std::to_string(source.linedefined);
+        } else {
+          context += "inline_or_native";
+        }
+      } else {
+        context += "none";
+      }
+    }
+  }
+  lua_settop(lua, top);
+  return context;
+}
+
 template <typename PushArguments>
 bool FireFrameHandler(lua_State *state, int frame_ref, const char *handler, int argument_count,
                       PushArguments &&push_arguments) {
@@ -461,6 +518,7 @@ void FrameInputRouter::Reset() noexcept {
   mouse_button_captures_ = {};
   button_last_click_time_ms_.clear();
   active_move_sizing_ = {};
+  move_sizing_update_reported_ = false;
   last_mouse_x_ = 0.0F;
   last_mouse_y_ = 0.0F;
   have_last_mouse_position_ = false;
@@ -991,6 +1049,7 @@ bool FrameInputRouter::HandlePointerDownByFlag(float x, float y,
   if (pressed_hyperlink != nullptr) {
     hit = pressed_hyperlink->frame_name;
   }
+  TracePointerEvent("down", hit, x, y, button_flag, touch);
 
   if (!hit.empty()) {
     if (const auto *frame = frames_.FindFrame(hit); frame != nullptr && FrameIsEditBox(*frame)) {
@@ -1209,6 +1268,9 @@ bool FrameInputRouter::HandlePointerUpByFlag(float x, float y,
   edit_box_drag_select_frame_.clear();
   const char *button_name = openwow::ui::widgets::MouseButtonName(button_flag);
   bool handled = false;
+  const auto* release_capture = FindCapture(button_flag);
+  TracePointerEvent("up", release_capture != nullptr ? release_capture->frame_name : "",
+                     x, y, button_flag, touch);
 
   if (active_move_sizing_.active) {
     (void)StopFrameMoveSizing(active_move_sizing_.frame_name);
@@ -1684,7 +1746,11 @@ bool FrameInputRouter::HandlePointerMove(float x, float y, bool touch) {
   }
 
   if (active_move_sizing_.active && layout_.UpdateMoveSizing(&active_move_sizing_, x, y)) {
-
+    if (!move_sizing_update_reported_ && openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+      TraceMoveSizing("update", active_move_sizing_.frame_name,
+                       active_move_sizing_.mode, "first-pointer-update");
+      move_sizing_update_reported_ = true;
+    }
     traversal_.InvalidateHitTest();
     MarkMouseFocusDirty();
     RebuildTraversalIfDirty();
@@ -1717,6 +1783,10 @@ bool FrameInputRouter::HandlePointerMove(float x, float y, bool touch) {
     const float dy = y - capture.start_y;
     if (dx * dx + dy * dy < kDragThresholdSquared) {
       continue;
+    }
+    if (!capture.drag_threshold_reported && openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+      TracePointerEvent("drag-threshold", capture.frame_name, x, y, capture.button_flag, touch);
+      capture.drag_threshold_reported = true;
     }
     std::uint32_t drag_mask = 0;
     const int top = lua_gettop(lua_);
@@ -1967,6 +2037,7 @@ void FrameInputRouter::SetRunningMacroInputButtonProvider(
 
 bool FrameInputRouter::BeginFrameMoveSizing(const std::string &name, int mode) {
   if (active_move_sizing_.active) {
+    TraceMoveSizing("begin", name, mode, "rejected-active-session");
     return false;
   }
   layout_.SolveIfDirty();
@@ -1978,18 +2049,50 @@ bool FrameInputRouter::BeginFrameMoveSizing(const std::string &name, int mode) {
     cursor_x = static_cast<float>(mouse_x);
     cursor_y = static_cast<float>(mouse_y);
   }
-  return layout_.BeginMoveSizing(name, mode, cursor_x, cursor_y, &active_move_sizing_);
+  const bool started = layout_.BeginMoveSizing(name, mode, cursor_x, cursor_y, &active_move_sizing_);
+  move_sizing_update_reported_ = false;
+  TraceMoveSizing("begin", name, mode, started ? "started" : "failed");
+  return started;
 }
 
 bool FrameInputRouter::StopFrameMoveSizing(const std::string &name) {
   if (!active_move_sizing_.active || active_move_sizing_.frame_name != name) {
+    TraceMoveSizing("stop", name, active_move_sizing_.mode, "no-matching-session");
     return false;
   }
+  // Callers may pass a reference into the session that CommitMoveSizing clears.
+  const std::string frame_name = name;
+  const int mode = active_move_sizing_.mode;
   const bool committed = layout_.CommitMoveSizing(&active_move_sizing_);
   if (committed) {
     RebuildTraversalIfDirty();
   }
+  TraceMoveSizing("commit", frame_name, mode, committed ? "committed" : "failed");
   return committed;
+}
+
+void FrameInputRouter::TracePointerEvent(const char* phase, std::string_view frame_name,
+                                         float x, float y, std::uint32_t button_flag,
+                                         bool touch) {
+  if (!openwow::diagnostics::IsPerformanceLoggingEnabled()) return;
+  openwow::diagnostics::LogPerformanceEvent("ui.pointer_dispatch",
+      std::string("phase=") + phase + " source=" + (touch ? "touch" : "mouse") +
+      " button=" + std::to_string(button_flag) + " xy=" + std::to_string(x) + "," +
+      std::to_string(y) + " hover=" + mouseover_frame_.substr(0, 192) +
+      " active_move=" + active_move_sizing_.frame_name.substr(0, 192) +
+      DescribeRetainedFrameForDiagnostics(lua_, frames_, layout_, frame_name));
+}
+
+void FrameInputRouter::TraceMoveSizing(const char* phase, std::string_view frame_name,
+                                        int mode, const char* result) {
+  if (!openwow::diagnostics::IsPerformanceLoggingEnabled()) return;
+  openwow::diagnostics::LogPerformanceEvent("ui.move_sizing",
+      std::string("phase=") + phase + " result=" + result +
+      " mode=" + std::to_string(mode) +
+      " cursor=" + std::to_string(last_mouse_x_) + "," + std::to_string(last_mouse_y_) +
+      " active_move=" + active_move_sizing_.frame_name.substr(0, 192) +
+      " saw_update=" + (move_sizing_update_reported_ ? "1" : "0") +
+      DescribeRetainedFrameForDiagnostics(lua_, frames_, layout_, frame_name));
 }
 
 void FrameInputRouter::QueueEditBoxStateUpdate(int lua_ref) {
