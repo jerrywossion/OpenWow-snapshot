@@ -164,6 +164,8 @@ struct ObjectProjection {
   RenderMatrix4x4 world_transform{kRenderIdentityMatrix4x4};
   bool has_explicit_world_transform{false};
 
+  std::optional<RenderVec3> ground_contact_normal;
+
   std::uint32_t display_id{0};
   bool visible{true};
   bool needs_model_load{true};
@@ -293,6 +295,9 @@ struct RenderInstance {
   RenderMatrix4x4 world_transform{kRenderIdentityMatrix4x4};
 
   AnimationState animation;
+
+  std::optional<RenderVec3> ground_contact_normal;
+  mutable bool ground_alignment_failure_reported{false};
   UnitAnimationPresentationRequest unit_animation;
   GameObjectM2AnimationRenderState game_object_m2_animation;
 

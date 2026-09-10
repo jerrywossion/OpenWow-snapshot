@@ -5,6 +5,7 @@
 #include "openwow/game/ceffect_c.h"
 #include "openwow/data/formats/dbc/dbc_entries_world.h"
 #include "openwow/data/formats/dbc/dbc_loader.h"
+#include "openwow/foundation/diagnostics/logging.h"
 #include "openwow/game/missile_trajectory.h"
 #include "openwow/game/movement_callbacks.h"
 #include "openwow/game/object_manager.h"
@@ -77,10 +78,10 @@ constexpr float kWalkableNormalZ_Player = 0.64278764f;
 constexpr float kWalkableNormalZ_NPC = 0.17364818f;
 constexpr float kDefaultCollisionWidth = 0.66666669f;
 constexpr float kDefaultCollisionHeight = 2.027777671813965f;
-constexpr float kSplineGroundSeedVerticalAllowance = 0.5f;
-constexpr float kSplineGroundProbeVerticalSlack = 0.25f;
-constexpr float kSplineGroundProbeRisePerPlanarUnit = 5.671282f;
-constexpr float kSplineGroundProbeMaxVerticalAllowance = 8.0f;
+constexpr float kRemoteGroundSeedVerticalAllowance = 0.5f;
+constexpr float kRemoteGroundProbeVerticalSlack = 0.25f;
+constexpr float kRemoteGroundProbeRisePerPlanarUnit = 5.671282f;
+constexpr float kRemoteGroundProbeMaxVerticalAllowance = 8.0f;
 constexpr std::uint32_t kAerialSplineFlags =
     SplineFlag::kFalling | SplineFlag::kParabolic | SplineFlag::kFlying |
     SplineFlag::kTransportEnter | SplineFlag::kTransportExit;
@@ -922,48 +923,84 @@ void UnitMovementRuntime::InterpolateShadowBlobPosition(float dt) {
   std::array<float, 3> world_position{position.x, position.y, position.z};
   std::optional<CalcGroundPosCollisionResult> projected_surface;
 
-  // Keep the server spline as the logical position. Ordinary remote ground
-  // creatures only conform their published model transform to a connected
-  // collision surface, so the correction cannot leak into later movement.
-  const bool can_project_ground_spline =
+  // Ground support belongs to the displayed unit, including a stopped unit
+  // or corpse. Keep server coordinates intact for subsequent movement.
+  constexpr std::uint32_t kNonGroundMovementFlags =
+      kMoveFlagOnTransport | kMoveFlagDisableGravity | kMoveFlagFalling |
+      kMoveFlagFallingFar | kMoveFlagSwimming | kMoveFlagFlying |
+      kMoveFlagHover | kMoveFlagWaterwalking;
+  const bool can_project_ground =
       !owner_.IsPlayer() && !owner_.IsActiveMover() &&
-      spline_locomotion_active_ && spline_coordinate_parent_.IsEmpty() &&
-      !IsSwimming() && !IsFlying() &&
+      owner_.GetTransportGUID().IsEmpty() && spline_coordinate_parent_.IsEmpty() &&
+      (owner_.GetMovementInfo().flags & kNonGroundMovementFlags) == 0u &&
       (spline_locomotion_flags_ & kAerialSplineFlags) == 0u;
-  if (!can_project_ground_spline) {
-    spline_ground_projection_seeded_ = false;
-    spline_ground_projection_anchor_ = {};
+  if (!can_project_ground) {
+    ground_projection_seeded_ = false;
+    ground_projection_anchor_ = {};
+    ground_projection_position_ = {};
+    ground_projection_failed_ = false;
   } else {
-    float vertical_allowance = kSplineGroundSeedVerticalAllowance;
+    float vertical_allowance = kRemoteGroundSeedVerticalAllowance;
     float probe_origin_z = position.z + vertical_allowance;
-    if (spline_ground_projection_seeded_) {
-      const float delta_x = position.x - spline_ground_projection_anchor_[0];
-      const float delta_y = position.y - spline_ground_projection_anchor_[1];
+    if (ground_projection_seeded_) {
+      const float delta_x = position.x - ground_projection_anchor_[0];
+      const float delta_y = position.y - ground_projection_anchor_[1];
       const float planar_distance =
           std::sqrt(delta_x * delta_x + delta_y * delta_y);
       vertical_allowance = std::clamp(
-          kSplineGroundProbeVerticalSlack +
-              planar_distance * kSplineGroundProbeRisePerPlanarUnit,
-          kSplineGroundSeedVerticalAllowance,
-          kSplineGroundProbeMaxVerticalAllowance);
-      probe_origin_z = spline_ground_projection_anchor_[2] + vertical_allowance;
+          kRemoteGroundProbeVerticalSlack +
+              planar_distance * kRemoteGroundProbeRisePerPlanarUnit,
+          kRemoteGroundSeedVerticalAllowance,
+          kRemoteGroundProbeMaxVerticalAllowance);
+      if (planar_distance > kRemoteGroundProbeMaxVerticalAllowance ||
+          std::fabs(position.z - ground_projection_position_[2]) >
+              vertical_allowance) {
+        // A discontinuous authoritative relocation must choose support near
+        // its new height, not follow the previous floor of a stacked scene.
+        ground_projection_seeded_ = false;
+        vertical_allowance = kRemoteGroundSeedVerticalAllowance;
+      } else {
+        probe_origin_z = ground_projection_anchor_[2] + vertical_allowance;
+      }
     }
 
     const auto surface = owner_.Presentation().QueryGroundSurface(
         {position.x, position.y, probe_origin_z}, vertical_allowance * 2.0f);
-    if (surface.hit && surface.normal_z > kWalkableNormalZ_NPC) {
-      spline_ground_projection_seeded_ = true;
-      spline_ground_projection_anchor_ = {
+    const bool valid_surface =
+        std::isfinite(surface.ground_z) && std::isfinite(surface.normal_x) &&
+        std::isfinite(surface.normal_y) && std::isfinite(surface.normal_z);
+    if (surface.hit && valid_surface && surface.normal_z > kWalkableNormalZ_NPC) {
+      ground_projection_seeded_ = true;
+      ground_projection_anchor_ = {
           position.x, position.y, surface.ground_z};
+      ground_projection_position_ = {position.x, position.y, position.z};
+      ground_projection_failed_ = false;
       world_position[2] = surface.ground_z;
       projected_surface = surface;
+    } else if (!ground_projection_failed_) {
+      ground_projection_failed_ = true;
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "unit ground support stage=model-transform source=world-collision guid=" +
+              owner_.GetGuid().ToString() + " entry=" +
+              std::to_string(owner_.GetEntry()) + " display=" +
+              std::to_string(owner_.Presentation().DisplayId()) + " dead=" +
+              std::to_string(owner_.State().IsDead()) + " position=(" +
+              std::to_string(position.x) + "," + std::to_string(position.y) +
+              "," + std::to_string(position.z) + ") probeZ=" +
+              std::to_string(probe_origin_z) + " distance=" +
+              std::to_string(vertical_allowance * 2.0f) + " reason=" +
+              (g_calc_ground_pos_callback == nullptr ? "provider-unavailable"
+               : !surface.hit ? "no-connected-surface"
+               : !valid_surface ? "invalid-surface"
+                                : "unwalkable-surface"));
     }
   }
 
   if (projected_surface.has_value()) {
     InterpolateRetailGroundContactNormalToward(
         *projected_surface, ground_contact_normal_, dt);
-  } else {
+  } else if (!can_project_ground) {
     InterpolateRetailGroundContactNormal(owner_, ground_contact_normal_, dt);
   }
 
@@ -992,6 +1029,7 @@ void UnitMovementRuntime::InterpolateShadowBlobPosition(float dt) {
         owner_, ground_contact_normal_, world_position);
   }
   owner_.SetVisualModelWorldTransform(memo.matrix.data());
+  model_ground_normal_ = ground_contact_normal_;
 }
 
 void UnitPresentationRuntime::UpdateMountTransitionNodeTransform() {
@@ -1101,6 +1139,7 @@ void UnitMovementRuntime::BlendMountTransitionPosition(
   matrix[14] += target_offset[2];
 
   owner_.SetVisualModelWorldTransform(matrix.data());
+  model_ground_normal_ = ground_contact_normal_;
 
   owner_.Mount().SetPendingTransitionSpellId(
       owner_.Mount().TransitionNode()->GetSpellId());

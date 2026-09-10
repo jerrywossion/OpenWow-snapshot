@@ -2309,9 +2309,6 @@ void UnitMovementRuntime::ClearSplineMovementPoseOwnership() {
   spline_locomotion_flags_ = 0u;
   spline_locomotion_arc_length_ = 0.0f;
   spline_locomotion_duration_ms_ = 0u;
-  spline_ground_projection_seeded_ = false;
-  spline_ground_projection_anchor_ = {};
-  ground_aligned_matrix_memo_.valid = false;
   spline_pose_waiting_for_parent_ = false;
   spline_coordinate_parent_ = {};
   spline_coordinate_parent_seat_ = -1;
@@ -2828,11 +2825,6 @@ void UnitMovementRuntime::ApplySplineMovementPose(const Vec3 &position,
                                                          previous_movement);
   }
   spline_movement_pose_owned_ = true;
-  if (!spline_active || spline_locomotion_id_ != spline_id) {
-    spline_ground_projection_seeded_ = false;
-    spline_ground_projection_anchor_ = {};
-    ground_aligned_matrix_memo_.valid = false;
-  }
   spline_locomotion_active_ = spline_active;
   spline_locomotion_backward_ = spline_active && moving_backward;
 
@@ -4900,9 +4892,12 @@ void UnitMovementRuntime::Cleanup() {
   has_movement_update_tick_ = false;
   next_water_ripple_timestamp_ = 0u;
   spline_locomotion_id_ = 0u;
-  spline_ground_projection_seeded_ = false;
-  spline_ground_projection_anchor_ = {};
+  ground_projection_seeded_ = false;
+  ground_projection_anchor_ = {};
+  ground_projection_position_ = {};
+  ground_projection_failed_ = false;
   ground_aligned_matrix_memo_.valid = false;
+  model_ground_normal_.reset();
 }
 
 void UnitMovementRuntime::ResetState() noexcept {
@@ -4917,9 +4912,12 @@ void UnitMovementRuntime::ResetState() noexcept {
   in_water_ = false;
   next_water_ripple_timestamp_ = 0u;
   spline_locomotion_id_ = 0u;
-  spline_ground_projection_seeded_ = false;
-  spline_ground_projection_anchor_ = {};
+  ground_projection_seeded_ = false;
+  ground_projection_anchor_ = {};
+  ground_projection_position_ = {};
+  ground_projection_failed_ = false;
   ground_aligned_matrix_memo_.valid = false;
+  model_ground_normal_.reset();
 }
 
 }

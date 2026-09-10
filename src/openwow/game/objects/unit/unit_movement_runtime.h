@@ -135,6 +135,10 @@ public:
     ground_orientation_mode_ = mode;
   }
   void InterpolateShadowBlobPosition(float dt);
+  [[nodiscard]] const std::optional<std::array<float, 3>> &ModelGroundNormal() const {
+    return model_ground_normal_;
+  }
+  void ClearModelGroundNormal() { model_ground_normal_.reset(); }
   void BlendMountTransitionPosition(float dt, std::uint32_t current_tick_ms);
   void BuildStaticBodyMatrix(float *out_matrix) const;
   void ComputeBodyLeanMatrix(float *out_matrix, float dt, bool apply_lean);
@@ -387,8 +391,10 @@ public:
   std::int32_t move_sequence_{0};
   std::array<float, 6> speed_bounds_{};
   std::array<float, 3> ground_contact_normal_{{0.0f, 0.0f, 1.0f}};
-  bool spline_ground_projection_seeded_{false};
-  std::array<float, 3> spline_ground_projection_anchor_{};
+  bool ground_projection_seeded_{false};
+  bool ground_projection_failed_{false};
+  std::array<float, 3> ground_projection_anchor_{};
+  std::array<float, 3> ground_projection_position_{};
   std::uint8_t ground_orientation_mode_{0};
 
   struct GroundAlignedMatrixMemo {
@@ -401,6 +407,7 @@ public:
     std::array<float, 16> matrix{};
   };
   GroundAlignedMatrixMemo ground_aligned_matrix_memo_{};
+  std::optional<std::array<float, 3>> model_ground_normal_;
   float body_lean_last_facing_{0.0f};
   float body_lean_yaw_{0.0f};
   float body_lean_pitch_{0.0f};

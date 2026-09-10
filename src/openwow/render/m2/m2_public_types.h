@@ -864,6 +864,7 @@ struct M2InstanceAnimationInfo {
   std::uint16_t sequence_index = kInvalidM2AnimationSequenceIndex;
   std::uint32_t time_ms = 0;
   std::uint32_t duration_ms = 0;
+  std::uint32_t sequence_flags = 0;
 };
 
 struct M2InstanceAnimationInfoQuery {

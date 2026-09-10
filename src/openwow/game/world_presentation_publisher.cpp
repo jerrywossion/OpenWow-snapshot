@@ -413,10 +413,13 @@ void WorldPresentationPublisher::SyncTransform(
   instance.position[1] = world_position.y;
   instance.position[2] = world_position.z;
   instance.orientation = object.GetWorldFacing();
+  instance.ground_contact_normal.reset();
   if (object.IsUnit()) {
 
     instance.orientation =
         static_cast<const game::CGUnit_C &>(object).Movement().WorldSmoothBodyFacing();
+    instance.ground_contact_normal =
+        static_cast<const game::CGUnit_C &>(object).Movement().ModelGroundNormal();
   }
 
   if (object.IsGameObject()) {
