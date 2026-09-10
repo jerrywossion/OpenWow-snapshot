@@ -24,6 +24,7 @@
 #include "openwow/ui/game/secure_execution.h"
 #include "openwow/ui/lua_call_helpers.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/foundation/text/utf8.h"
 
 extern "C" {
@@ -338,10 +339,25 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
     return;
   }
   if (event.type == SDL_APP_LOWMEMORY) {
+    const auto before_bytes = texture_manager_.GetMemoryUsage();
+    const auto before_count = texture_manager_.CachedCount();
+    const openwow::diagnostics::PerformanceTimer performance;
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
                               "Application received a low-memory warning");
     texture_manager_.ClearCache();
     sound_runtime_.ClearSoundKitProviderCaches();
+    auto* world_lua = game_loop_.game_ui().lua_state();
+    openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+        "Application low-memory cache release: texture_bytes_before=" +
+            std::to_string(before_bytes) + " texture_bytes_after=" +
+            std::to_string(texture_manager_.GetMemoryUsage()) +
+            " texture_count_before=" + std::to_string(before_count) +
+            " texture_count_after=" + std::to_string(texture_manager_.CachedCount()) +
+            " world_lua_kb=" + std::to_string(world_lua != nullptr
+                ? lua_gc(world_lua, LUA_GCCOUNT, 0) : 0));
+    static openwow::diagnostics::PerformanceLogSite performance_site;
+    openwow::diagnostics::LogPerformanceDuration(
+        performance_site, "memory.release_caches", performance, "SDL_APP_LOWMEMORY");
     return;
   }
 

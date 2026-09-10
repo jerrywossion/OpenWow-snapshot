@@ -375,6 +375,7 @@ public:
   [[nodiscard]] bool IsCriticalSpawnSurfaceReady() const;
 
   [[nodiscard]] bool IsWorldEntryStreamingComplete() const;
+  [[nodiscard]] std::string DescribeStreamingProgress() const;
 
   void SetWorldEntryStreamingMode(const bool enabled) noexcept {
     world_entry_streaming_mode_ = enabled;

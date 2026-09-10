@@ -22,6 +22,7 @@
 #include "openwow/world/world_render_pipeline.h"
 #include "openwow/render/api/math/view_projection.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/runtime/scheduling/frame_job_system.h"
 
 #include <algorithm>
@@ -42,6 +43,14 @@ template <typename>
 inline constexpr bool kUnhandledWorldPresentationCommand = false;
 
 constexpr float kRetailLowDetailNearOverlap = 50.0f;
+
+void LogWmoGroupFailure(const std::string& path, const std::uint32_t group,
+                         const char* phase, const char* reason) {
+  diagnostics::Log(diagnostics::LogLevel::kWarn,
+      "WorldPresentationScene: WMO group failed phase=" + std::string(phase) +
+          " path=" + path + " group=" + std::to_string(group) +
+          " reason=" + reason);
+}
 
 }
 
@@ -394,14 +403,27 @@ void WorldPresentationScene::StartQueuedWmoGroupPreparations() {
     const auto command = pending->command;
     const auto root = model->second->root;
     const auto loader = load_file_;
+    // Groups in the same WMO commonly share materials. Their GPU leases are
+    // already owned by the renderer; decoding them again for every group
+    // wastes worker time and temporary memory without changing publication.
+    std::vector<std::uint32_t> missing_materials;
+    for (const auto material : command.material_indices) {
+      if (!model->second->renderer ||
+          !model->second->renderer->IsMaterialResident(material)) {
+        missing_materials.push_back(material);
+      }
+    }
     try {
       pending->future = std::async(
-          std::launch::async, [command, root, loader]() mutable {
+          std::launch::async,
+          [command, root, loader,
+           missing_materials = std::move(missing_materials)]() mutable {
+          const openwow::diagnostics::PerformanceTimer performance;
           PendingWmoGroup::Prepared prepared{.command = std::move(command)};
           prepared.mesh = GenerateWmoGroupMesh(
               *root, *prepared.command.group);
           prepared.textures = WmoRenderer::PrepareMaterialTextures(
-              *root, prepared.command.material_indices, loader);
+              *root, missing_materials, loader);
           prepared.publication_bytes =
               prepared.mesh.vertices.size() * sizeof(WmoVertex) +
               prepared.mesh.composite_vertices.size() *
@@ -412,11 +434,26 @@ void WorldPresentationScene::StartQueuedWmoGroupPreparations() {
               prepared.publication_bytes += upload->upload_size;
             }
           }
+          if (performance.enabled() && performance.ElapsedMs() >= 20.0) {
+            static openwow::diagnostics::PerformanceLogSite performance_site;
+            openwow::diagnostics::LogPerformanceDuration(
+                performance_site, "world.wmo_prepare", performance,
+                "path=" + prepared.command.resource_key + " group=" +
+                    std::to_string(prepared.command.group_index) +
+                    " materials=" +
+                    std::to_string(prepared.command.material_indices.size()) +
+                    " missing_materials=" + std::to_string(missing_materials.size()) +
+                    " upload_bytes=" + std::to_string(prepared.publication_bytes));
+          }
           return prepared;
         });
       pending->started = true;
       ++active;
+    } catch (const std::exception& exception) {
+      LogWmoGroupFailure(key.first, key.second, "schedule", exception.what());
+      pending->started = false;
     } catch (...) {
+      LogWmoGroupFailure(key.first, key.second, "schedule", "unknown exception");
       pending->started = false;
     }
   }
@@ -458,7 +495,18 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
       }
       try {
         pending.prepared = pending.future.get();
+      } catch (const std::exception& exception) {
+        LogWmoGroupFailure(it->first.first, it->first.second,
+                           "prepare", exception.what());
+        acknowledgment.wmo_groups.push_back({
+            .resource_key = it->first.first,
+            .group_index = it->first.second,
+            .status = world::WmoGroupPublicationStatus::kRetryableFailure});
+        it = pending_wmo_groups_.erase(it);
+        continue;
       } catch (...) {
+        LogWmoGroupFailure(it->first.first, it->first.second,
+                           "prepare", "unknown exception");
         acknowledgment.wmo_groups.push_back({
             .resource_key = it->first.first,
             .group_index = it->first.second,
@@ -479,6 +527,8 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
     }
     const auto model = models_.find(prepared.command.resource_key);
     if (model == models_.end() || !model->second->root) {
+      LogWmoGroupFailure(it->first.first, it->first.second,
+                         "publish", "missing model root");
       acknowledgment.wmo_groups.push_back({
           .resource_key = it->first.first,
           .group_index = it->first.second,
@@ -504,6 +554,8 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
       }
     }
     if (!model->second->renderer) {
+      LogWmoGroupFailure(it->first.first, it->first.second,
+                         "publish", "renderer unavailable");
       acknowledgment.wmo_groups.push_back({
           .resource_key = it->first.first,
           .group_index = it->first.second,
@@ -538,7 +590,13 @@ void WorldPresentationScene::PumpPreparedWmoGroups(
               prepared.mesh);
         }
       }
+    } catch (const std::exception& exception) {
+      LogWmoGroupFailure(it->first.first, it->first.second,
+                         "publish", exception.what());
+      publication_status = world::WmoGroupPublicationStatus::kRetryableFailure;
     } catch (...) {
+      LogWmoGroupFailure(it->first.first, it->first.second,
+                         "publish", "unknown exception");
       publication_status = world::WmoGroupPublicationStatus::kRetryableFailure;
     }
     if (publication_status == world::WmoGroupPublicationStatus::kFailed ||

@@ -921,6 +921,37 @@ bool WorldMap::IsWorldEntryStreamingComplete() const {
   return true;
 }
 
+std::string WorldMap::DescribeStreamingProgress() const {
+  std::size_t resident_groups = 0u;
+  std::size_t pending_gpu_groups = 0u;
+  std::string first_pending_gpu;
+  for (const auto& [path, cached] : wmo_cache_) {
+    for (std::size_t group = 0; group < cached.group_residency.size(); ++group) {
+      if (cached.group_residency[group] != WmoGroupResidency::kResident) continue;
+      ++resident_groups;
+      if (group >= cached.group_gpu_publication.size() ||
+          (cached.group_gpu_publication[group] != WmoGroupPublicationStatus::kFailed &&
+           !IsWmoGroupPublicationComplete(cached.group_gpu_publication[group]))) {
+        ++pending_gpu_groups;
+        if (first_pending_gpu.empty()) {
+          first_pending_gpu = path + "[" + std::to_string(group) + "]";
+        }
+      }
+    }
+  }
+  return "tiles_loaded=" + std::to_string(loaded_tiles_.size()) +
+      " tiles_pending=" + std::to_string(pending_tile_loads_.size()) +
+      " tiles_prepared=" + std::to_string(ready_tile_loads_.size()) +
+      " wmo_roots=" + std::to_string(wmo_cache_.size()) +
+      " wmo_roots_pending=" + std::to_string(pending_wmo_loads_.size()) +
+      " wmo_placements_pending=" + std::to_string(streaming_ownership_.pending_count()) +
+      " wmo_groups_resident=" + std::to_string(resident_groups) +
+      " wmo_groups_pending=" + std::to_string(pending_wmo_group_loads_.size()) +
+      " wmo_groups_prepared=" + std::to_string(ready_wmo_group_loads_.size()) +
+      " wmo_gpu_pending=" + std::to_string(pending_gpu_groups) +
+      " first_gpu_pending=" + (first_pending_gpu.empty() ? "none" : first_pending_gpu);
+}
+
 bool WorldMap::IsCriticalSpawnSurfaceReady() const {
   if (map_name_.empty() ||
       (!wdt_.has_global_wmo && !loaded_tiles_.contains(player_tile_))) {

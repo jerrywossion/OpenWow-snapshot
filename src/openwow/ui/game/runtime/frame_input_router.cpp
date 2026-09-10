@@ -1218,7 +1218,7 @@ bool FrameInputRouter::HandleTouchUp(float x, float y, std::uint32_t timestamp) 
     openwow::diagnostics::LogPerformanceEvent(
         "ui.touch_release", "frame=" + gesture->target.frame_name +
             " phase=" + phase +
-            " duration_ms=" + std::to_string(timestamp - gesture->started_at_ms) +
+            " held_ms=" + std::to_string(timestamp - gesture->started_at_ms) +
             " secondary=" + (gesture->can_secondary ? "1" : "0") +
             " double_tap=" + (gesture->double_tap ? "1" : "0"));
   }

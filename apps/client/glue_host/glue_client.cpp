@@ -3290,6 +3290,13 @@ int GlueClient::Run() {
               performance_site, "frame.hitch", performance_frame, detail.str(), 50.0);
         }
         if (summary_due) {
+          auto* world_lua = game_loop_.game_ui().lua_state();
+          detail << " world_lua_kb=" << (world_lua != nullptr
+                     ? lua_gc(world_lua, LUA_GCCOUNT, 0) : 0)
+                 << " ui_regions=" << game_loop_.game_ui().frame_store().size()
+                 << " texture_cache_count=" << texture_manager_.CachedCount()
+                 << " texture_cache_bytes=" << texture_manager_.GetMemoryUsage()
+                 << " texture_budget_bytes=" << texture_manager_.GetMemoryBudget();
 #if defined(OPENWOW_PLATFORM_IOS)
           const auto process = openwow::client::mobile::QueryProcessPerformanceMetrics();
           detail << " physical_footprint_bytes=" << process.physical_footprint_bytes

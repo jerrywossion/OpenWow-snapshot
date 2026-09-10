@@ -16,6 +16,7 @@
 #include "openwow/data/formats/dbc/dbc_structures.h"
 #include "openwow/data/formats/m2/model_path.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/foundation/text/ascii.h"
 #include "openwow/game/object_manager.h"
 #include "openwow/game/objects/cgunit.h"
@@ -360,13 +361,20 @@ void runtime::render::UiCompositor::Render(const UiCompositorFrame& compositor_f
     return std::nullopt;
   };
 
-  retained_layout_.RetryPendingNaturalSizes();
-  retained_layout_.SolveIfDirty();
-  if (frame_traversal_index_.order_dirty())
-    frame_traversal_index_.Rebuild(root_scale(), screen_height());
+  {
+    static openwow::diagnostics::PerformanceLogSite site;
+    const openwow::diagnostics::ScopedPerformanceLog phase(site, "ui.render_semantic_preparation");
+    retained_layout_.RetryPendingNaturalSizes();
+    retained_layout_.SolveIfDirty();
+    if (frame_traversal_index_.order_dirty())
+      frame_traversal_index_.Rebuild(root_scale(), screen_height());
 
-  frame_traversal_index_.RefreshRectCache();
-  frame_input_router_.ReplayMouseFocusIfDirty();
+    frame_traversal_index_.RefreshRectCache();
+    frame_input_router_.ReplayMouseFocusIfDirty();
+  }
+
+  static openwow::diagnostics::PerformanceLogSite emit_site;
+  const openwow::diagnostics::ScopedPerformanceLog emit_phase(emit_site, "ui.render_emit");
 
   frame_input_router_.BeginHyperlinkHitTestFrame();
 

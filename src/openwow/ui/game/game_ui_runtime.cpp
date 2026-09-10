@@ -393,28 +393,44 @@ void GameUIManager::Update(float dt) {
 
   frame_input_router_.UpdateTouchGestures(SDL_GetTicks());
 
-  frame_api::UpdateLuaTooltipObjects(lua_state(), dt);
-  frame_api::RefreshCursorAnchoredTooltipFrames(lua_state());
+  {
+    static openwow::diagnostics::PerformanceLogSite site;
+    const openwow::diagnostics::ScopedPerformanceLog phase(site, "ui.update_tooltips");
+    frame_api::UpdateLuaTooltipObjects(lua_state(), dt);
+    frame_api::RefreshCursorAnchoredTooltipFrames(lua_state());
+  }
 
   if (frame_traversal_index_.order_dirty()) {
     frame_traversal_index_.Rebuild(root_scale(), screen_height());
   }
 
-  frame_input_router_.UpdateFocusedEditBoxInputLanguage();
+  {
+    static openwow::diagnostics::PerformanceLogSite site;
+    const openwow::diagnostics::ScopedPerformanceLog phase(site, "ui.update_widgets");
+    frame_input_router_.UpdateFocusedEditBoxInputLanguage();
 
-  openwow::platform::IME_ManageContextAssociation();
+    openwow::platform::IME_ManageContextAssociation();
 
-  frame_input_router_.FlushPendingEditBoxStateUpdates();
+    frame_input_router_.FlushPendingEditBoxStateUpdates();
 
-  frame_input_router_.UpdateFocusedEditBoxCaretBlink(dt);
+    frame_input_router_.UpdateFocusedEditBoxCaretBlink(dt);
 
-  frame_api::RefreshScrollFrameWidgetState(
-      lua_state(), &published_scroll_frame_ranges_generation_);
+    frame_api::RefreshScrollFrameWidgetState(
+        lua_state(), &published_scroll_frame_ranges_generation_);
+  }
 
-  frame_event_runtime_.Update(dt);
+  {
+    static openwow::diagnostics::PerformanceLogSite site;
+    const openwow::diagnostics::ScopedPerformanceLog phase(site, "ui.update_scripts_animations");
+    frame_event_runtime_.Update(dt);
+  }
   movie_frame_runtime_.Update(dt);
 
-  nameplate_frames_.Update();
+  {
+    static openwow::diagnostics::PerformanceLogSite site;
+    const openwow::diagnostics::ScopedPerformanceLog phase(site, "ui.update_nameplates");
+    nameplate_frames_.Update();
+  }
 }
 
 void GameUIManager::DestroyNamedFrame(const std::string &name) {
