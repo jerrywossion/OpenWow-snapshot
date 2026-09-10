@@ -1318,16 +1318,18 @@ void WorldSession::RegisterActivePlayerRegenRefresh(const ObjectGuid &guid) {
 
         const bool in_combat = (new_flags & kUnitFlagInCombat) != 0u;
 
-        ui::game::SecureExecution::Get().SetInCombatLockdown(in_combat);
-
-        RefreshLocalPlayerCombatUsability(*this);
-
         auto &dispatch = ui::game::ScriptEventDispatch::Get();
         if (in_combat) {
+          // AddOns finish protected layout changes in the entering-combat
+          // callback before the combat lock takes effect.
           dispatch.FirePlayerRegenDisabled();
+          ui::game::SecureExecution::Get().SetInCombatLockdown(true);
         } else {
+          ui::game::SecureExecution::Get().SetInCombatLockdown(false);
           dispatch.FirePlayerRegenEnabled();
         }
+
+        RefreshLocalPlayerCombatUsability(*this);
 
         if (local_player_combat_flag_changed_callback_) {
           local_player_combat_flag_changed_callback_();
