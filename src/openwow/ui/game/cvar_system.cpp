@@ -2328,7 +2328,9 @@ void CVarSystem::RegisterDefaults() {
   RegisterCVar("autoStand", "1", F::Account, "Automatically stand when needed");
   RegisterCVar("autoClearAFK", "1", F::Account, "Automatically clear AFK when moving or chatting");
   RegisterCVar("blockTrades", "0", F::Character, "Whether to automatically block trade requests");
-  RegisterCVar("alwaysCompareItems", "0", F::Account, "Always show item comparison tooltips");
+  // Intentional deviation from the original client's default of 0: enable item
+  // comparisons without a modifier key, including when using touch input.
+  RegisterCVar("alwaysCompareItems", "1", F::Account, "Always show item comparison tooltips");
   RegisterCVar("equipmentManager", "0", F::Character, "Enables the equipment management UI");
   RegisterCVar("targetOfTargetMode", "5", F::Account,
                "The conditions under which target of target should be shown");
