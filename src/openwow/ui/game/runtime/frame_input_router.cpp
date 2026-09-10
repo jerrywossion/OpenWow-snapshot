@@ -2075,20 +2075,24 @@ bool FrameInputRouter::BeginFrameMoveSizing(const std::string &name, int mode) {
   if (openwow::diagnostics::IsPerformanceLoggingEnabled()) {
     const auto owner = frames_.HandleOf(name);
     std::size_t children = 0;
-    std::string context = "owner=" + name.substr(0, 192);
+    const std::string owner_context = "owner=" + name.substr(0, 192);
     for (const auto handle : frames_.registration_handles()) {
       const auto parent = frames_.ParentHandleOf(handle);
       if (owner == FrameStore::kInvalidFrameHandle || handle == owner ||
           (parent != owner && frames_.ParentHandleOf(parent) != owner)) continue;
       if (++children > 48u) continue;
-      context += " [effective_visible=";
+      // Keep each region in its own bounded event so the logger's per-event
+      // limit cannot discard later controls in the registration order.
+      std::string context = owner_context + " phase=child index=" +
+                            std::to_string(children) + " effective_visible=";
       context += traversal_.IsEffectivelyVisible(handle) ? "1" : "0";
       context += DescribeRetainedFrameForDiagnostics(
-          lua_, frames_, layout_, frames_.KeyOf(handle), false) + "]";
+          lua_, frames_, layout_, frames_.KeyOf(handle), false);
+      openwow::diagnostics::LogPerformanceEvent("ui.move_children", context);
     }
-    context += " children_and_regions=" + std::to_string(children) +
-               " omitted=" + std::to_string(children > 48u ? children - 48u : 0u);
-    openwow::diagnostics::LogPerformanceEvent("ui.move_children", context);
+    openwow::diagnostics::LogPerformanceEvent("ui.move_children",
+        owner_context + " phase=summary children_and_regions=" + std::to_string(children) +
+        " omitted=" + std::to_string(children > 48u ? children - 48u : 0u));
   }
   return started;
 }
