@@ -747,7 +747,7 @@ void ApplyCommonFrameMethods(lua_State *L) {
 
   lua_pushcclosure(L, [](lua_State *Ls) -> int {
     const int self = ValidateFrameSelf(Ls);
-    if (detail::LuaFrameMutationBlocked(Ls, self)) {
+    if (!detail::AllowLuaFrameProtectedMutation(Ls, self)) {
       return 0;
     }
     lua_pushinteger(Ls, static_cast<lua_Integer>(luaL_optinteger(Ls, 2, 0)));
@@ -824,7 +824,7 @@ void ApplyCommonFrameMethods(lua_State *L) {
 
   lua_pushcclosure(L, [](lua_State *Ls) -> int {
     const int self_index = ValidateFrameLikeObjectSelf(Ls);
-    if (detail::LuaFrameMutationBlocked(Ls, self_index)) {
+    if (!detail::AllowLuaFrameProtectedMutation(Ls, self_index)) {
       return 0;
     }
 

@@ -5,6 +5,7 @@
 #include "openwow/ui/animation/animation_coordinate_space.h"
 #include "openwow/ui/framexml/layout_anchor_resolution.h"
 #include "openwow/ui/game/framescript/core/frame_font_runtime.h"
+#include "openwow/ui/game/framescript/core/frame_layout_methods.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_state.h"
 #include "openwow/ui/game/api/game_lua_api_internal.h"
 #include "openwow/ui/game/runtime/layout_persistence.h"
@@ -409,12 +410,6 @@ NearestMatchingFramePointPlacement NearestPlacement(
     }
   }
   return best;
-}
-
-bool RectanglesOverlap(const openwow::ui::framexml::FrameRect& lhs,
-                       const openwow::ui::framexml::FrameRect& rhs) {
-  return lhs.x < rhs.x + rhs.width && lhs.x + lhs.width > rhs.x &&
-         lhs.y < rhs.y + rhs.height && lhs.y + lhs.height > rhs.y;
 }
 
 bool RectsEqual(const openwow::ui::framexml::FrameRect& lhs,
@@ -1351,10 +1346,7 @@ void RetainedLayout::ApplyLayoutCache(std::string_view text) {
     if (lua_istable(impl_->lua, -1) != 0) {
       const int index = lua_absindex(impl_->lua, -1);
       if (current.level >= 0) {
-        lua_pushinteger(impl_->lua, current.level); lua_setfield(impl_->lua, index, "__ow_frame_level");
-        frame->frame_level = current.level;
-        if (impl_->ports.order_invalidated) impl_->ports.order_invalidated();
-        if (impl_->ports.on_update_order_invalidated) impl_->ports.on_update_order_invalidated();
+        frame_api::SetLuaFrameLevel(impl_->lua, index, current.level);
       }
       if (ReadBoolean(impl_->lua, index, "__ow_movable")) {
         const std::string point(LayoutCacheFramePointName(std::clamp(current.point, 0, 8)));
@@ -1413,6 +1405,16 @@ bool RetainedLayout::BeginMoveSizing(std::string_view name, int mode, float curs
     lua_settop(impl_->lua, top);
     return fail("lua-binding-invalid");
   }
+  // Raising is shared with the Frame API: it considers the nearest toplevel
+  // owner and propagates its level change to children before capture begins.
+  frame_api::RaiseLuaFrameResolved(impl_->lua, lua_absindex(impl_->lua, -1));
+  rect = FindRect(name);
+  frame = impl_->frames.FindFrame(name);
+  if (session->active || frame == nullptr || rect == nullptr ||
+      impl_->frames.FindLuaRef(name) != ref) {
+    lua_settop(impl_->lua, top);
+    return fail("frame-or-session-changed-during-raise");
+  }
   *session = {.frame_name = std::string(name), .mode = mode, .cursor_x = cursor_x,
               .cursor_y = cursor_y, .active = true};
   if (lua_istable(impl_->lua, -1) != 0) {
@@ -1430,24 +1432,6 @@ bool RetainedLayout::BeginMoveSizing(std::string_view name, int mode, float curs
   }
   lua_settop(impl_->lua, top);
   impl_->frames.SetFrameUserPlaced(name, true);
-  if (frame->top_level || frame->toplevel) {
-    int highest = frame->frame_level;
-    for (const auto& view : impl_->frames.CollectStableFrames()) {
-      if (view.key == name || view.frame->frame_strata != frame->frame_strata) continue;
-      const auto other = impl_->rects.find(view.key);
-      if (other != impl_->rects.end() && RectanglesOverlap(*rect, other->second))
-        highest = std::max(highest, view.frame->frame_level + 1);
-    }
-    frame->frame_level = highest;
-    const int stack_top = lua_gettop(impl_->lua);
-    lua_rawgeti(impl_->lua, LUA_REGISTRYINDEX, *ref);
-    if (lua_istable(impl_->lua, -1) != 0) {
-      lua_pushinteger(impl_->lua, highest);
-      lua_setfield(impl_->lua, -2, "__ow_frame_level");
-    }
-    lua_settop(impl_->lua, stack_top);
-    if (impl_->ports.order_invalidated) impl_->ports.order_invalidated();
-  }
   return true;
 }
 

@@ -201,10 +201,17 @@ void GameUI_ReportProtectedActionFailure(
 
   std::string call;
   std::string call_site;
+  std::string local_protected = "unavailable";
   {
     const openwow::ui::ScopedNeutralLuaExecutionTaint neutral_taint(state);
     call = ResolveFailedActionName(state);
     call_site = ResolveTaintLogCallSite(state);
+    if (state != nullptr && lua_istable(state, 1)) {
+      lua_pushliteral(state, "__ow_protected");
+      lua_rawget(state, 1);
+      local_protected = lua_toboolean(state, -1) ? "1" : "0";
+      lua_pop(state, 1);
+    }
   }
   const std::string source_name = secure.TaintSourceName(taint_source);
   openwow::diagnostics::Log(
@@ -214,6 +221,7 @@ void GameUI_ReportProtectedActionFailure(
           " mode=" + std::to_string(static_cast<int>(mode)) +
           " combat=" + (secure.InCombatLockdown() ? "1" : "0") +
           " hardware_grant=" + (secure.HardwareActionGranted() ? "1" : "0") +
+          " local_protected=" + local_protected +
           " call_site=" + (call_site.empty() ? "<native>" : call_site));
 
   const bool anonymous_source = taint_source == kAnonymousTaintSourceId;

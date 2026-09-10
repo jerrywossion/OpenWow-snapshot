@@ -44,13 +44,27 @@ constexpr float kTouchScrollPoints = 24.0F;
 
 std::string DescribeRetainedFrameForDiagnostics(
     lua_State* lua, const FrameStore& frames, const RetainedLayout& layout,
-    std::string_view name) {
+    std::string_view name, bool include_handlers = true) {
   std::string context = " frame=" + std::string(name.substr(0, 192));
   if (const auto* frame = frames.FindFrame(name)) {
     context += " parent=" + frame->parent.substr(0, 192) +
                " kind=" + frame->kind + " mouse=" +
                (frame->runtime_uses_mouse ? "1" : "0") +
-               " level=" + std::to_string(frame->frame_level);
+               " level=" + std::to_string(frame->frame_level) +
+               " strata=" + frame->frame_strata +
+               " shown=" + (frame->visible ? "1" : "0") +
+               " layer_enabled=" + (frame->runtime_draw_layer_enabled ? "1" : "0");
+    if (!include_handlers) {
+      context += " layer=" + frame->draw_layer +
+                 " texture_role=" + std::to_string(static_cast<int>(frame->texture_role)) +
+                 " file=" + frame->file.substr(0, 192) +
+                 " all_points=" + (frame->set_all_points ? "1" : "0");
+      for (std::size_t i = 0; i < std::min<std::size_t>(frame->anchors.size(), 2); ++i) {
+        const auto& anchor = frame->anchors[i];
+        context += " anchor=" + anchor.point + ":" + anchor.relative_to.substr(0, 192) +
+                   ":" + anchor.relative_point;
+      }
+    }
   }
   // Published geometry only: diagnostics must not become a layout commit.
   if (const auto rect = layout.rects().find(name); rect != layout.rects().end()) {
@@ -58,6 +72,8 @@ std::string DescribeRetainedFrameForDiagnostics(
                std::to_string(rect->second.y) + "," +
                std::to_string(rect->second.width) + "," +
                std::to_string(rect->second.height);
+  } else {
+    context += " rect=unpublished";
   }
   const auto ref = frames.FindLuaRef(name);
   if (lua == nullptr || !ref) return context;
@@ -67,20 +83,24 @@ std::string DescribeRetainedFrameForDiagnostics(
   const int frame = lua_gettop(lua);
   if (lua_istable(lua, frame)) {
     for (const char* field : {"__ow_movable", "__ow_resizable",
-                              kRegisteredDragButtonMaskField}) {
+                              kRegisteredDragButtonMaskField, "__ow_alpha",
+                              "__ow_btn_state"}) {
       lua_pushstring(lua, field);
       lua_rawget(lua, frame);
       context += " " + std::string(field) + "=";
       if (lua_type(lua, -1) == LUA_TBOOLEAN) {
         context += lua_toboolean(lua, -1) ? "1" : "0";
       } else if (lua_type(lua, -1) == LUA_TNUMBER) {
-        context += std::to_string(lua_tointeger(lua, -1));
+        context += std::to_string(lua_tonumber(lua, -1));
+      } else if (lua_type(lua, -1) == LUA_TSTRING) {
+        context += std::string(std::string_view(lua_tostring(lua, -1)).substr(0, 96));
       } else {
         context += "unset";
       }
       lua_pop(lua, 1);
     }
     for (const char* handler : {"OnMouseDown", "OnDragStart", "OnMouseUp"}) {
+      if (!include_handlers) break;
       context += " " + std::string(handler) + "=";
       if (PushFrameScriptHandler(lua, frame, handler)) {
         lua_Debug source{};
@@ -2052,6 +2072,24 @@ bool FrameInputRouter::BeginFrameMoveSizing(const std::string &name, int mode) {
   const bool started = layout_.BeginMoveSizing(name, mode, cursor_x, cursor_y, &active_move_sizing_);
   move_sizing_update_reported_ = false;
   TraceMoveSizing("begin", name, mode, started ? "started" : "failed");
+  if (openwow::diagnostics::IsPerformanceLoggingEnabled()) {
+    const auto owner = frames_.HandleOf(name);
+    std::size_t children = 0;
+    std::string context = "owner=" + name.substr(0, 192);
+    for (const auto handle : frames_.registration_handles()) {
+      const auto parent = frames_.ParentHandleOf(handle);
+      if (owner == FrameStore::kInvalidFrameHandle || handle == owner ||
+          (parent != owner && frames_.ParentHandleOf(parent) != owner)) continue;
+      if (++children > 48u) continue;
+      context += " [effective_visible=";
+      context += traversal_.IsEffectivelyVisible(handle) ? "1" : "0";
+      context += DescribeRetainedFrameForDiagnostics(
+          lua_, frames_, layout_, frames_.KeyOf(handle), false) + "]";
+    }
+    context += " children_and_regions=" + std::to_string(children) +
+               " omitted=" + std::to_string(children > 48u ? children - 48u : 0u);
+    openwow::diagnostics::LogPerformanceEvent("ui.move_children", context);
+  }
   return started;
 }
 
@@ -2079,6 +2117,8 @@ void FrameInputRouter::TracePointerEvent(const char* phase, std::string_view fra
       std::string("phase=") + phase + " source=" + (touch ? "touch" : "mouse") +
       " button=" + std::to_string(button_flag) + " xy=" + std::to_string(x) + "," +
       std::to_string(y) + " hover=" + mouseover_frame_.substr(0, 192) +
+      " physical_buttons=" + std::to_string(
+          openwow::input::InputManager::Get().GetMouseButtonFlags()) +
       " active_move=" + active_move_sizing_.frame_name.substr(0, 192) +
       DescribeRetainedFrameForDiagnostics(lua_, frames_, layout_, frame_name));
 }
