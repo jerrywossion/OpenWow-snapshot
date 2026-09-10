@@ -1,6 +1,8 @@
 #include "openwow/render/world/terrain/terrain_mesh.h"
 #include "openwow/render/world/terrain/terrain_material_compositor.h"
 
+#include "openwow/foundation/diagnostics/logging.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -166,27 +168,48 @@ void PopulateChunkMaterial(const AdtFile &adt, const TerrainChunk &chunk, Materi
   }
 }
 
-static bool IsRgbaAlphaViewValid(const std::size_t rgba_size, const std::size_t pixel_stride,
+static bool IsRgbaAlphaViewValid(const std::size_t dimension, const std::size_t rgba_size,
+                                 const std::size_t pixel_stride,
                                  const std::size_t row_stride) {
-  constexpr std::size_t kLastCoordinate = kAlphaMapSize - 1u;
-  if (rgba_size < 4u || pixel_stride < 4u || row_stride == 0u ||
-      pixel_stride > row_stride / kAlphaMapSize) {
+  if (dimension == 0u || dimension > kAlphaMapSize || rgba_size < 4u ||
+      pixel_stride < 4u || row_stride == 0u || pixel_stride > row_stride / dimension) {
     return false;
   }
+  const std::size_t last_coordinate = dimension - 1u;
+  // An atlas subview ends at its last pixel, without trailing row padding.
   const std::size_t last_pixel_start = rgba_size - 4u;
-  if (kLastCoordinate > last_pixel_start / row_stride) {
+  if (last_coordinate > last_pixel_start / row_stride) {
     return false;
   }
-  const std::size_t last_row = kLastCoordinate * row_stride;
-  return kLastCoordinate <= (last_pixel_start - last_row) / pixel_stride;
+  const std::size_t last_row = last_coordinate * row_stride;
+  return last_coordinate <= (last_pixel_start - last_row) / pixel_stride;
+}
+
+static void LogChunkAlphaFailure(const TerrainChunk &chunk, const std::uint32_t tile_x,
+                                 const std::uint32_t tile_y, const char *stage,
+                                 const std::string &reason) {
+  diagnostics::Log(
+      diagnostics::LogLevel::kWarn,
+      "Terrain alpha preparation stage=" + std::string(stage) + " tile=(" +
+          std::to_string(tile_x) + "," + std::to_string(tile_y) + ") chunk=(" +
+          std::to_string(chunk.header.index_x) + "," +
+          std::to_string(chunk.header.index_y) + ") position=(" +
+          std::to_string(chunk.header.position_x) + "," +
+          std::to_string(chunk.header.position_y) + ") source=ADT result=partial reason=" +
+          reason);
 }
 
 static void DecodeChunkAlphaMap(const TerrainChunk &chunk, const int layer_count,
+                                const std::uint32_t tile_x, const std::uint32_t tile_y,
                                 const bool big_alpha, std::uint8_t *rgba,
                                 const std::size_t rgba_size, const std::size_t pixel_stride,
                                 const std::size_t row_stride) {
-  if (rgba == nullptr || layer_count <= 0 ||
-      !IsRgbaAlphaViewValid(rgba_size, pixel_stride, row_stride)) {
+  if (rgba == nullptr ||
+      !IsRgbaAlphaViewValid(kAlphaMapSize, rgba_size, pixel_stride, row_stride)) {
+    LogChunkAlphaFailure(chunk, tile_x, tile_y, "decode",
+                         "invalid RGBA view bytes=" + std::to_string(rgba_size) +
+                             " pixel_stride=" + std::to_string(pixel_stride) +
+                             " row_stride=" + std::to_string(row_stride));
     return;
   }
 
@@ -196,23 +219,51 @@ static void DecodeChunkAlphaMap(const TerrainChunk &chunk, const int layer_count
       continue;
     }
     const uint32_t alpha_offset = ly.alpha_map_offset;
+    const auto log_layer_failure = [&](const std::string &reason) {
+      LogChunkAlphaFailure(
+          chunk, tile_x, tile_y, "decode",
+          reason + " layer=" + std::to_string(layer) +
+              " texture_id=" + std::to_string(ly.texture_id) +
+              " offset=" + std::to_string(alpha_offset) +
+              " flags=" + std::to_string(ly.flags) +
+              " big_alpha=" + std::to_string(big_alpha) +
+              " mcal_bytes=" + std::to_string(chunk.alpha_data.size()));
+    };
     if (alpha_offset >= chunk.alpha_data.size()) {
+      log_layer_failure("MCAL offset outside payload");
       continue;
     }
 
-    const std::size_t channel = static_cast<std::size_t>(layer - 1);
-    if (channel >= rgba_size) {
-      continue;
+    std::size_t alpha_end = chunk.alpha_data.size();
+    for (const auto &other : chunk.layers) {
+      if ((other.flags & AlphaMapFlags::kHasAlpha) != 0u &&
+          other.alpha_map_offset > alpha_offset) {
+        alpha_end = std::min(alpha_end, static_cast<std::size_t>(other.alpha_map_offset));
+      }
     }
-    static_cast<void>(DecompressAlphaMapInto(
-        chunk.alpha_data.data() + alpha_offset, chunk.alpha_data.size() - alpha_offset, ly.flags,
-        big_alpha,
-        (chunk.header.flags & data::terrain::McnkFlags::kDoNotFixAlphaMap) == 0u,
-        rgba + channel, rgba_size - channel, pixel_stride, row_stride));
+    const std::size_t channel = static_cast<std::size_t>(layer - 1);
+    if (!DecompressAlphaMapInto(
+            chunk.alpha_data.data() + alpha_offset, alpha_end - alpha_offset, ly.flags,
+            big_alpha,
+            (chunk.header.flags & data::terrain::McnkFlags::kDoNotFixAlphaMap) == 0u,
+            rgba + channel, rgba_size - channel, pixel_stride, row_stride)) {
+      log_layer_failure("incomplete alpha map layer_bytes=" +
+                        std::to_string(alpha_end - alpha_offset));
+      for (std::size_t row = 0u; row < kAlphaMapSize; ++row) {
+        for (std::size_t column = 0u; column < kAlphaMapSize; ++column) {
+          rgba[row * row_stride + column * pixel_stride + channel] = 0u;
+        }
+      }
+    }
   }
 
   constexpr std::size_t kShadowBytesPerRow = kAlphaMapSize / 8u;
   const bool has_shadow = chunk.shadow_map.size() >= kAlphaMapSize * kShadowBytesPerRow;
+  if (!chunk.shadow_map.empty() && !has_shadow) {
+    LogChunkAlphaFailure(chunk, tile_x, tile_y, "shadow",
+                         "incomplete MCSH payload bytes=" +
+                             std::to_string(chunk.shadow_map.size()));
+  }
   for (std::size_t row = 0u; row < kAlphaMapSize; ++row) {
     for (std::size_t column = 0u; column < kAlphaMapSize; ++column) {
       auto *const pixel = rgba + row * row_stride + column * pixel_stride;
@@ -224,15 +275,14 @@ static void DecodeChunkAlphaMap(const TerrainChunk &chunk, const int layer_count
   }
 }
 
-static void DownsampleChunkAlphaMap(
+[[nodiscard]] static bool DownsampleChunkAlphaMap(
     const std::array<std::uint8_t, kAlphaMapSize * kAlphaMapSize * 4u> &source,
     const std::uint32_t output_dimension, std::uint8_t *const destination,
     const std::size_t destination_size, const std::size_t destination_row_stride) {
-  if (destination == nullptr || output_dimension == 0u ||
-      output_dimension > static_cast<std::uint32_t>(kAlphaMapSize) ||
-      destination_row_stride < static_cast<std::size_t>(output_dimension) * 4u ||
-      destination_size < destination_row_stride * output_dimension) {
-    return;
+  if (destination == nullptr ||
+      !IsRgbaAlphaViewValid(output_dimension, destination_size, 4u,
+                            destination_row_stride)) {
+    return false;
   }
 
   for (std::uint32_t output_y = 0u; output_y < output_dimension; ++output_y) {
@@ -270,14 +320,12 @@ static void DownsampleChunkAlphaMap(
       }
     }
   }
+  return true;
 }
 
 PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t tile_x,
                                           const uint32_t tile_y, const bool big_alpha,
                                           const std::uint32_t alpha_map_dimension) {
-
-  (void)tile_x;
-  (void)tile_y;
 
   PreparedTerrainTile prepared;
   const std::uint32_t resolved_alpha_dimension =
@@ -319,7 +367,7 @@ PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t til
           4u;
       if (resolved_alpha_dimension ==
           static_cast<std::uint32_t>(kAlphaMapSize)) {
-        DecodeChunkAlphaMap(source, chunk.layer_count, big_alpha,
+        DecodeChunkAlphaMap(source, chunk.layer_count, tile_x, tile_y, big_alpha,
                             prepared.alpha_atlas_rgba.data() + alpha_offset,
                             prepared.alpha_atlas_rgba.size() - alpha_offset, 4u,
                             atlas_row_stride);
@@ -330,15 +378,22 @@ PreparedTerrainTile PrepareAdtTerrainTile(const AdtFile &adt, const uint32_t til
              alpha += 4u) {
           full_resolution_alpha[alpha] = 255u;
         }
-        DecodeChunkAlphaMap(source, chunk.layer_count, big_alpha,
+        DecodeChunkAlphaMap(source, chunk.layer_count, tile_x, tile_y, big_alpha,
                             full_resolution_alpha.data(),
                             full_resolution_alpha.size(), 4u,
                             static_cast<std::size_t>(kAlphaMapSize) * 4u);
-        DownsampleChunkAlphaMap(
-            full_resolution_alpha, resolved_alpha_dimension,
-            prepared.alpha_atlas_rgba.data() + alpha_offset,
-            prepared.alpha_atlas_rgba.size() - alpha_offset,
-            atlas_row_stride);
+        if (!DownsampleChunkAlphaMap(
+                full_resolution_alpha, resolved_alpha_dimension,
+                prepared.alpha_atlas_rgba.data() + alpha_offset,
+                prepared.alpha_atlas_rgba.size() - alpha_offset,
+                atlas_row_stride)) {
+          LogChunkAlphaFailure(
+              source, tile_x, tile_y, "downsample",
+              "invalid atlas view dimension=" + std::to_string(resolved_alpha_dimension) +
+                  " offset=" + std::to_string(alpha_offset) +
+                  " bytes=" + std::to_string(prepared.alpha_atlas_rgba.size()) +
+                  " row_stride=" + std::to_string(atlas_row_stride));
+        }
       }
 
       if (source.holes != 0u) {
