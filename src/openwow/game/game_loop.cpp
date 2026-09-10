@@ -20,6 +20,7 @@
 #include "openwow/data/streaming_init.h"
 #include "openwow/debug/inspection/render_debug.h"
 #include "openwow/foundation/diagnostics/logging.h"
+#include "openwow/foundation/diagnostics/performance_logging.h"
 #include "openwow/foundation/math/vec3_cross.h"
 #include "openwow/foundation/math/vec3_negate.h"
 #include "openwow/foundation/text/ascii.h"
@@ -2578,6 +2579,12 @@ bool GameLoop::Initialize(int screen_width, int screen_height) {
 
   world_frame_.Initialize(static_cast<std::uint32_t>(screen_width_),
                           static_cast<std::uint32_t>(screen_height_));
+  world_frame_.SetNameplateHitTestCallback(
+      [this](const int x, const int y, const ObjectGuid current_target) {
+        if (!game_ui_.is_initialized()) return ObjectGuid{};
+        return ObjectGuid{game_ui_.nameplate_frames().HitTestCommitted(
+            static_cast<float>(x), static_cast<float>(y), current_target.GetRawValue())};
+      });
   world_frame_.SetTargetSelectionCallback([this](const ObjectGuid guid) {
     if (guid) {
       targeting_.SetTarget(guid.GetRawValue());
@@ -3767,6 +3774,7 @@ void GameLoop::UpdateWorldFrameMouseover(float dt) {
   auto &world_frame = world_frame_;
   const auto [cursor_x, cursor_y] = openwow::input::InputManager::Get().GetMousePosition();
   world_frame.SetCursorPosition(cursor_x, cursor_y);
+  world_frame.UpdateNameplateHover(targeting_.target_guid());
   if (!world_session()) {
     world_frame.Update(dt);
     return;
@@ -3908,8 +3916,10 @@ void DispatchWorldClick(openwow::game::WorldSession &session,
   namespace click = openwow::game::targeting;
   const int click_x = static_cast<int>(screen_x);
   const int click_y = static_cast<int>(screen_y);
-  const auto pick = world_frame.Pick(click_x, click_y);
-  if (button == click::WorldClickButton::kSecondary) {
+  const auto pick = world_frame.PickForInteraction(
+      click_x, click_y, session.objects().GetTargetGuid());
+  if (button == click::WorldClickButton::kSecondary ||
+      openwow::diagnostics::IsPerformanceLoggingEnabled()) {
     using HitType = openwow::render::PickResult::HitType;
     const char* hit_kind = "none";
     if (pick.hit) {
@@ -3923,7 +3933,10 @@ void DispatchWorldClick(openwow::game::WorldSession &session,
       }
     }
     openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kInfo,
-        "World secondary click: x=" + std::to_string(click_x) +
+        std::string("World click: button=") +
+        (button == click::WorldClickButton::kSecondary ? "secondary" : "primary") +
+        " surface=" + (pick.from_nameplate ? "nameplate" : "world-geometry") +
+        " x=" + std::to_string(click_x) +
         " y=" + std::to_string(click_y) + " hit=" + hit_kind +
         " picked_guid=" + std::to_string(pick.guid.GetRawValue()) +
         " selected_guid=" + std::to_string(session.objects().GetTargetGuid().GetRawValue()));
@@ -3931,6 +3944,14 @@ void DispatchWorldClick(openwow::game::WorldSession &session,
 
   if (pick.hit && pick.type != openwow::render::PickResult::HitType::kTerrain &&
       pick.type != openwow::render::PickResult::HitType::kNone && !pick.guid.IsEmpty()) {
+    if (session.objects().Get(pick.guid) == nullptr) {
+      openwow::diagnostics::Log(openwow::diagnostics::LogLevel::kWarn,
+          std::string("World click rejected: phase=object-dispatch source=") +
+          (pick.from_nameplate ? "nameplate" : "world-geometry") +
+          " guid=" + std::to_string(pick.guid.GetRawValue()) +
+          " reason=picked-object-no-longer-live");
+      return;
+    }
     click::ui::HandleWorldObjectClick(
         session, click::WorldObjectClick{.object = pick.guid, .button = button});
     return;
@@ -3970,6 +3991,7 @@ void GameLoop::OnLeftClickWorld(float screen_x, float screen_y) {
     return;
   }
 
+  SyncWorldFrameCursorContext();
   DispatchWorldClick(*world_session(), world_frame_, screen_x, screen_y,
                      targeting::WorldClickButton::kPrimary);
 }
@@ -3983,6 +4005,7 @@ void GameLoop::OnRightClickWorld(float screen_x, float screen_y) {
     return;
   }
 
+  SyncWorldFrameCursorContext();
   DispatchWorldClick(*world_session(), world_frame_, screen_x, screen_y,
                      targeting::WorldClickButton::kSecondary);
 }
@@ -4467,8 +4490,6 @@ void GameLoop::TickInWorld(float dt) {
   if (world_session()) {
     world_frame_.BindObjectPresentation(&world_scene_.object_presentation());
   }
-
-  world_frame_.UpdateNameplateHover(targeting_.target_guid());
 
   UpdateWorldFrameMouseover(dt);
 

@@ -186,7 +186,8 @@ GameUIManager::GameUIManager(
                      frame_event_runtime_.RegisterOnUpdate(name, strata, level);
                    },
            })),
-      nameplate_frames_(*frame_materializer_, frame_store_),
+      nameplate_frames_(*frame_materializer_, frame_store_, retained_layout_,
+                        frame_traversal_index_),
       world_lua_runtime_(std::make_unique<runtime::WorldLuaRuntime>(*this)),
       frame_xml_loader_(
           std::make_unique<runtime::FrameXmlRuntimeLoader>(*this)),
