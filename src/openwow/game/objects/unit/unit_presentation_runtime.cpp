@@ -1009,6 +1009,37 @@ void UnitMovementRuntime::InterpolateShadowBlobPosition(float dt) {
   const std::uint8_t orientation_mode =
       static_cast<std::uint8_t>(ground_orientation_mode_ & 0x3u);
   auto &memo = ground_aligned_matrix_memo_;
+  const float vertical_distance = std::fabs(world_position[2] - memo.position[2]);
+  if (can_project_ground && memo.valid && vertical_distance > 4.0f) {
+    const float delta_x = world_position[0] - memo.position[0];
+    const float delta_y = world_position[1] - memo.position[1];
+    const float planar_distance = std::sqrt(delta_x * delta_x + delta_y * delta_y);
+    // Report abrupt changes that cannot be explained by traversing a slope.
+    // This observes the presentation boundary without clamping server motion.
+    if (vertical_distance > planar_distance * kRemoteGroundProbeRisePerPlanarUnit) {
+      const auto now = core::GameClock::GetTickCount32();
+      if (!last_ground_discontinuity_log_tick_.has_value() ||
+          now - *last_ground_discontinuity_log_tick_ >= 2000u) {
+        last_ground_discontinuity_log_tick_ = now;
+        diagnostics::Log(
+            diagnostics::LogLevel::kWarn,
+            "unit ground support stage=model-transform reason=vertical-discontinuity guid=" +
+                owner_.GetGuid().ToString() + " entry=" +
+                std::to_string(owner_.GetEntry()) + " display=" +
+                std::to_string(owner_.Presentation().DisplayId()) +
+                " position=(" + std::to_string(position.x) + "," +
+                std::to_string(position.y) + "," + std::to_string(position.z) +
+                ") previousDisplayZ=" + std::to_string(memo.position[2]) +
+                " displayZ=" + std::to_string(world_position[2]) +
+                " planarDistance=" + std::to_string(planar_distance) +
+                " projected=" + std::to_string(projected_surface.has_value()) +
+                " spline=" + std::to_string(spline_locomotion_id_) +
+                " splineFlags=" + std::to_string(spline_locomotion_flags_) +
+                " movementFlags=" + std::to_string(owner_.GetMovementInfo().flags) +
+                " dt=" + std::to_string(dt));
+      }
+    }
+  }
   const bool memo_matches =
       memo.valid &&
       std::memcmp(memo.position.data(), world_position.data(),
