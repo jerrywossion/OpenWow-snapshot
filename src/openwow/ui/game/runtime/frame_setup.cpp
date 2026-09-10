@@ -110,10 +110,16 @@ std::string DisplayName(const UiFrame &frame) {
 
 void PublishFrameAnchorsToLua(lua_State *lua, int frame_index,
                               const UiFrame &frame) {
-  if (lua == nullptr || frame.anchors.empty() ||
-      lua_istable(lua, frame_index) == 0)
+  if (lua == nullptr || lua_istable(lua, frame_index) == 0)
     return;
   frame_index = lua_absindex(lua, frame_index);
+  // Publish the inherited geometry together with authored anchors. A frame
+  // can fill its parent and also carry an explicit anchor from a derived XML
+  // template; importing those anchors must not discard the fill constraint.
+  lua_pushboolean(lua, frame.set_all_points);
+  lua_setfield(lua, frame_index, "__ow_setAllPoints");
+  if (frame.anchors.empty())
+    return;
   lua_newtable(lua);
   const int anchors = lua_absindex(lua, -1);
   int item = 1;
