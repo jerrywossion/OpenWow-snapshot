@@ -392,6 +392,10 @@ void GlueClient::HandleEvent(const SDL_Event &event) {
           ? WowMouseButtonBitmaskFromSdlButton(event.button.button)
           : 0u;
   if (mouse_button_flag != 0u) {
+    // Physical state remains observable between callbacks even when UI capture
+    // consumes the event before it reaches world bindings.
+    openwow::input::InputManager::Get().OnMouseButtonFlag(
+        mouse_button_flag, event.type == SDL_MOUSEBUTTONDOWN);
     auto& window_manager = openwow::platform::WindowManager::Get();
     if (event.type == SDL_MOUSEBUTTONDOWN) {
       window_manager.BeginMouseButtonCapture(mouse_button_flag);
