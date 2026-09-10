@@ -459,7 +459,16 @@ void DisplayQuestCompletionRewards(WorldSession &session, const QuestCompleteInf
   } else {
     ui::game::DisplaySystemMessage(147, quest_template->title.c_str());
   }
-  session.sound_runtime().PlaySoundKitByName("igQuestListComplete");
+  const int sound_result =
+      session.sound_runtime().PlaySoundKitByName("igQuestListComplete");
+  diagnostics::Log(
+      sound_result == 0 || sound_result == 9 || sound_result == 17
+          ? diagnostics::LogLevel::kInfo : diagnostics::LogLevel::kWarn,
+      "quest feedback stage=completion source=SMSG_QUESTGIVER_QUEST_COMPLETE quest=" +
+          std::to_string(quest_id) + " sound=igQuestListComplete result=" +
+          std::to_string(sound_result) + " queued=" + std::to_string(sound_result == 0) +
+          " allSound=" + std::to_string(ui::game::CVarSystem::Instance().GetCVarBool("Sound_EnableAllSound")) +
+          " sfx=" + std::to_string(ui::game::CVarSystem::Instance().GetCVarBool("Sound_EnableSFX")));
   if (complete.xp_reward != 0) {
     ui::game::DisplaySystemMessage(161, static_cast<std::int32_t>(complete.xp_reward));
   }

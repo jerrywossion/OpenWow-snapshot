@@ -2189,14 +2189,26 @@ void WorldSession::RefreshQuestRuntimeFromPlayer(bool request_query_time) {
       pending_quest_accepted_slots_[slot] = 0u;
       continue;
     }
-    if (quests_.GetTemplate(quest_id) == nullptr) {
+    const auto *quest_template = quests_.GetTemplate(quest_id);
+    if (quest_template == nullptr) {
       continue;
     }
 
+    // Consume the pending publication before dispatching Lua callbacks, which
+    // may query or refresh the quest log again.
+    pending_quest_accepted_slots_[slot] = 0u;
+    if (quest_template->title.empty()) {
+      diagnostics::Log(
+          diagnostics::LogLevel::kWarn,
+          "quest feedback stage=accepted source=quest-log-update quest=" +
+              std::to_string(quest_id) + " slot=" + std::to_string(slot) +
+              " reason=quest-record-has-no-title");
+    } else {
+      ui::game::DisplaySystemMessage(146, quest_template->title.c_str());
+    }
     const int visible_index =
         ui::game::detail::FindVisibleQuestIndexById(*this, quest_id);
     ui::game::ScriptEventDispatch::Get().FireQuestAccepted(visible_index);
-    pending_quest_accepted_slots_[slot] = 0u;
   }
 
   if (request_query_time) {
