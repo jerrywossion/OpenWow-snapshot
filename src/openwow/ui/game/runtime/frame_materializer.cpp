@@ -9,6 +9,7 @@
 #include "openwow/ui/game/framescript/core/frame_alpha.h"
 #include "openwow/ui/game/framescript/core/frame_region_factory.h"
 #include "openwow/ui/game/framescript/core/frame_runtime_identity.h"
+#include "openwow/ui/game/framescript/core/frame_script_invocation.h"
 #include "openwow/ui/game/framescript/core/lua_script_object_access.h"
 #include "openwow/ui/game/framescript/widgets/button_method_support.h"
 #include "openwow/ui/game/framescript/widgets/edit_box_methods.h"
@@ -275,16 +276,8 @@ void FrameMaterializer::SyncRuntimeMetadata(int frame_index, UiFrame& frame) {
     return result;
   };
   const auto has_handler = [&](const char* handler) {
-    std::string field = "__ow_script_";
-    field += handler;
-    lua_getfield(lua_, frame_index, field.c_str());
-    bool found = lua_isfunction(lua_, -1);
-    lua_pop(lua_, 1);
-    if (!found) {
-      lua_getfield(lua_, frame_index, handler);
-      found = lua_isfunction(lua_, -1);
-      lua_pop(lua_, 1);
-    }
+    const bool found = PushFrameScriptHandler(lua_, frame_index, handler);
+    if (found) lua_pop(lua_, 1);
     return found;
   };
   auto mouse = optional_boolean("__ow_mouse_enabled");

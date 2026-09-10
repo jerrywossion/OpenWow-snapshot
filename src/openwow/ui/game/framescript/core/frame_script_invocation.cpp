@@ -38,14 +38,15 @@ void PushPrefixedField(lua_State* const state, const int table_index,
     std::memcpy(key.data(), prefix.data(), prefix.size());
     std::memcpy(key.data() + prefix.size(), suffix.data(), suffix.size());
     key[prefix.size() + suffix.size()] = '\0';
-    lua_getfield(state, table, key.data());
+    lua_pushstring(state, key.data());
+    lua_rawget(state, table);
     return;
   }
 
   lua_pushlstring(state, prefix.data(), prefix.size());
   lua_pushlstring(state, suffix.data(), suffix.size());
   lua_concat(state, 2);
-  lua_gettable(state, table);
+  lua_rawget(state, table);
 }
 
 void FormatLegacyArgumentName(char (&buffer)[32], const int one_based_index) {
@@ -106,19 +107,17 @@ bool PushFrameScriptHandler(lua_State* const state, const int frame_index,
   }
   lua_pop(state, 1);
 
-  lua_getfield(state, frame, handler);
-  if (lua_isfunction(state, -1) != 0) {
-    return true;
-  }
-  lua_pop(state, 1);
-
-  lua_getfield(state, frame, kScriptTableField.data());
+  // AddOn methods and metatable inheritance do not register native scripts.
+  // The Glue adapter stores its explicit registrations in a separate table.
+  lua_pushstring(state, kScriptTableField.data());
+  lua_rawget(state, frame);
   if (lua_istable(state, -1) == 0) {
     lua_pop(state, 1);
     return false;
   }
 
-  lua_getfield(state, -1, handler);
+  lua_pushstring(state, handler);
+  lua_rawget(state, -2);
   lua_remove(state, -2);
   if (lua_isfunction(state, -1) != 0) {
     return true;

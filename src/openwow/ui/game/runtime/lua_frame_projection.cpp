@@ -72,29 +72,19 @@ constexpr const char* const kNames[] = {
     "__ow_keyboard_enabled",
     "__ow_enableKeyboard",
     runtime::kMouseCategoryHandlerFields[0].stored,
-    runtime::kMouseCategoryHandlerFields[0].direct,
     runtime::kMouseCategoryHandlerFields[1].stored,
-    runtime::kMouseCategoryHandlerFields[1].direct,
     runtime::kMouseCategoryHandlerFields[2].stored,
-    runtime::kMouseCategoryHandlerFields[2].direct,
     runtime::kMouseCategoryHandlerFields[3].stored,
-    runtime::kMouseCategoryHandlerFields[3].direct,
     runtime::kMouseCategoryHandlerFields[4].stored,
-    runtime::kMouseCategoryHandlerFields[4].direct,
     runtime::kMouseCategoryHandlerFields[5].stored,
-    runtime::kMouseCategoryHandlerFields[5].direct,
     runtime::kMouseCategoryHandlerFields[6].stored,
-    runtime::kMouseCategoryHandlerFields[6].direct,
     runtime::kMouseCategoryHandlerFields[7].stored,
-    runtime::kMouseCategoryHandlerFields[7].direct,
     runtime::kMouseCategoryHandlerFields[8].stored,
-    runtime::kMouseCategoryHandlerFields[8].direct,
     runtime::kMouseWheelHandlerFields.stored,
-    runtime::kMouseWheelHandlerFields.direct,
 };
 static_assert(runtime::kMouseCategoryHandlerFields.size() == 9,
               "metadata_field::kNames spells nine mouse-category handler "
-              "pairs; extend both when the canonical list grows");
+              "slots; extend both when the canonical list grows");
 
 using runtime::InternedLuaFieldKeyOrdinal;
 inline constexpr int kParentName =
@@ -126,14 +116,11 @@ inline constexpr int kEnableKeyboard =
 
 struct HandlerOrdinals {
   int stored;
-  int direct;
 };
 
 inline constexpr HandlerOrdinals kMouseWheelHandler{
     .stored = InternedLuaFieldKeyOrdinal(kNames,
                                          runtime::kMouseWheelHandlerFields.stored),
-    .direct = InternedLuaFieldKeyOrdinal(kNames,
-                                         runtime::kMouseWheelHandlerFields.direct),
 };
 
 inline constexpr auto kMouseCategoryHandlers = [] {
@@ -142,8 +129,6 @@ inline constexpr auto kMouseCategoryHandlers = [] {
   for (std::size_t index = 0; index < handlers.size(); ++index) {
     handlers[index].stored = InternedLuaFieldKeyOrdinal(
         kNames, runtime::kMouseCategoryHandlerFields[index].stored);
-    handlers[index].direct = InternedLuaFieldKeyOrdinal(
-        kNames, runtime::kMouseCategoryHandlerFields[index].direct);
   }
   return handlers;
 }();
@@ -1500,17 +1485,10 @@ static bool ReadLuaOptionalBooleanField(lua_State* L,
 static bool LuaFrameHasHandler(lua_State* L,
                                const metadata_field::Source& source,
                                const metadata_field::HandlerOrdinals& handler) {
-  metadata_field::Get(L, source, handler.stored);
+  metadata_field::RawGet(L, source, handler.stored);
   const bool stored_handler = lua_isfunction(L, -1) != 0;
   lua_pop(L, 1);
-  if (stored_handler) {
-    return true;
-  }
-
-  metadata_field::Get(L, source, handler.direct);
-  const bool direct_handler = lua_isfunction(L, -1) != 0;
-  lua_pop(L, 1);
-  return direct_handler;
+  return stored_handler;
 }
 
 static bool LuaFrameUsesMouseCategory(lua_State* L,
